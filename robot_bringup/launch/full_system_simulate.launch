@@ -4,8 +4,12 @@
   <arg name="enable_flipper_control" default="true"/>
   <arg name="enable_mobility_control" default="true"/>
   <arg name="enable_gripper_cmd" default="true"/>
+  <arg name="enable_moveit_servo" default="true"/>
+  <arg name="enable_keyboard_teleop" default="false"/>
+  <arg name="keyboard_teleop_start_gui" default="true"/>
 
   <arg name="pipeline" default="ompl"/>
+  <arg name="servo_config" default="$(find car_control)/config/moveit_servo.yaml"/>
 
   <arg name="gazebo_gui" default="true"/>
   <arg name="paused" default="false"/>
@@ -33,6 +37,17 @@
     <arg name="allow_trajectory_execution" value="true"/>
     <arg name="moveit_controller_manager" value="simple"/>
     <arg name="load_robot_description" value="false"/>
+  </include>
+
+  <include if="$(eval arg('enable_moveit') and arg('enable_moveit_servo'))"
+           file="$(find car_control)/launch/moveit_servo.launch">
+    <arg name="servo_config" value="$(arg servo_config)"/>
+  </include>
+
+  <include if="$(arg enable_keyboard_teleop)"
+           file="$(find car_control)/launch/keyboard_teleop.launch">
+    <arg name="start_translator" value="true"/>
+    <arg name="start_gui" value="$(arg keyboard_teleop_start_gui)"/>
   </include>
 
   <include if="$(arg enable_rviz)" file="$(find car_moveit_config)/launch/moveit_rviz.launch">
