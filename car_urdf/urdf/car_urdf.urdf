@@ -1228,28 +1228,6 @@
     </actuator>
   </transmission>
 
-  <transmission name="left_front_wheel_trans">
-    <type>transmission_interface/SimpleTransmission</type>
-    <joint name="left_front_wheel_joint">
-      <hardwareInterface>hardware_interface/VelocityJointInterface</hardwareInterface>
-    </joint>
-    <actuator name="left_front_wheel_motor">
-      <hardwareInterface>hardware_interface/VelocityJointInterface</hardwareInterface>
-      <mechanicalReduction>1</mechanicalReduction>
-    </actuator>
-  </transmission>
-
-  <transmission name="right_front_wheel_trans">
-    <type>transmission_interface/SimpleTransmission</type>
-    <joint name="right_front_wheel_joint">
-      <hardwareInterface>hardware_interface/VelocityJointInterface</hardwareInterface>
-    </joint>
-    <actuator name="right_front_wheel_motor">
-      <hardwareInterface>hardware_interface/VelocityJointInterface</hardwareInterface>
-      <mechanicalReduction>1</mechanicalReduction>
-    </actuator>
-  </transmission>
-
   <!-- ============================================== -->
   <!-- 3. Gazebo ros_control 插件                      -->
   <!-- ============================================== -->
@@ -1550,7 +1528,9 @@
   </transmission>
 
   <!-- ============================================== -->
-  <!-- Publish wheel joints to /joint_states for MoveIt state completeness -->
+  <!-- Publish wheel joints from Gazebo directly. The base is driven by the
+       skid-steer plugin in simulation, so exposing front wheels through
+       gazebo_ros_control would make two systems fight over the same joints. -->
   <gazebo>
     <plugin name="wheel_joint_state_publisher" filename="libgazebo_ros_joint_state_publisher.so">
       <robotNamespace>/</robotNamespace>
