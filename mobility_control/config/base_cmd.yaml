@@ -3,4 +3,9 @@ base_cmd_node:
   output_topic: /wheel_controller/cmd_vel
   max_linear_x: 0.8
   max_angular_z: 1.5
+  control_rate_hz: 50.0
+  max_linear_acc: 1.0
+  max_linear_jerk: 4.0
+  max_angular_acc: 2.0
+  max_angular_jerk: 8.0
   timeout_sec: 0.3

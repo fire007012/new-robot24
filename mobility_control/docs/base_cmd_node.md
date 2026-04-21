@@ -2,6 +2,8 @@
 
 `base_cmd_node` 是 `mobility_control` 当前唯一的正式运行节点，用来在 `wheel_controller` 前做底盘命令安全整形。
 
+当前实现把 `/cmd_vel` 作为 Ruckig 的目标速度，在 `linear.x` 和 `angular.z` 两个自由度上做连续加速度/加加速度受限的速度跟踪。
+
 ## 默认链路
 
 ```text
@@ -16,6 +18,11 @@
 | `output_topic` | `/wheel_controller/cmd_vel` | 发送给控制器的话题 |
 | `max_linear_x` | `0.8` | `linear.x` 限幅 |
 | `max_angular_z` | `1.5` | `angular.z` 限幅 |
+| `control_rate_hz` | `50.0` | Ruckig 更新频率 |
+| `max_linear_acc` | `1.0` | `linear.x` 最大加速度 |
+| `max_linear_jerk` | `4.0` | `linear.x` 最大加加速度 |
+| `max_angular_acc` | `2.0` | `angular.z` 最大加速度 |
+| `max_angular_jerk` | `8.0` | `angular.z` 最大加加速度 |
 | `timeout_sec` | `0.3` | 超时后自动发零速度 |
 
 ## 启动
@@ -52,3 +59,4 @@ rostopic echo /wheel_controller/cmd_vel
 - 不直接写 CAN
 - 不做差速逆解
 - 不承担机械臂、摆臂或总控逻辑
+- 平滑发生在 `linear.x` / `angular.z` 命令层，不直接读取车轮反馈闭环

@@ -4,15 +4,25 @@
   <arg name="output_topic" default=""/>
   <arg name="max_linear_x" default=""/>
   <arg name="max_angular_z" default=""/>
+  <arg name="control_rate_hz" default=""/>
+  <arg name="max_linear_acc" default=""/>
+  <arg name="max_linear_jerk" default=""/>
+  <arg name="max_angular_acc" default=""/>
+  <arg name="max_angular_jerk" default=""/>
   <arg name="timeout_sec" default=""/>
 
   <rosparam command="load" file="$(arg config_file)"/>
 
-  <node pkg="mobility_control" type="base_cmd_node.py" name="base_cmd_node" output="screen">
+  <node pkg="mobility_control" type="base_cmd_node" name="base_cmd_node" output="screen">
     <param name="input_topic" value="$(arg input_topic)" if="$(eval input_topic != '')"/>
     <param name="output_topic" value="$(arg output_topic)" if="$(eval output_topic != '')"/>
     <param name="max_linear_x" value="$(arg max_linear_x)" if="$(eval max_linear_x != '')"/>
     <param name="max_angular_z" value="$(arg max_angular_z)" if="$(eval max_angular_z != '')"/>
+    <param name="control_rate_hz" value="$(arg control_rate_hz)" if="$(eval control_rate_hz != '')"/>
+    <param name="max_linear_acc" value="$(arg max_linear_acc)" if="$(eval max_linear_acc != '')"/>
+    <param name="max_linear_jerk" value="$(arg max_linear_jerk)" if="$(eval max_linear_jerk != '')"/>
+    <param name="max_angular_acc" value="$(arg max_angular_acc)" if="$(eval max_angular_acc != '')"/>
+    <param name="max_angular_jerk" value="$(arg max_angular_jerk)" if="$(eval max_angular_jerk != '')"/>
     <param name="timeout_sec" value="$(arg timeout_sec)" if="$(eval timeout_sec != '')"/>
   </node>
 </launch>

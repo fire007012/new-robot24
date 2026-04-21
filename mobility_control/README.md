@@ -1,6 +1,6 @@
 # mobility_control
 
-`mobility_control` 是底盘正式北向控制包，当前已落地的核心能力是 `base_cmd_node`：在进入 `wheel_controller` 前做速度限幅和超时刹停。它不负责 CAN 直写、差速逆解或整机总控。
+`mobility_control` 是底盘正式北向控制包，当前已落地的核心能力是 `base_cmd_node`：在进入 `wheel_controller` 前把 `/cmd_vel` 作为 Ruckig 跟踪目标做速度平滑，同时保留速度限幅和超时刹停。它不负责 CAN 直写、差速逆解或整机总控。
 
 当前正式链路：
 
@@ -11,7 +11,7 @@
 ## 包职责
 
 - 统一承接底盘北向速度指令。
-- 在控制器前做安全整形：限幅、超时自动归零。
+- 在控制器前做安全整形：Ruckig 平滑、限幅、超时自动归零。
 - 作为后续底盘仿真桥接和里程计适配的正式归属包。
 
 ## 包结构
@@ -71,7 +71,7 @@ rostopic pub -1 /cmd_vel geometry_msgs/Twist \
 
 | 节点 | 接口 | 说明 |
 | --- | --- | --- |
-| `base_cmd_node.py` | 默认订阅 `/cmd_vel`；默认发布 `/wheel_controller/cmd_vel` | 对 `linear.x` 和 `angular.z` 做限幅；超过 `timeout_sec` 自动发布零速度。 |
+| `base_cmd_node` | 默认订阅 `/cmd_vel`；默认发布 `/wheel_controller/cmd_vel` | 对 `linear.x` 和 `angular.z` 做 Ruckig 速度跟踪；同时做限幅，超过 `timeout_sec` 自动平滑减速到零。 |
 
 默认参数：
 
@@ -79,6 +79,11 @@ rostopic pub -1 /cmd_vel geometry_msgs/Twist \
 - `output_topic=/wheel_controller/cmd_vel`
 - `max_linear_x=0.8`
 - `max_angular_z=1.5`
+- `control_rate_hz=50.0`
+- `max_linear_acc=1.0`
+- `max_linear_jerk=4.0`
+- `max_angular_acc=2.0`
+- `max_angular_jerk=8.0`
 - `timeout_sec=0.3`
 
 ## 详细文档索引
