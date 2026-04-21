@@ -1,0 +1,54 @@
+keyboard_teleop_node:
+  raw_state_topic: /car_control/keyboard_teleop/raw_state
+  status_topic: /car_control/keyboard_teleop/status
+  publish_rate: 30.0
+  input_timeout: 0.3
+
+  chassis_cmd_topic: /cmd_vel
+  servo_cmd_topic: /servo_server/delta_twist_cmds
+  servo_command_frame_param: /servo_server/robot_link_command_frame
+  servo_frame: catch_camera
+
+  gripper_position_topic: /arm_control/gripper_position
+  gripper_joint_name: left_gripper_finger_joint
+  joint_states_topic: /joint_states
+  gripper_min_position: 0.0
+  gripper_max_position: 0.044
+  gripper_initial_position: 0.022
+  gripper_rate_normal: 0.03
+  gripper_rate_fast: 0.06
+  gripper_rate_slow: 0.015
+
+  flipper_jog_topic: /flipper_control/jog_cmd
+  flipper_profile_service: /flipper_control/set_control_profile
+  flipper_target_profile: csp_jog
+  flipper_profile_retry_sec: 2.0
+  flipper_joint_names:
+    - left_front_arm_joint
+    - right_front_arm_joint
+    - left_rear_arm_joint
+    - right_rear_arm_joint
+  flipper_velocity_normal: 0.4
+  flipper_velocity_fast: 0.8
+  flipper_velocity_slow: 0.2
+  flipper_jog_duration: 0.15
+
+  base_linear_normal: 0.4
+  base_linear_fast: 0.8
+  base_linear_slow: 0.2
+  base_angular_normal: 0.8
+  base_angular_fast: 1.5
+  base_angular_slow: 0.4
+
+  arm_linear_normal: 0.08
+  arm_linear_fast: 0.15
+  arm_linear_slow: 0.04
+  arm_angular_normal: 0.4
+  arm_angular_fast: 0.8
+  arm_angular_slow: 0.2
+
+keyboard_teleop_gui:
+  raw_state_topic: /car_control/keyboard_teleop/raw_state
+  status_topic: /car_control/keyboard_teleop/status
+  publish_rate: 30.0
+  window_title: Robot24 Keyboard Teleop

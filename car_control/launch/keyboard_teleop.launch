@@ -1,0 +1,18 @@
+<launch>
+  <arg name="start_translator" default="true"/>
+  <arg name="start_gui" default="true"/>
+
+  <rosparam command="load" file="$(find car_control)/config/keyboard_teleop.yaml" />
+
+  <node if="$(arg start_translator)"
+        pkg="car_control"
+        type="keyboard_teleop_node.py"
+        name="keyboard_teleop_node"
+        output="screen" />
+
+  <node if="$(arg start_gui)"
+        pkg="car_control"
+        type="keyboard_teleop_gui.py"
+        name="keyboard_teleop_gui"
+        output="screen" />
+</launch>

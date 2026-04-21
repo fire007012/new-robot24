@@ -11,11 +11,12 @@ find_package(catkin REQUIRED COMPONENTS
   gazebo_msgs
   tf2_ros
   trajectory_msgs
+  control_msgs
 )
 find_package(gazebo REQUIRED)
 
 catkin_package(
-  CATKIN_DEPENDS roscpp rospy std_msgs sensor_msgs geometry_msgs nav_msgs gazebo_msgs tf2_ros trajectory_msgs
+  CATKIN_DEPENDS roscpp rospy std_msgs sensor_msgs geometry_msgs nav_msgs gazebo_msgs tf2_ros trajectory_msgs control_msgs
 )
 
 include_directories(
@@ -41,6 +42,8 @@ catkin_install_python(PROGRAMS
   scripts/ds5_teleop_node.py
   scripts/gazebo_model_odom_node.py
   scripts/servo_twist_frame_bridge_node.py
+  scripts/keyboard_teleop_node.py
+  scripts/keyboard_teleop_gui.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 

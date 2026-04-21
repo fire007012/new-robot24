@@ -18,10 +18,12 @@
   <depend>gazebo_msgs</depend>
   <depend>tf2_ros</depend>
   <depend>trajectory_msgs</depend>
+  <depend>control_msgs</depend>
 
   <exec_depend>joy</exec_depend>
   <exec_depend>moveit_servo</exec_depend>
   <exec_depend>car_moveit_config</exec_depend>
+  <exec_depend>flipper_control</exec_depend>
 
   <export/>
 </package>
