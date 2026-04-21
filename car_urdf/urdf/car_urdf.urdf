@@ -302,11 +302,13 @@
     </visual>
     <collision>
       <origin
-        xyz="0 0 0"
+        xyz="0 0.01245 0.16425"
         rpy="0 0 0" />
       <geometry>
-        <mesh
-          filename="package://car_urdf/meshes/left_ahead_arm.STL" />
+        <!-- Use a slimmer primitive for collision in simulation.
+             The full STL is visually correct but produces noisy contact
+             manifolds and intermittent sticky motion on the flippers. -->
+        <cylinder radius="0.022" length="0.32" />
       </geometry>
     </collision>
   </link>
@@ -360,11 +362,10 @@
     </visual>
     <collision>
       <origin
-        xyz="0 0 0"
+        xyz="0 0.01245 0.16425"
         rpy="0 0 0" />
       <geometry>
-        <mesh
-          filename="package://car_urdf/meshes/left_back_arm.STL" />
+        <cylinder radius="0.022" length="0.32" />
       </geometry>
     </collision>
   </link>
@@ -418,11 +419,10 @@
     </visual>
     <collision>
       <origin
-        xyz="0 0 0"
+        xyz="0 -0.01245 0.16425"
         rpy="0 0 0" />
       <geometry>
-        <mesh
-          filename="package://car_urdf/meshes/right_ahead_arm.STL" />
+        <cylinder radius="0.022" length="0.32" />
       </geometry>
     </collision>
   </link>
@@ -476,11 +476,10 @@
     </visual>
     <collision>
       <origin
-        xyz="0 0 0"
+        xyz="0 -0.01245 0.16425"
         rpy="0 0 0" />
       <geometry>
-        <mesh
-          filename="package://car_urdf/meshes/right_back_arm.STL" />
+        <cylinder radius="0.022" length="0.32" />
       </geometry>
     </collision>
   </link>
