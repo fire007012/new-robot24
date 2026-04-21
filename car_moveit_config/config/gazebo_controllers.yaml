@@ -2,3 +2,13 @@
 joint_state_controller:
   type: joint_state_controller/JointStateController
   publish_rate: 50
+
+gazebo_ros_control:
+  pid_gains:
+    # These four flipper joints use PositionJointInterface in Gazebo. Without
+    # per-joint PID gains, the simulated position loop is too soft under load
+    # and can show the mid-stroke slowdown we observed in long flipper motions.
+    left_front_arm_joint: {p: 180.0, i: 0.5, d: 6.0, i_clamp: 1.0}
+    right_front_arm_joint: {p: 180.0, i: 0.5, d: 6.0, i_clamp: 1.0}
+    left_rear_arm_joint: {p: 180.0, i: 0.5, d: 6.0, i_clamp: 1.0}
+    right_rear_arm_joint: {p: 180.0, i: 0.5, d: 6.0, i_clamp: 1.0}
