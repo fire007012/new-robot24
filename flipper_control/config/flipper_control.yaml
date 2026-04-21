@@ -15,7 +15,7 @@ control_loop_hz: 100.0
 state_publish_hz: 20.0
 command_timeout: 0.4
 dt_clamp: 0.02
-jog_velocity_alpha: 0.35
+jog_velocity_alpha: 1.0
 reference_drift_threshold: 0.35
 short_horizon: 0.10
 
