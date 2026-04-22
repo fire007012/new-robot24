@@ -1,128 +1,70 @@
+# toplevel CMakeLists.txt for a catkin workspace
+# catkin/cmake/toplevel.cmake
+
 cmake_minimum_required(VERSION 3.0.2)
-project(vision_pkg)
 
-set(CMAKE_CXX_STANDARD 14)
-add_compile_options(-Wall)
+project(Project)
 
-## =====================
-## Third-party paths
-## =====================
-set(THIRD_PARTY_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third_party)
+set(CATKIN_TOPLEVEL TRUE)
 
-# OpenCV (指定 4.10 安装路径，跳过系统自带的 4.2)
-set(OpenCV_DIR /usr/local/lib/cmake/opencv4)
-find_package(OpenCV 4.10 REQUIRED)
-set(OPENCV_LIBS ${OpenCV_LIBS})
+# search for catkin within the workspace
+set(_cmd "catkin_find_pkg" "catkin" "${CMAKE_SOURCE_DIR}")
+execute_process(COMMAND ${_cmd}
+  RESULT_VARIABLE _res
+  OUTPUT_VARIABLE _out
+  ERROR_VARIABLE _err
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+  ERROR_STRIP_TRAILING_WHITESPACE
+)
+if(NOT _res EQUAL 0 AND NOT _res EQUAL 2)
+  # searching for catkin resulted in an error
+  string(REPLACE ";" " " _cmd_str "${_cmd}")
+  message(FATAL_ERROR "Search for 'catkin' in workspace failed (${_cmd_str}): ${_err}")
+endif()
 
-# GLM (header-only)
-set(GLM_INCLUDE_DIR ${THIRD_PARTY_DIR}/include/glm-0.9.9.8)
+# include catkin from workspace or via find_package()
+if(_res EQUAL 0)
+  set(catkin_EXTRAS_DIR "${CMAKE_SOURCE_DIR}/${_out}/cmake")
+  # include all.cmake without add_subdirectory to let it operate in same scope
+  include(${catkin_EXTRAS_DIR}/all.cmake NO_POLICY_SCOPE)
+  add_subdirectory("${_out}")
 
-# Eigen (header-only)
-set(EIGEN3_INCLUDE_DIR ${THIRD_PARTY_DIR}/include)
+else()
+  # use either CMAKE_PREFIX_PATH explicitly passed to CMake as a command line argument
+  # or CMAKE_PREFIX_PATH from the environment
+  if(NOT DEFINED CMAKE_PREFIX_PATH)
+    if(NOT "$ENV{CMAKE_PREFIX_PATH}" STREQUAL "")
+      if(NOT WIN32)
+        string(REPLACE ":" ";" CMAKE_PREFIX_PATH $ENV{CMAKE_PREFIX_PATH})
+      else()
+        set(CMAKE_PREFIX_PATH $ENV{CMAKE_PREFIX_PATH})
+      endif()
+    endif()
+  endif()
 
-## =====================
-## Find catkin and ROS components
-## =====================
-find_package(catkin REQUIRED COMPONENTS
-  roscpp
-  std_msgs
-  sensor_msgs
-  geometry_msgs
-  cv_bridge
-  image_transport
-  message_generation
-)
+  # list of catkin workspaces
+  set(catkin_search_path "")
+  foreach(path ${CMAKE_PREFIX_PATH})
+    if(EXISTS "${path}/.catkin")
+      list(FIND catkin_search_path ${path} _index)
+      if(_index EQUAL -1)
+        list(APPEND catkin_search_path ${path})
+      endif()
+    endif()
+  endforeach()
 
-find_package(Threads REQUIRED)
-find_package(PkgConfig REQUIRED)
-pkg_check_modules(EGL REQUIRED egl)
+  # search for catkin in all workspaces
+  set(CATKIN_TOPLEVEL_FIND_PACKAGE TRUE)
+  find_package(catkin QUIET
+    NO_POLICY_SCOPE
+    PATHS ${catkin_search_path}
+    NO_DEFAULT_PATH NO_CMAKE_FIND_ROOT_PATH)
+  unset(CATKIN_TOPLEVEL_FIND_PACKAGE)
 
-## Generate custom messages
-add_message_files(FILES Detection.msg ObstacleWarning.msg)
-generate_messages(DEPENDENCIES std_msgs)
+  if(NOT catkin_FOUND)
+    message(FATAL_ERROR "find_package(catkin) failed. catkin was neither found in the workspace nor in the CMAKE_PREFIX_PATH. One reason may be that no ROS setup.sh was sourced before.")
+  endif()
+endif()
 
-## Catkin package configuration
-catkin_package(
-  CATKIN_DEPENDS roscpp std_msgs sensor_msgs geometry_msgs cv_bridge image_transport message_runtime
-)
-
-## =====================
-## Include directories
-## =====================
-include_directories(
-  include
-  ${catkin_INCLUDE_DIRS}
-  ${OpenCV_INCLUDE_DIRS}
-  ${GLM_INCLUDE_DIR}
-  ${EIGEN3_INCLUDE_DIR}
-  ${EGL_INCLUDE_DIRS}
-)
-
-## =====================
-## yolov8_node
-## =====================
-add_executable(yolov8_node
-  src/yolov8.cpp
-  src/yolov8_node.cpp
-)
-target_link_libraries(yolov8_node
-  ${catkin_LIBRARIES}
-  ${OPENCV_LIBS}
-)
-add_dependencies(yolov8_node
-  ${${PROJECT_NAME}_EXPORTED_TARGETS}
-  ${catkin_EXPORTED_TARGETS}
-)
-
-## =====================
-## panorama_node
-## =====================
-add_executable(panorama_node
-  src/fisheye.cpp
-  src/panoramasimulator.cpp
-  src/panorama.cpp
-  src/panorama_node.cpp
-)
-target_link_libraries(panorama_node
-  ${catkin_LIBRARIES}
-  ${OPENCV_LIBS}
-  ${EGL_LIBRARIES}
-  GL
-  Threads::Threads
-)
-add_dependencies(panorama_node
-  ${${PROJECT_NAME}_EXPORTED_TARGETS}
-  ${catkin_EXPORTED_TARGETS}
-)
-
-## =====================
-## object_pose_node
-## =====================
-add_executable(object_pose_node
-  src/object_pose_node.cpp
-)
-target_link_libraries(object_pose_node
-  ${catkin_LIBRARIES}
-  ${OPENCV_LIBS}
-)
-add_dependencies(object_pose_node
-  ${${PROJECT_NAME}_EXPORTED_TARGETS}
-  ${catkin_EXPORTED_TARGETS}
-)
-
-## =====================
-## vision_display_node
-## =====================
-add_executable(vision_display_node
-  src/yolov8.cpp
-  src/vision_display_node.cpp
-)
-target_link_libraries(vision_display_node
-  ${catkin_LIBRARIES}
-  ${OPENCV_LIBS}
-)
-add_dependencies(vision_display_node
-  ${${PROJECT_NAME}_EXPORTED_TARGETS}
-  ${catkin_EXPORTED_TARGETS}
-)
+catkin_workspace()
 

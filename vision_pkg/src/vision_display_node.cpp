@@ -1,5 +1,6 @@
 #include <ros/ros.h>
 #include <sensor_msgs/Image.h>
+#include <sensor_msgs/CameraInfo.h>
 #include <cv_bridge/cv_bridge.h>
 #include <image_transport/image_transport.h>
 #include <opencv2/imgproc.hpp>
@@ -12,11 +13,12 @@
 class VisionDisplayNode
 {
 public:
-    VisionDisplayNode() : nh_("~"), it_(nh_), has_depth_(false)
+    VisionDisplayNode() : nh_("~"), it_(nh_), has_depth_(false), has_intrinsics_(false)
     {
-        std::string color_topic, depth_topic, model_path;
+        std::string color_topic, depth_topic, camera_info_topic, model_path;
         nh_.param<std::string>("color_topic", color_topic, "/paw_camera/color/image_raw");
         nh_.param<std::string>("depth_topic", depth_topic, "/paw_camera/depth/image_rect_raw");
+        nh_.param<std::string>("camera_info_topic", camera_info_topic, "/paw_camera/color/camera_info");
         nh_.param<std::string>("model_path", model_path, "");
         nh_.param<double>("warning_distance", warning_distance_, 0.5);
         nh_.param<double>("use_rows_ratio", use_rows_ratio_, 0.6);
@@ -37,6 +39,7 @@ public:
 
         color_sub_ = nh_.subscribe(color_topic, 1, &VisionDisplayNode::colorCallback, this);
         depth_sub_ = nh_.subscribe(depth_topic, 1, &VisionDisplayNode::depthCallback, this);
+        info_sub_ = nh_.subscribe(camera_info_topic, 1, &VisionDisplayNode::infoCallback, this);
 
         ROS_INFO("vision_display_node started");
     }
@@ -50,6 +53,57 @@ private:
         } catch (cv_bridge::Exception& e) {
             ROS_WARN_THROTTLE(5.0, "depth error: %s", e.what());
         }
+    }
+
+    void infoCallback(const sensor_msgs::CameraInfo::ConstPtr& msg)
+    {
+        fx_ = msg->K[0]; fy_ = msg->K[4];
+        cx_ = msg->K[2]; cy_ = msg->K[5];
+        color_w_ = msg->width;
+        color_h_ = msg->height;
+        has_intrinsics_ = (fx_ > 1e-3 && fy_ > 1e-3);
+    }
+
+    // 在 bbox 中心采样深度中位数，反投影为相机坐标系下的 XYZ（单位 m）。
+    // 返回 false 表示样本不足或缺内参。
+    bool estimateObjectXYZ(const cv::Mat& depth, const cv::Rect& box_color,
+                           float& X, float& Y, float& Z)
+    {
+        if (!has_intrinsics_) return false;
+
+        // color 与 depth 分辨率可能不同，按比例缩放 bbox 到 depth 坐标
+        double sx = (double)depth.cols / std::max(1, color_w_);
+        double sy = (double)depth.rows / std::max(1, color_h_);
+        int bx = (int)(box_color.x * sx);
+        int by = (int)(box_color.y * sy);
+        int bw = std::max(1, (int)(box_color.width * sx));
+        int bh = std::max(1, (int)(box_color.height * sy));
+
+        int ucx = bx + bw / 2;
+        int ucy = by + bh / 2;
+        int half = std::min({bw / 4, bh / 4, 10});
+        if (half < 2) half = 2;
+
+        std::vector<uint16_t> vals;
+        for (int y = std::max(0, ucy - half); y <= std::min(depth.rows - 1, ucy + half); ++y) {
+            const uint16_t* row = depth.ptr<uint16_t>(y);
+            for (int x = std::max(0, ucx - half); x <= std::min(depth.cols - 1, ucx + half); ++x) {
+                uint16_t d = row[x];
+                if (d > 0 && d <= 10000) vals.push_back(d);
+            }
+        }
+        if (vals.size() < 5) return false;
+
+        std::nth_element(vals.begin(), vals.begin() + vals.size() / 2, vals.end());
+        double z_m = vals[vals.size() / 2] * 0.001;
+
+        // 用 color 图像素反投影（因为内参来自 color 相机）
+        double u = box_color.x + box_color.width / 2.0;
+        double v = box_color.y + box_color.height / 2.0;
+        X = (float)((u - cx_) * z_m / fx_);
+        Y = (float)((v - cy_) * z_m / fy_);
+        Z = (float)z_m;
+        return true;
     }
 
     double computeNearDist(const cv::Mat& depth, int x0, int y0, int x1, int y1)
@@ -100,6 +154,22 @@ private:
                     det_pub_.publish(det);
                 }
                 img = yolo_.drawPred(img, results, yolo_.className, colors_);
+
+                // 在每个检测框上方叠加 3D 坐标
+                for (const auto& r : results) {
+                    float X, Y, Z;
+                    if (!estimateObjectXYZ(depth, r.box, X, Y, Z)) continue;
+                    char text[64];
+                    snprintf(text, sizeof(text), "X:%.2f Y:%.2f Z:%.2fm", X, Y, Z);
+                    int tx = std::max(0, r.box.x);
+                    int ty = std::max(15, r.box.y - 6);
+                    cv::putText(img, text, cv::Point(tx, ty),
+                                cv::FONT_HERSHEY_SIMPLEX, 0.5,
+                                cv::Scalar(0, 0, 0), 3, cv::LINE_AA);
+                    cv::putText(img, text, cv::Point(tx, ty),
+                                cv::FONT_HERSHEY_SIMPLEX, 0.5,
+                                cv::Scalar(0, 255, 255), 1, cv::LINE_AA);
+                }
             }
         }
 
@@ -184,9 +254,12 @@ private:
     image_transport::ImageTransport it_;
     image_transport::Publisher image_pub_;
     ros::Publisher det_pub_, warning_pub_;
-    ros::Subscriber color_sub_, depth_sub_;
+    ros::Subscriber color_sub_, depth_sub_, info_sub_;
     cv_bridge::CvImageConstPtr depth_ptr_;
     bool has_depth_, has_yolo_, use_cuda_;
+    bool has_intrinsics_;
+    double fx_{0}, fy_{0}, cx_{0}, cy_{0};
+    int color_w_{0}, color_h_{0};
     double warning_distance_, use_rows_ratio_;
     Yolov8 yolo_;
     cv::dnn::Net net_;
@@ -200,4 +273,5 @@ int main(int argc, char** argv)
     ros::spin();
     return 0;
 }
+
 

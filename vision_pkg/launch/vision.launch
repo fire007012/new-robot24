@@ -6,6 +6,7 @@
     <arg name="enable_paw_camera"    default="true"/>
     <arg name="enable_behind_camera" default="true"/>
     <arg name="enable_thermal"       default="true"/>
+    <arg name="panorama_fisheye_source_fov_deg" default="180.0"/>
 
     <!-- USB camera device paths -->
     <arg name="forward_cam_dev" default=""/>
@@ -120,6 +121,7 @@
         <param name="model_path" value="$(find vision_pkg)/model/best.onnx"/>
         <param name="color_topic" value="/paw_camera/color/image_raw"/>
         <param name="depth_topic" value="/paw_camera/depth/image_rect_raw"/>
+        <param name="camera_info_topic" value="/paw_camera/color/camera_info"/>
         <param name="warning_distance" value="0.5"/>
         <param name="use_rows_ratio" value="0.6"/>
         <param name="use_cuda" value="false"/>
@@ -138,6 +140,7 @@
         <param name="model_path" value="$(find vision_pkg)/model/best.onnx"/>
         <param name="color_topic" value="/behind_camera/color/image_raw"/>
         <param name="depth_topic" value="/behind_camera/depth/image_raw"/>
+        <param name="camera_info_topic" value="/behind_camera/color/camera_info"/>
         <param name="warning_distance" value="0.5"/>
         <param name="use_rows_ratio" value="0.6"/>
         <param name="use_cuda" value="false"/>
@@ -148,6 +151,8 @@
     <node pkg="vision_pkg" type="panorama_node" name="panorama" output="screen">
       <param name="cam1_topic" value="/forward_camera/image_raw"/>
       <param name="cam2_topic" value="/back_camera/image_raw"/>
+      <param name="fisheye_source_fov_deg" value="$(arg panorama_fisheye_source_fov_deg)"/>
     </node>
 
   </launch>
+

@@ -1,178 +1,333 @@
 #include "vision_pkg/fisheye.h"
 #include <ros/ros.h>
+#include <cmath>
 
-/**
- * @brief 构造函数：初始化鱼眼相机内参和畸变系数
- *
- * K - 3x3 相机内参矩阵 [fx, 0, cx; 0, fy, cy; 0, 0, 1]
- * D - 1x5 畸变系数 [k1, k2, p1, p2, k3]
- * 这些参数是针对特定鱼眼相机标定得到的固定值。
- */
-Fisheye::Fisheye()
+Fisheye::Fisheye() {}
+
+int Fisheye::detectFisheyeRadius(const cv::Mat &img)
 {
-    m_K = (cv::Mat_<double>(3, 3) << 454.89445666, 0, 551.30048588,
-           0, 455.67670656, 485.74532474,
-           0, 0, 1);
-    m_D = (cv::Mat_<double>(1, 5) << -0.285545645, 0.0627139372, 0.00739321249, 0.000150928223, -0.00542736549);
-}
+    cv::Mat gray;
+    if (img.channels() == 3)
+        cv::cvtColor(img, gray, cv::COLOR_BGR2GRAY);
+    else
+        gray = img;
 
-/**
- * @brief 处理前后两路鱼眼帧
- *
- * 分别对两帧执行鱼眼校正和全景转换，
- * 两路全景图都就绪后通过回调输出。
- */
-void Fisheye::processFrames(const cv::Mat &frame1, const cv::Mat &frame2)
-{
-    cv::Mat panorama1 = core(frame1, m_K, m_D, "frame1");
-    cv::Mat panorama2 = core(frame2, m_K, m_D, "frame2");
+    cv::Mat blurred;
+    cv::GaussianBlur(gray, blurred, cv::Size(5, 5), 2);
 
-    if (!panorama1.empty() && !panorama2.empty()) {
-        if (m_callback) m_callback(panorama1, panorama2);
-    } else {
-        ROS_ERROR("Fisheye: One or both panoramas are empty");
+    cv::Mat mask;
+    cv::threshold(blurred, mask, 15, 255, cv::THRESH_BINARY);
+
+    std::vector<std::vector<cv::Point>> contours;
+    cv::findContours(mask, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
+
+    if (contours.empty()) return std::min(img.rows, img.cols) / 2;
+
+    int best = 0;
+    double max_area = 0;
+    for (int i = 0; i < (int)contours.size(); ++i) {
+        double a = cv::contourArea(contours[i]);
+        if (a > max_area) { max_area = a; best = i; }
     }
+
+    cv::Point2f center;
+    float r;
+    cv::minEnclosingCircle(contours[best], center, r);
+    return (int)r;
 }
 
-/**
- * @brief 计算鱼眼图到等距柱状投影全景图的像素映射表
- *
- * 对全景图中每个像素 (x, y)，计算其对应的球面坐标 (theta, phi)，
- * 然后映射回鱼眼图中的源像素坐标 (u, v)。
- *
- * 映射原理：
- *   theta = y / rows * PI        （天顶角，0=北极，PI=南极）
- *   phi   = x / cols * 2*PI      （方位角，0~2PI 一圈）
- *   r     = radius * theta / (PI/2)  （鱼眼图中的径向距离）
- *   u     = center.x + r * (-cos(phi))
- *   v     = center.y + r * sin(phi)
- */
-void Fisheye::compute_mapping(const cv::Mat &fisheye_image, const cv::Mat &panorama_image,
-                               cv::Mat &map1, cv::Mat &map2,
-                               int start_row, int end_row, int radius, cv::Point2f center)
+cv::Mat Fisheye::cropFisheyeCircle(const cv::Mat &img, int detected_radius)
 {
-    const double PI = acos(-1);
-    const double PI2 = 2 * PI;
+    int h = img.rows, w = img.cols;
+    int cx = w / 2, cy = h / 2;
+    int half = detected_radius;
+    int x1 = std::max(cx - half, 0);
+    int y1 = std::max(cy - half, 0);
+    int x2 = std::min(cx + half, w);
+    int y2 = std::min(cy + half, h);
+    int side = std::min(x2 - x1, y2 - y1);
+    x1 = cx - side / 2;
+    y1 = cy - side / 2;
+    return img(cv::Rect(x1, y1, side, side)).clone();
+}
 
-    for (int y = start_row; y < end_row; ++y) {
-        if (y >= panorama_image.rows) continue;
-        double theta = static_cast<double>(y) / panorama_image.rows * PI;
-        double sin_theta = sin(theta);
-        double cos_theta = cos(theta);
+void Fisheye::buildUnwarpMaps(int radius, int out_w, int out_h)
+{
+    const double PI = M_PI;
+    front_map1_ = cv::Mat(out_h, out_w, CV_32FC1);
+    front_map2_ = cv::Mat(out_h, out_w, CV_32FC1);
+    const double source_half_fov = std::max(1.0, static_cast<double>(source_fov_deg_) / 2.0) * PI / 180.0;
 
-        for (int x = 0; x < panorama_image.cols; ++x) {
-            double phi = static_cast<double>(x) / panorama_image.cols * PI2;
-            double sin_phi = sin(phi);
-            double cos_phi = cos(phi);
+    double center = radius;
 
-            // 天顶角映射到鱼眼径向距离
-            double r = radius * acos(cos_theta) / (PI / 2);
-            r = std::min(r, static_cast<double>(radius));
+    for (int py = 0; py < out_h; ++py) {
+        double elevation = (0.5 - (double)py / out_h) * PI;
+        double cos_elev = cos(elevation);
+        double sin_elev = sin(elevation);
 
-            // 极坐标转笛卡尔坐标，得到鱼眼图中的源像素位置
-            double u = center.x + r * -cos_phi;
-            double v = center.y + r * sin_phi;
+        for (int px = 0; px < out_w; ++px) {
+            double azimuth = ((double)px / out_w - 0.5) * PI;
 
-            map1.at<float>(y, x) = static_cast<float>(u);
-            map2.at<float>(y, x) = static_cast<float>(v);
+            double dx = cos_elev * sin(azimuth);
+            double dy = -sin_elev;
+            double dz = cos_elev * cos(azimuth);
+
+            double theta = acos(std::max(-1.0, std::min(dz, 1.0)));
+            double r = theta / source_half_fov * radius;
+
+            if (r >= radius) {
+                front_map1_.at<float>(py, px) = -1;
+                front_map2_.at<float>(py, px) = -1;
+                continue;
+            }
+
+            double phi = atan2(dy, dx);
+            front_map1_.at<float>(py, px) = (float)(center + r * cos(phi));
+            front_map2_.at<float>(py, px) = (float)(center + r * sin(phi));
         }
     }
+
+    map_radius_ = radius;
+    unwarp_maps_ready_ = true;
 }
 
-/**
- * @brief 裁剪鱼眼图像的有效圆形区域为正方形
- *
- * 以图像中心为圆心，按指定半径裁剪出正方形区域。
- * 如果裁剪区域不是正方形，会居中调整为正方形。
- *
- * @param img           输入鱼眼图像
- * @param circle_radius 裁剪半径（像素），默认使用 540
- * @return 裁剪后的正方形图像（ROI引用，非深拷贝）
- */
-cv::Mat Fisheye::crop_and_replace_images(const cv::Mat &img, int circle_radius)
+cv::Mat Fisheye::stitch360(const cv::Mat &front_unwarp, const cv::Mat &back_unwarp)
 {
-    int img_height = img.rows;
-    int img_width = img.cols;
-    int center_x = img_width / 2;
-    int center_y = img_height / 2;
+    int H = front_unwarp.rows;
+    int half_w = front_unwarp.cols;
+    int total_w = half_w * 2;
+    int blend_w = std::max(total_w / 40, 4);
 
-    // 计算裁剪边界
-    int x1 = std::max(center_x - circle_radius, 0);
-    int y1 = std::max(center_y - circle_radius, 0);
-    int x2 = std::min(center_x + circle_radius, img_width);
-    int y2 = std::min(center_y + circle_radius, img_height);
+    cv::Mat pano = cv::Mat::zeros(H, total_w, front_unwarp.type());
+    int quarter = total_w / 4;
 
-    int width = x2 - x1;
-    int height = y2 - y1;
+    front_unwarp.copyTo(pano(cv::Rect(quarter, 0, half_w, H)));
 
-    // 确保裁剪结果为正方形
-    if (width != height) {
-        int new_size = std::min(width, height);
-        int delta_width = (width - new_size) / 2;
-        int delta_height = (height - new_size) / 2;
-        x1 += delta_width;
-        y1 += delta_height;
-        width = height = new_size;
+    int back_half = half_w / 2;
+    back_unwarp(cv::Rect(half_w / 2, 0, back_half, H))
+        .copyTo(pano(cv::Rect(0, 0, quarter, H)));
+    back_unwarp(cv::Rect(0, 0, back_half, H))
+        .copyTo(pano(cv::Rect(quarter + half_w, 0, quarter, H)));
+
+    for (int y = 0; y < H; ++y) {
+        for (int i = 0; i < blend_w; ++i) {
+            float a = (float)i / blend_w;
+            int c = quarter - blend_w / 2 + i;
+            if (c < 0 || c >= total_w) continue;
+            cv::Vec3b bg = pano.at<cv::Vec3b>(y, c);
+            int fc = c - quarter;
+            if (fc >= 0 && fc < half_w) {
+                cv::Vec3b fg = front_unwarp.at<cv::Vec3b>(y, fc);
+                for (int ch = 0; ch < 3; ++ch)
+                    pano.at<cv::Vec3b>(y, c)[ch] =
+                        (uchar)((1.0f - a) * bg[ch] + a * fg[ch]);
+            }
+        }
+        for (int i = 0; i < blend_w; ++i) {
+            float a = 1.0f - (float)i / blend_w;
+            int c = quarter + half_w - blend_w / 2 + i;
+            if (c < 0 || c >= total_w) continue;
+            cv::Vec3b bg = pano.at<cv::Vec3b>(y, c);
+            int fc = c - quarter;
+            if (fc >= 0 && fc < half_w) {
+                cv::Vec3b fg = front_unwarp.at<cv::Vec3b>(y, fc);
+                for (int ch = 0; ch < 3; ++ch)
+                    pano.at<cv::Vec3b>(y, c)[ch] =
+                        (uchar)(a * fg[ch] + (1.0f - a) * bg[ch]);
+            }
+        }
     }
 
-    return img(cv::Rect(x1, y1, width, height));
+    return pano;
 }
 
-/**
- * @brief 将裁剪后的鱼眼图转换为等距柱状投影全景图
- *
- * 输出全景图尺寸为 2R x 4R（R = 鱼眼半径）。
- * 下半部分（南半球）置为黑色，因为单个鱼眼只覆盖上半球。
- *
- * @param fisheye_image 裁剪后的正方形鱼眼图
- * @param K             相机内参（预留参数，当前映射使用几何方法）
- * @param D             畸变系数（预留参数）
- * @return 等距柱状投影全景图
- */
-cv::Mat Fisheye::fisheye_to_panorama(const cv::Mat &fisheye_image, const cv::Mat &K, const cv::Mat &D)
+cv::Mat Fisheye::renderPerspective(const cv::Mat &equirect, float yaw_deg, float pitch_deg,
+                                   int out_w, int out_h, float fov_deg)
 {
-    int h = fisheye_image.rows;
-    int w = fisheye_image.cols;
-    int radius = std::min(h, w) / 2;
+    if (equirect.empty()) return cv::Mat();
 
-    // 创建全景图和映射表，尺寸 2R x 4R
-    cv::Mat panorama_image = cv::Mat::zeros(2 * radius, 4 * radius, CV_8UC3);
-    cv::Mat map1 = cv::Mat::zeros(2 * radius, 4 * radius, CV_32FC1);
-    cv::Mat map2 = cv::Mat::zeros(2 * radius, 4 * radius, CV_32FC1);
+    int pano_w = equirect.cols;
+    int pano_h = equirect.rows;
 
-    // 计算完整映射表
-    compute_mapping(fisheye_image, panorama_image, map1, map2, 0, 2 * radius, radius,
-                    cv::Point2f(w / 2.0f, h / 2.0f));
+    bool need_rebuild = (yaw_deg != cached_yaw_ || pitch_deg != cached_pitch_ ||
+                         fov_deg != cached_fov_ || out_w != cached_out_w_ ||
+                         out_h != cached_out_h_ || pano_w != cached_pano_w_ ||
+                         pano_h != cached_pano_h_);
 
-    // 使用最近邻插值执行重映射
-    cv::remap(fisheye_image, panorama_image, map1, map2, cv::INTER_NEAREST, cv::BORDER_CONSTANT);
+    if (need_rebuild) {
+        const double PI = M_PI;
+        double yaw = yaw_deg * PI / 180.0;
+        double pitch = pitch_deg * PI / 180.0;
+        double fov = fov_deg * PI / 180.0;
+        double half_fov = fov / 2.0;
 
-    // 将下半部分置黑（单个鱼眼只覆盖上半球）
-    cv::Mat lower_half = panorama_image(cv::Rect(0, radius, 4 * radius, radius));
-    cv::Mat black_image = cv::Mat::zeros(lower_half.size(), panorama_image.type());
-    black_image.copyTo(lower_half);
+        persp_map1_ = cv::Mat(out_h, out_w, CV_32FC1);
+        persp_map2_ = cv::Mat(out_h, out_w, CV_32FC1);
 
-    return panorama_image;
+        double f = (out_w / 2.0) / tan(half_fov);
+
+        double cy = cos(yaw), sy = sin(yaw);
+        double cp = cos(pitch), sp = sin(pitch);
+
+        for (int py = 0; py < out_h; ++py) {
+            for (int px = 0; px < out_w; ++px) {
+                double x = px - out_w / 2.0;
+                double y = py - out_h / 2.0;
+                double z = f;
+
+                double norm = sqrt(x * x + y * y + z * z);
+                x /= norm; y /= norm; z /= norm;
+
+                // rotate by pitch (around X)
+                double y2 = y * cp - z * sp;
+                double z2 = y * sp + z * cp;
+                double x2 = x;
+
+                // rotate by yaw (around Y)
+                double x3 = x2 * cy + z2 * sy;
+                double z3 = -x2 * sy + z2 * cy;
+                double y3 = y2;
+
+                // 3D direction → equirectangular coordinates
+                double lon = atan2(x3, z3);          // -PI to PI
+                double lat = asin(std::max(-1.0, std::min(y3, 1.0)));  // -PI/2 to PI/2
+
+                // equirect pixel coordinates
+                double u = (lon / (2.0 * PI) + 0.5) * pano_w;
+                double v = (0.5 - lat / PI) * pano_h;
+
+                // wrap horizontally
+                if (u < 0) u += pano_w;
+                if (u >= pano_w) u -= pano_w;
+
+                persp_map1_.at<float>(py, px) = (float)u;
+                persp_map2_.at<float>(py, px) = (float)v;
+            }
+        }
+
+        cached_yaw_ = yaw_deg;
+        cached_pitch_ = pitch_deg;
+        cached_fov_ = fov_deg;
+        cached_out_w_ = out_w;
+        cached_out_h_ = out_h;
+        cached_pano_w_ = pano_w;
+        cached_pano_h_ = pano_h;
+    }
+
+    cv::Mat result;
+    cv::remap(equirect, result, persp_map1_, persp_map2_,
+              cv::INTER_LINEAR, cv::BORDER_WRAP);
+    return result;
 }
 
-/**
- * @brief 单帧处理核心流程
- *
- * 1. 以半径 540px 裁剪鱼眼有效区域
- * 2. 将裁剪后的鱼眼图转换为等距柱状投影全景图
- */
-cv::Mat Fisheye::core(const cv::Mat &frame, const cv::Mat &K, const cv::Mat &D, const std::string &frame_name)
+cv::Mat Fisheye::renderAzimuthal(const cv::Mat &equirect, int out_size)
 {
-    if (frame.empty()) {
-        ROS_ERROR("Fisheye::core: Frame is empty!");
-        return cv::Mat();
-    }
-    if (K.empty() || D.empty()) {
-        ROS_ERROR("Fisheye::core: Camera parameters are missing!");
-        return cv::Mat();
+    if (equirect.empty()) return cv::Mat();
+
+    int pano_w = equirect.cols;
+    int pano_h = equirect.rows;
+
+    bool need_rebuild = (out_size != cached_azim_size_ ||
+                         pano_w != cached_azim_pano_w_ ||
+                         pano_h != cached_azim_pano_h_);
+
+    if (need_rebuild) {
+        const double PI = M_PI;
+        azim_map1_ = cv::Mat(out_size, out_size, CV_32FC1);
+        azim_map2_ = cv::Mat(out_size, out_size, CV_32FC1);
+
+        double center = out_size / 2.0;
+        double max_r = out_size / 2.0;
+
+        for (int py = 0; py < out_size; ++py) {
+            for (int px = 0; px < out_size; ++px) {
+                double dx = px - center;
+                double dy = py - center;
+                double r = sqrt(dx * dx + dy * dy);
+
+                if (r > max_r) {
+                    azim_map1_.at<float>(py, px) = -1;
+                    azim_map2_.at<float>(py, px) = -1;
+                    continue;
+                }
+
+                // r maps to colatitude (0 at center = front, max_r = back)
+                double colat = (r / max_r) * PI;  // 0 ~ PI
+
+                // angle around circle = azimuth
+                double azimuth = atan2(dx, -dy);  // -PI ~ PI, top = forward
+
+                // equirectangular coordinates
+                // lon: -PI ~ PI → u: 0 ~ pano_w
+                double u = (azimuth / (2.0 * PI) + 0.5) * pano_w;
+                // lat: PI/2 ~ -PI/2 → v: 0 ~ pano_h
+                // colat 0 = north pole (lat=PI/2), colat PI = south pole (lat=-PI/2)
+                double lat = PI / 2.0 - colat;
+                double v = (0.5 - lat / PI) * pano_h;
+
+                if (u < 0) u += pano_w;
+                if (u >= pano_w) u -= pano_w;
+
+                azim_map1_.at<float>(py, px) = (float)u;
+                azim_map2_.at<float>(py, px) = (float)v;
+            }
+        }
+
+        cached_azim_size_ = out_size;
+        cached_azim_pano_w_ = pano_w;
+        cached_azim_pano_h_ = pano_h;
     }
 
-    cv::Mat cropped_frame = crop_and_replace_images(frame, 540);
-    cv::Mat panorama_image = fisheye_to_panorama(cropped_frame, K, D);
-    return panorama_image;
+    cv::Mat result;
+    cv::remap(equirect, result, azim_map1_, azim_map2_,
+              cv::INTER_LINEAR, cv::BORDER_CONSTANT);
+    return result;
 }
+
+void Fisheye::processFrames(const cv::Mat &frame1, const cv::Mat &frame2)
+{
+    if (frame1.empty() || frame2.empty()) {
+        ROS_ERROR_THROTTLE(5.0, "Fisheye: input frame empty");
+        return;
+    }
+
+    if (!unwarp_maps_ready_ || frame1.cols != last_input_w_ || frame1.rows != last_input_h_) {
+        detected_radius_ = detectFisheyeRadius(frame1);
+        last_input_w_ = frame1.cols;
+        last_input_h_ = frame1.rows;
+        ROS_INFO("Detected fisheye circle radius: %d (image: %dx%d)",
+                 detected_radius_, frame1.cols, frame1.rows);
+        unwarp_maps_ready_ = false;
+    }
+
+    cv::Mat crop1 = cropFisheyeCircle(frame1, detected_radius_);
+    cv::Mat crop2 = cropFisheyeCircle(frame2, detected_radius_);
+
+    int radius = crop1.cols / 2;
+    int out_w = radius * 2;
+    int out_h = radius * 2;
+
+    if (!unwarp_maps_ready_ || map_radius_ != radius || cached_source_fov_deg_ != source_fov_deg_) {
+        buildUnwarpMaps(radius, out_w, out_h);
+        cached_source_fov_deg_ = source_fov_deg_;
+        ROS_INFO("Fisheye unwarp maps built: radius=%d, output=%dx%d, source_fov=%.1f",
+                 radius, out_w, out_h, source_fov_deg_);
+    }
+
+    cv::Mat front_unwarp;
+    cv::remap(crop1, front_unwarp, front_map1_, front_map2_,
+              cv::INTER_LINEAR, cv::BORDER_CONSTANT);
+
+    cv::Mat crop2_rot;
+    cv::rotate(crop2, crop2_rot, cv::ROTATE_180);
+    cv::Mat back_unwarp;
+    cv::remap(crop2_rot, back_unwarp, front_map1_, front_map2_,
+              cv::INTER_LINEAR, cv::BORDER_CONSTANT);
+
+    cv::Mat pano = stitch360(front_unwarp, back_unwarp);
+
+    if (m_callback && !pano.empty()) {
+        m_callback(pano, pano);
+    }
+}
+
