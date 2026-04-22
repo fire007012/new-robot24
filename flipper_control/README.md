@@ -177,6 +177,9 @@ rostopic echo /flipper_control/state
 
 - `joint_names`
   - 摆臂关节顺序，默认 4 个关节。
+- `direction_corrections`
+  - 按关节名配置方向修正乘子；默认全为 `1.0`，需要反向的关节设为 `-1.0`。
+  - `flipper_control` 会在 `/joint_states`、`~command`、`~jog_cmd` 与下游控制器命令之间自动做双向换算。
 - `controllers/csp` / `controllers/csv`
   - 输出控制器名，最终发布到 `/<controller>/command`。
 - `initial_profile`
@@ -195,6 +198,9 @@ rostopic echo /flipper_control/state
   - `jog` 超时后自动清零速度。
 - `dt_clamp` / `jog_velocity_alpha` / `reference_drift_threshold`
   - 参考生成器稳定性参数。
+- `require_backend_feedback`
+  - 默认 `true`，要求收到后端 runtime/diagnostic 反馈后才会 `ready=true`。
+  - 仿真可设为 `false`，此时只要 `/joint_states` 正常就允许摆臂控制。
 - `fallback_min_position` / `fallback_max_position` / `fallback_max_velocity`
   - 缺少 `robot_description` 时的关节限位后备值。
 

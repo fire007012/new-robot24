@@ -28,7 +28,9 @@
 
   <!-- Northbound chassis and flipper control -->
   <include if="$(arg enable_mobility_control)" file="$(find mobility_control)/launch/base_cmd.launch"/>
-  <include if="$(arg enable_flipper_control)" file="$(find flipper_control)/launch/flipper_control.launch"/>
+  <include if="$(arg enable_flipper_control)" file="$(find flipper_control)/launch/flipper_control.launch">
+    <arg name="require_backend_feedback" value="false"/>
+  </include>
   <include if="$(arg enable_gripper_cmd)" file="$(find arm_control)/launch/gripper_cmd.launch"/>
 
   <!-- MoveIt planning/execution -->

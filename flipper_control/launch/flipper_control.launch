@@ -4,12 +4,14 @@
   <arg name="hybrid_ns" default="/hybrid_motor_hw_node"/>
   <arg name="canopen_ns" default="/canopen_hw_node"/>
   <arg name="canopen_diagnostics_topic" default="/diagnostics"/>
+  <arg name="require_backend_feedback" default="true"/>
 
   <rosparam file="$(arg config_file)" command="load" ns="flipper_control"/>
   <param name="flipper_control/backend_type" value="$(arg backend_type)"/>
   <param name="flipper_control/hybrid_ns" value="$(arg hybrid_ns)"/>
   <param name="flipper_control/canopen_ns" value="$(arg canopen_ns)"/>
   <param name="flipper_control/canopen_diagnostics_topic" value="$(arg canopen_diagnostics_topic)"/>
+  <param name="flipper_control/require_backend_feedback" value="$(arg require_backend_feedback)"/>
 
   <node name="flipper_control"
         pkg="flipper_control"

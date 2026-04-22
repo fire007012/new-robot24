@@ -4,6 +4,12 @@ joint_names:
   - left_rear_arm_joint
   - right_rear_arm_joint
 
+direction_corrections:
+  left_front_arm_joint: -1.0
+  right_front_arm_joint: -1.0
+  left_rear_arm_joint: 1.0
+  right_rear_arm_joint: 1.0
+
 controllers:
   csp: flipper_csp_controller
   csv: flipper_csv_controller
@@ -17,6 +23,7 @@ command_timeout: 0.4
 dt_clamp: 0.02
 jog_velocity_alpha: 1.0
 reference_drift_threshold: 0.35
+require_backend_feedback: true
 short_horizon: 0.10
 
 service_wait_timeout: 2.0

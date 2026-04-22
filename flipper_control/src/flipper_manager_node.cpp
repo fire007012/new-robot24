@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <cmath>
 #include <map>
 #include <memory>
 #include <sstream>
@@ -18,6 +19,7 @@
 #include <trajectory_msgs/JointTrajectory.h>
 #include <trajectory_msgs/JointTrajectoryPoint.h>
 #include <urdf/model.h>
+#include <xmlrpcpp/XmlRpcValue.h>
 
 #include "Eyou_Canopen_Master/SetMode.h"
 #include "Eyou_ROS1_Master/JointRuntimeStateArray.h"
@@ -178,6 +180,7 @@ class FlipperManagerNode {
         have_joint_state_(false),
         have_canopen_diag_(false),
         have_runtime_state_(false),
+        require_backend_feedback_(true),
         service_wait_timeout_sec_(2.0),
         controller_switch_timeout_sec_(2.0),
         short_horizon_sec_(0.1),
@@ -264,6 +267,68 @@ class FlipperManagerNode {
     bool heartbeat_lost = false;
   };
 
+  double DirectionCorrection(std::size_t index) const {
+    if (index >= direction_corrections_.size()) {
+      return 1.0;
+    }
+    return direction_corrections_[index];
+  }
+
+  double ToSemanticPosition(std::size_t index, double hardware_value) const {
+    return hardware_value / DirectionCorrection(index);
+  }
+
+  double ToHardwarePosition(std::size_t index, double semantic_value) const {
+    return semantic_value * DirectionCorrection(index);
+  }
+
+  void TransformOrderedValuesToHardware(std::vector<double>* values) const {
+    if (values == nullptr || values->size() != joint_names_.size()) {
+      return;
+    }
+    for (std::size_t i = 0; i < values->size(); ++i) {
+      (*values)[i] = ToHardwarePosition(i, (*values)[i]);
+    }
+  }
+
+  void TransformTrajectoryToHardware(trajectory_msgs::JointTrajectory* traj) const {
+    if (traj == nullptr) {
+      return;
+    }
+    for (auto& point : traj->points) {
+      if (point.positions.size() == joint_names_.size()) {
+        TransformOrderedValuesToHardware(&point.positions);
+      }
+      if (point.velocities.size() == joint_names_.size()) {
+        TransformOrderedValuesToHardware(&point.velocities);
+      }
+      if (point.accelerations.size() == joint_names_.size()) {
+        TransformOrderedValuesToHardware(&point.accelerations);
+      }
+    }
+  }
+
+  double ParseDirectionCorrectionValue(const XmlRpc::XmlRpcValue& value,
+                                       const std::string& joint_name) const {
+    double correction = 1.0;
+    if (value.getType() == XmlRpc::XmlRpcValue::TypeInt) {
+      correction = static_cast<int>(value);
+    } else if (value.getType() == XmlRpc::XmlRpcValue::TypeDouble) {
+      correction = static_cast<double>(value);
+    } else {
+      ROS_WARN("direction_corrections/%s must be numeric, fallback to 1.0",
+               joint_name.c_str());
+      return 1.0;
+    }
+
+    if (!std::isfinite(correction) || std::abs(correction) < 1e-9) {
+      ROS_WARN("direction_corrections/%s must be finite and non-zero, fallback to 1.0",
+               joint_name.c_str());
+      return 1.0;
+    }
+    return correction;
+  }
+
   void LoadParameters() {
     if (!pnh_.getParam("joint_names", joint_names_)) {
       joint_names_ = {
@@ -273,6 +338,7 @@ class FlipperManagerNode {
           "right_rear_arm_joint",
       };
     }
+    direction_corrections_.assign(joint_names_.size(), 1.0);
 
     pnh_.param("control_loop_hz", control_loop_hz_, 100.0);
     pnh_.param("state_publish_hz", state_publish_hz_, 20.0);
@@ -280,6 +346,7 @@ class FlipperManagerNode {
     pnh_.param("dt_clamp", dt_clamp_sec_, 0.02);
     pnh_.param("jog_velocity_alpha", jog_velocity_alpha_, 0.35);
     pnh_.param("reference_drift_threshold", reference_drift_threshold_, 0.35);
+    pnh_.param("require_backend_feedback", require_backend_feedback_, true);
     pnh_.param("service_wait_timeout", service_wait_timeout_sec_, 2.0);
     pnh_.param("controller_switch_timeout", controller_switch_timeout_sec_, 2.0);
     pnh_.param("short_horizon", short_horizon_sec_, 0.1);
@@ -327,6 +394,23 @@ class FlipperManagerNode {
                initial_linkage_mode.c_str());
       linkage_mode_ = LinkageMode::kIndependent;
     }
+
+    XmlRpc::XmlRpcValue direction_corrections_param;
+    if (pnh_.getParam("direction_corrections", direction_corrections_param)) {
+      if (direction_corrections_param.getType() != XmlRpc::XmlRpcValue::TypeStruct) {
+        ROS_WARN("direction_corrections must be a dictionary keyed by joint name");
+      } else {
+        for (std::size_t i = 0; i < joint_names_.size(); ++i) {
+          const std::string& joint_name = joint_names_[i];
+          if (!direction_corrections_param.hasMember(joint_name)) {
+            continue;
+          }
+          direction_corrections_[i] = ParseDirectionCorrectionValue(
+              direction_corrections_param[joint_name], joint_name);
+        }
+      }
+    }
+
     active_controller_ = ControllerForProfile(active_profile_);
   }
 
@@ -358,12 +442,17 @@ class FlipperManagerNode {
         continue;
       }
       if (joint->type != urdf::Joint::CONTINUOUS) {
-        limits[i].min_position = joint->limits->lower;
-        limits[i].max_position = joint->limits->upper;
+        const double lower = ToSemanticPosition(i, joint->limits->lower);
+        const double upper = ToSemanticPosition(i, joint->limits->upper);
+        limits[i].min_position = std::min(lower, upper);
+        limits[i].max_position = std::max(lower, upper);
       }
-      limits[i].max_velocity = joint->limits->velocity > 0.0
-                                   ? joint->limits->velocity
-                                   : fallback_max_velocity_;
+      const double velocity_scale = std::abs(DirectionCorrection(i));
+      const double hardware_max_velocity =
+          joint->limits->velocity > 0.0 ? joint->limits->velocity : fallback_max_velocity_;
+      limits[i].max_velocity =
+          velocity_scale > 1e-9 ? hardware_max_velocity / velocity_scale
+                                : fallback_max_velocity_;
     }
 
     generator_->SetJointLimits(limits);
@@ -372,6 +461,9 @@ class FlipperManagerNode {
   void RefreshReadyFlag() {
     ready_ = have_joint_state_ && !switching_;
     if (!ready_) {
+      return;
+    }
+    if (!require_backend_feedback_) {
       return;
     }
 
@@ -455,7 +547,7 @@ class FlipperManagerNode {
         return;
       }
       const std::size_t index = static_cast<std::size_t>(it - msg->name.begin());
-      positions[i] = msg->position[index];
+      positions[i] = ToSemanticPosition(i, msg->position[index]);
     }
 
     std::string error;
@@ -557,6 +649,7 @@ class FlipperManagerNode {
       ROS_WARN("Reject flipper trajectory command: %s", error.c_str());
       return;
     }
+    TransformTrajectoryToHardware(&normalized);
     csp_command_pub_.publish(normalized);
     detail_ = "published csp_position trajectory";
   }
@@ -973,6 +1066,8 @@ class FlipperManagerNode {
     point.time_from_start = ros::Duration(short_horizon_sec_);
     point.positions = generator_->reference_positions();
     point.velocities = generator_->filtered_velocities();
+    TransformOrderedValuesToHardware(&point.positions);
+    TransformOrderedValuesToHardware(&point.velocities);
 
     traj.points.push_back(std::move(point));
     return traj;
@@ -991,6 +1086,7 @@ class FlipperManagerNode {
     point.time_from_start = ros::Duration(short_horizon_sec_);
     point.positions = generator_->measured_positions();
     point.velocities.assign(joint_names_.size(), 0.0);
+    TransformOrderedValuesToHardware(&point.positions);
     traj.points.push_back(std::move(point));
 
     if (mode == HardwareMode::kCsv) {
@@ -1188,6 +1284,7 @@ class FlipperManagerNode {
   ros::NodeHandle pnh_;
 
   std::vector<std::string> joint_names_;
+  std::vector<double> direction_corrections_;
   ControllerNames controllers_;
 
   ros::Subscriber trajectory_sub_;
@@ -1232,6 +1329,7 @@ class FlipperManagerNode {
   bool have_joint_state_;
   bool have_canopen_diag_;
   bool have_runtime_state_;
+  bool require_backend_feedback_;
 
   BackendType backend_type_ = BackendType::kHybrid;
   std::map<std::string, Eyou_ROS1_Master::JointRuntimeState> runtime_state_map_;
