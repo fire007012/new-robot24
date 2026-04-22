@@ -28,6 +28,15 @@ class BaseCmdNode {
         max_linear_jerk_(pnh_.param("max_linear_jerk", 4.0)),
         max_angular_acc_(pnh_.param("max_angular_acc", 2.0)),
         max_angular_jerk_(pnh_.param("max_angular_jerk", 8.0)),
+        wheel_separation_(pnh_.param("wheel_separation", 0.438)),
+        cmd_linear_direction_correction_(
+            pnh_.param("cmd_linear_direction_correction", 1.0)),
+        cmd_angular_direction_correction_(
+            pnh_.param("cmd_angular_direction_correction", 1.0)),
+        left_track_direction_correction_(
+            pnh_.param("left_track_direction_correction", 1.0)),
+        right_track_direction_correction_(
+            pnh_.param("right_track_direction_correction", 1.0)),
         input_topic_(pnh_.param<std::string>("input_topic", "/cmd_vel")),
         output_topic_(
             pnh_.param<std::string>("output_topic", "/wheel_controller/cmd_vel")),
@@ -58,10 +67,13 @@ class BaseCmdNode {
 
     ROS_INFO(
         "base_cmd_node started: %s -> %s, rate=%.1f Hz, vmax=[%.3f, %.3f], "
-        "amax=[%.3f, %.3f], jmax=[%.3f, %.3f]",
+        "amax=[%.3f, %.3f], jmax=[%.3f, %.3f], wheel_sep=%.3f, "
+        "cmd_dir=[%.1f, %.1f], track_dir=[%.1f, %.1f]",
         input_topic_.c_str(), output_topic_.c_str(), control_rate_hz_, max_linear_x_,
         max_angular_z_, max_linear_acc_, max_angular_acc_, max_linear_jerk_,
-        max_angular_jerk_);
+        max_angular_jerk_, wheel_separation_, cmd_linear_direction_correction_,
+        cmd_angular_direction_correction_, left_track_direction_correction_,
+        right_track_direction_correction_);
   }
 
  private:
@@ -73,7 +85,16 @@ class BaseCmdNode {
            RequirePositive("max_linear_acc", max_linear_acc_) &&
            RequirePositive("max_linear_jerk", max_linear_jerk_) &&
            RequirePositive("max_angular_acc", max_angular_acc_) &&
-           RequirePositive("max_angular_jerk", max_angular_jerk_);
+           RequirePositive("max_angular_jerk", max_angular_jerk_) &&
+           RequirePositive("wheel_separation", wheel_separation_) &&
+           RequireNonZeroFinite("cmd_linear_direction_correction",
+                                cmd_linear_direction_correction_) &&
+           RequireNonZeroFinite("cmd_angular_direction_correction",
+                                cmd_angular_direction_correction_) &&
+           RequireNonZeroFinite("left_track_direction_correction",
+                                left_track_direction_correction_) &&
+           RequireNonZeroFinite("right_track_direction_correction",
+                                right_track_direction_correction_);
   }
 
   bool RequirePositive(const char* name, double value) const {
@@ -85,13 +106,42 @@ class BaseCmdNode {
     return false;
   }
 
+  bool RequireNonZeroFinite(const char* name, double value) const {
+    if (std::isfinite(value) && std::abs(value) > 1e-9) {
+      return true;
+    }
+    ROS_ERROR("Parameter %s must be a finite non-zero number, got %.6f", name,
+              value);
+    return false;
+  }
+
   static double Clamp(double value, double limit) {
     return std::max(-limit, std::min(limit, value));
   }
 
+  geometry_msgs::Twist ApplyTrackDirectionCorrections(
+      const geometry_msgs::Twist& smoothed_cmd) const {
+    const double half_separation = 0.5 * wheel_separation_;
+    double left_track_velocity =
+        smoothed_cmd.linear.x - half_separation * smoothed_cmd.angular.z;
+    double right_track_velocity =
+        smoothed_cmd.linear.x + half_separation * smoothed_cmd.angular.z;
+
+    left_track_velocity *= left_track_direction_correction_;
+    right_track_velocity *= right_track_direction_correction_;
+
+    geometry_msgs::Twist corrected_cmd;
+    corrected_cmd.linear.x = 0.5 * (left_track_velocity + right_track_velocity);
+    corrected_cmd.angular.z =
+        (right_track_velocity - left_track_velocity) / wheel_separation_;
+    return corrected_cmd;
+  }
+
   void CmdCb(const geometry_msgs::TwistConstPtr& msg) {
-    target_linear_x_ = Clamp(msg->linear.x, max_linear_x_);
-    target_angular_z_ = Clamp(msg->angular.z, max_angular_z_);
+    target_linear_x_ = Clamp(msg->linear.x * cmd_linear_direction_correction_,
+                             max_linear_x_);
+    target_angular_z_ = Clamp(msg->angular.z * cmd_angular_direction_correction_,
+                              max_angular_z_);
     last_cmd_time_ = ros::Time::now();
     has_cmd_ = true;
   }
@@ -137,7 +187,7 @@ class BaseCmdNode {
       output_.pass_to_input(input_);
     }
 
-    pub_.publish(out);
+    pub_.publish(ApplyTrackDirectionCorrections(out));
   }
 
   ros::NodeHandle nh_;
@@ -154,6 +204,11 @@ class BaseCmdNode {
   double max_linear_jerk_;
   double max_angular_acc_;
   double max_angular_jerk_;
+  double wheel_separation_;
+  double cmd_linear_direction_correction_;
+  double cmd_angular_direction_correction_;
+  double left_track_direction_correction_;
+  double right_track_direction_correction_;
 
   std::string input_topic_;
   std::string output_topic_;

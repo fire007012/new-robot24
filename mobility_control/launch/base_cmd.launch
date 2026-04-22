@@ -9,6 +9,11 @@
   <arg name="max_linear_jerk" default=""/>
   <arg name="max_angular_acc" default=""/>
   <arg name="max_angular_jerk" default=""/>
+  <arg name="wheel_separation" default=""/>
+  <arg name="cmd_linear_direction_correction" default=""/>
+  <arg name="cmd_angular_direction_correction" default=""/>
+  <arg name="left_track_direction_correction" default=""/>
+  <arg name="right_track_direction_correction" default=""/>
   <arg name="timeout_sec" default=""/>
 
   <rosparam command="load" file="$(arg config_file)"/>
@@ -23,6 +28,11 @@
     <param name="max_linear_jerk" value="$(arg max_linear_jerk)" if="$(eval max_linear_jerk != '')"/>
     <param name="max_angular_acc" value="$(arg max_angular_acc)" if="$(eval max_angular_acc != '')"/>
     <param name="max_angular_jerk" value="$(arg max_angular_jerk)" if="$(eval max_angular_jerk != '')"/>
+    <param name="wheel_separation" value="$(arg wheel_separation)" if="$(eval wheel_separation != '')"/>
+    <param name="cmd_linear_direction_correction" value="$(arg cmd_linear_direction_correction)" if="$(eval cmd_linear_direction_correction != '')"/>
+    <param name="cmd_angular_direction_correction" value="$(arg cmd_angular_direction_correction)" if="$(eval cmd_angular_direction_correction != '')"/>
+    <param name="left_track_direction_correction" value="$(arg left_track_direction_correction)" if="$(eval left_track_direction_correction != '')"/>
+    <param name="right_track_direction_correction" value="$(arg right_track_direction_correction)" if="$(eval right_track_direction_correction != '')"/>
     <param name="timeout_sec" value="$(arg timeout_sec)" if="$(eval timeout_sec != '')"/>
   </node>
 </launch>

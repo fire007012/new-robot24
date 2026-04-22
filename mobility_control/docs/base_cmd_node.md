@@ -23,6 +23,11 @@
 | `max_linear_jerk` | `4.0` | `linear.x` 最大加加速度 |
 | `max_angular_acc` | `2.0` | `angular.z` 最大加速度 |
 | `max_angular_jerk` | `8.0` | `angular.z` 最大加加速度 |
+| `wheel_separation` | `0.438` | 左右履带中心距，用于 `Twist <-> track velocity` 换算 |
+| `cmd_linear_direction_correction` | `1.0` | `cmd_vel.linear.x` 方向修正，常用值 `1.0/-1.0` |
+| `cmd_angular_direction_correction` | `1.0` | `cmd_vel.angular.z` 方向修正，常用值 `1.0/-1.0` |
+| `left_track_direction_correction` | `1.0` | 左履带方向修正，常用值 `1.0/-1.0` |
+| `right_track_direction_correction` | `1.0` | 右履带方向修正，常用值 `1.0/-1.0` |
 | `timeout_sec` | `0.3` | 超时后自动发零速度 |
 
 ## 启动
@@ -57,6 +62,6 @@ rostopic echo /wheel_controller/cmd_vel
 ## 边界
 
 - 不直接写 CAN
-- 不做差速逆解
+- 内部会临时做 `Twist -> 左右履带速度 -> Twist` 的换算，仅用于方向修正
 - 不承担机械臂、摆臂或总控逻辑
 - 平滑发生在 `linear.x` / `angular.z` 命令层，不直接读取车轮反馈闭环
