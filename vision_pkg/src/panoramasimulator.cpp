@@ -413,3 +413,4 @@ void PanoramaSimulator::setPerspective(float x, float y)
     if (cameraAngleY >= 360.0f) cameraAngleY -= 360.0f;
     if (cameraAngleY < 0.0f) cameraAngleY += 360.0f;
 }
+
