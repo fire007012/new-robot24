@@ -15,9 +15,12 @@ keyboard_teleop_node:
   gripper_min_position: 0.0
   gripper_max_position: 0.044
   gripper_initial_position: 0.022
-  gripper_rate_normal: 0.03
-  gripper_rate_fast: 0.06
-  gripper_rate_slow: 0.015
+  default_speed_level: 2
+  gripper_rate_level_1: 0.015
+  gripper_rate_level_2: 0.03
+  gripper_rate_level_3: 0.04
+  gripper_rate_level_4: 0.05
+  gripper_rate_level_5: 0.06
 
   flipper_jog_topic: /flipper_control/jog_cmd
   flipper_profile_service: /flipper_control/set_control_profile
@@ -28,24 +31,34 @@ keyboard_teleop_node:
     - right_front_arm_joint
     - left_rear_arm_joint
     - right_rear_arm_joint
-  flipper_velocity_normal: 0.4
-  flipper_velocity_fast: 0.8
-  flipper_velocity_slow: 0.2
+  flipper_velocity_level_1: 0.2
+  flipper_velocity_level_2: 0.4
+  flipper_velocity_level_3: 0.55
+  flipper_velocity_level_4: 0.7
+  flipper_velocity_level_5: 0.8
   flipper_jog_duration: 0.15
 
-  base_linear_normal: 0.4
-  base_linear_fast: 0.8
-  base_linear_slow: 0.2
-  base_angular_normal: 0.8
-  base_angular_fast: 1.5
-  base_angular_slow: 0.4
+  base_linear_level_1: 0.2
+  base_linear_level_2: 0.4
+  base_linear_level_3: 0.55
+  base_linear_level_4: 0.7
+  base_linear_level_5: 0.8
+  base_angular_level_1: 0.4
+  base_angular_level_2: 0.8
+  base_angular_level_3: 1.0
+  base_angular_level_4: 1.25
+  base_angular_level_5: 1.5
 
-  arm_linear_normal: 0.08
-  arm_linear_fast: 0.15
-  arm_linear_slow: 0.04
-  arm_angular_normal: 0.4
-  arm_angular_fast: 0.8
-  arm_angular_slow: 0.2
+  arm_linear_level_1: 0.04
+  arm_linear_level_2: 0.08
+  arm_linear_level_3: 0.10
+  arm_linear_level_4: 0.125
+  arm_linear_level_5: 0.15
+  arm_angular_level_1: 0.2
+  arm_angular_level_2: 0.4
+  arm_angular_level_3: 0.55
+  arm_angular_level_4: 0.7
+  arm_angular_level_5: 0.8
 
 keyboard_teleop_gui:
   raw_state_topic: /car_control/keyboard_teleop/raw_state

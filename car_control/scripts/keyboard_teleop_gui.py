@@ -14,7 +14,7 @@ except ImportError as exc:
 
 
 class KeyboardTeleopGui(object):
-    PUBLISH_PULSE_KEYS = {"tab", "enter"}
+    PUBLISH_PULSE_KEYS = {"tab", "enter", "1", "2", "3", "4", "5"}
 
     def __init__(self):
         self.raw_state_topic = rospy.get_param("~raw_state_topic")
@@ -40,7 +40,7 @@ class KeyboardTeleopGui(object):
         self.root.configure(bg="#f2f3f5")
 
         self.mode_var = tk.StringVar(value="Translator mode: unknown")
-        self.speed_var = tk.StringVar(value="Speed: normal")
+        self.speed_var = tk.StringVar(value="Speed level: 2")
         self.focus_var = tk.StringVar(value="Focus: inactive")
         self.gripper_var = tk.StringVar(value="Gripper target: --")
         self.flipper_var = tk.StringVar(value="Flipper profile: pending")
@@ -94,7 +94,7 @@ class KeyboardTeleopGui(object):
             container,
             text=(
                 "Click this window once to capture keys. Tab switches BASE/ARM mode. "
-                "Enter sends emergency stop. Shift is fast mode and Z is slow mode."
+                "Enter sends emergency stop. Number keys 1-5 switch speed levels."
             ),
             anchor="w",
             justify="left",
@@ -109,8 +109,7 @@ class KeyboardTeleopGui(object):
                 [
                     ("tab", "toggle base / arm mode"),
                     ("enter", "emergency stop"),
-                    ("shift", "fast speed"),
-                    ("z", "slow speed"),
+                    ("1 / 2 / 3 / 4 / 5", "speed level slow -> fast"),
                 ],
             ),
             (
@@ -130,7 +129,7 @@ class KeyboardTeleopGui(object):
                     ("w / s", "linear z + / -"),
                     ("a / d", "linear y + / -"),
                     ("u / o", "linear x + / -"),
-                    ("i / k", "pitch + / -"),
+                    ("i / k", "pitch - / +"),
                     ("j / l", "yaw + / -"),
                     ("q / e", "roll + / -"),
                     ("f / h", "gripper open / close"),
@@ -272,10 +271,10 @@ class KeyboardTeleopGui(object):
             focused = self.focused
 
         translator_mode = status.get("mode", "unknown")
-        speed_mode = status.get("speed_mode", "normal")
+        speed_level = status.get("speed_level", 2)
         stale = bool(status.get("stale", False))
         self.mode_var.set("Translator mode: %s" % translator_mode.upper())
-        self.speed_var.set("Speed: %s" % speed_mode)
+        self.speed_var.set("Speed level: %s" % speed_level)
         self.focus_var.set(
             "Focus: %s%s"
             % ("active" if focused else "inactive", " (stale input)" if stale else "")
