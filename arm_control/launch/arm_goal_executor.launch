@@ -1,8 +1,11 @@
 <launch>
+  <arg name="startup_delay" default="3.0" />
+
   <rosparam command="load" file="$(find arm_control)/config/goal_executor.yaml" />
 
   <node pkg="arm_control"
         type="arm_goal_executor_node.py"
         name="arm_goal_executor_node"
+        launch-prefix="bash -c 'sleep $(arg startup_delay); exec $0 $@'"
         output="screen" />
 </launch>

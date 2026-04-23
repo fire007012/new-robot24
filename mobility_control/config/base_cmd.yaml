@@ -10,7 +10,7 @@ base_cmd_node:
   max_angular_jerk: 8.0
   wheel_separation: 0.438
   cmd_linear_direction_correction: 1.0
-  cmd_angular_direction_correction: 1.0
+  cmd_angular_direction_correction: -1.0
   left_track_direction_correction: 1.0
   right_track_direction_correction: 1.0
   timeout_sec: 0.3
