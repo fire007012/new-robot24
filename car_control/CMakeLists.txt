@@ -44,6 +44,7 @@ catkin_install_python(PROGRAMS
   scripts/servo_twist_frame_bridge_node.py
   scripts/keyboard_teleop_node.py
   scripts/keyboard_teleop_gui.py
+  scripts/flipper_diagnostic_node.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 
