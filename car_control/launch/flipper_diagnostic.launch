@@ -1,0 +1,21 @@
+<launch>
+  <arg name="watch_joint" default="left_front_arm_joint"/>
+  <arg name="long_travel_sign" default="0.0"/>
+  <arg name="threshold_deg" default="30.0"/>
+  <arg name="sample_rate_hz" default="50.0"/>
+  <arg name="sticky_ratio_threshold" default="0.65"/>
+  <arg name="sticky_min_effort" default="0.2"/>
+  <arg name="sticky_min_samples" default="3"/>
+  <arg name="output_path" default=""/>
+
+  <node pkg="car_control" type="flipper_diagnostic_node.py" name="flipper_diagnostic_node" output="screen">
+    <param name="watch_joint" value="$(arg watch_joint)"/>
+    <param name="long_travel_sign" value="$(arg long_travel_sign)"/>
+    <param name="threshold_deg" value="$(arg threshold_deg)"/>
+    <param name="sample_rate_hz" value="$(arg sample_rate_hz)"/>
+    <param name="sticky_ratio_threshold" value="$(arg sticky_ratio_threshold)"/>
+    <param name="sticky_min_effort" value="$(arg sticky_min_effort)"/>
+    <param name="sticky_min_samples" value="$(arg sticky_min_samples)"/>
+    <param name="output_path" value="$(arg output_path)" if="$(eval output_path != '')"/>
+  </node>
+</launch>

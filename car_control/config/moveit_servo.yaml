@@ -16,10 +16,10 @@ command_in_type: "speed_units"
 
 # 输入指令的缩放系数，将原始输入值乘以对应系数得到实际速度
 scale:
-  # 线速度缩放（m/s）：末端线速度 = 输入值 × 0.4
-  linear: 0.4
-  # 角速度缩放（rad/s）：末端角速度 = 输入值 × 0.8
-  rotational: 0.8
+  # 线速度缩放（m/s）：末端线速度 = 输入值 × 0.6
+  linear: 0.6
+  # 角速度缩放（rad/s）：末端角速度 = 输入值 × 1.2
+  rotational: 1.2
   # 关节空间指令缩放（rad/s），用于 delta_joint_cmds 输入
   joint: 0.02
 

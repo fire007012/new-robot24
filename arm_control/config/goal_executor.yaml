@@ -15,8 +15,8 @@ arm_goal_executor_node:
   end_effector_link: ""
 
   # 规划速度/加速度缩放
-  velocity_scaling: 0.2
-  acceleration_scaling: 0.2
+  velocity_scaling: 0.6
+  acceleration_scaling: 0.6
 
   # MoveIt 规划参数
   planning_time: 5.0

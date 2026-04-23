@@ -5,6 +5,7 @@
   <arg name="enable_mobility_control" default="true"/>
   <arg name="enable_gripper_cmd" default="true"/>
   <arg name="enable_moveit_servo" default="true"/>
+  <arg name="enable_arm_goal_executor" default="true"/>
   <arg name="enable_keyboard_teleop" default="false"/>
   <arg name="keyboard_teleop_start_gui" default="true"/>
 
@@ -40,6 +41,9 @@
     <arg name="moveit_controller_manager" value="simple"/>
     <arg name="load_robot_description" value="false"/>
   </include>
+
+  <include if="$(eval arg('enable_moveit') and arg('enable_arm_goal_executor'))"
+           file="$(find arm_control)/launch/arm_goal_executor.launch"/>
 
   <include if="$(eval arg('enable_moveit') and arg('enable_moveit_servo'))"
            file="$(find car_control)/launch/moveit_servo.launch">

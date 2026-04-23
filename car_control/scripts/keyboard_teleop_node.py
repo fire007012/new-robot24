@@ -13,9 +13,8 @@ from std_msgs.msg import Float64, String
 class KeyboardTeleopNode(object):
     MODE_BASE = "base"
     MODE_ARM = "arm"
-    SPEED_NORMAL = "normal"
-    SPEED_FAST = "fast"
-    SPEED_SLOW = "slow"
+    SPEED_LEVELS = (1, 2, 3, 4, 5)
+    DEFAULT_SPEED_LEVEL = 2
 
     def __init__(self):
         self.raw_state_topic = rospy.get_param("~raw_state_topic")
@@ -38,11 +37,20 @@ class KeyboardTeleopNode(object):
         self.gripper_min_position = float(rospy.get_param("~gripper_min_position", 0.0))
         self.gripper_max_position = float(rospy.get_param("~gripper_max_position", 0.044))
         self.gripper_target = float(rospy.get_param("~gripper_initial_position", 0.022))
-        self.gripper_rates = {
-            self.SPEED_NORMAL: float(rospy.get_param("~gripper_rate_normal", 0.03)),
-            self.SPEED_FAST: float(rospy.get_param("~gripper_rate_fast", 0.06)),
-            self.SPEED_SLOW: float(rospy.get_param("~gripper_rate_slow", 0.015)),
-        }
+        self.default_speed_level = self.clamp_speed_level(
+            int(rospy.get_param("~default_speed_level", self.DEFAULT_SPEED_LEVEL))
+        )
+        self.speed_level = self.default_speed_level
+        self.gripper_rates = self.load_speed_levels(
+            "gripper_rate",
+            {
+                1: 0.015,
+                2: 0.03,
+                3: 0.04,
+                4: 0.05,
+                5: 0.06,
+            },
+        )
         self.have_gripper_state = False
 
         self.flipper_jog_topic = rospy.get_param("~flipper_jog_topic")
@@ -52,33 +60,58 @@ class KeyboardTeleopNode(object):
             rospy.get_param("~flipper_profile_retry_sec", 2.0)
         )
         self.flipper_joint_names = list(rospy.get_param("~flipper_joint_names", []))
-        self.flipper_velocities = {
-            self.SPEED_NORMAL: float(rospy.get_param("~flipper_velocity_normal", 0.4)),
-            self.SPEED_FAST: float(rospy.get_param("~flipper_velocity_fast", 0.8)),
-            self.SPEED_SLOW: float(rospy.get_param("~flipper_velocity_slow", 0.2)),
-        }
+        self.flipper_velocities = self.load_speed_levels(
+            "flipper_velocity",
+            {
+                1: 0.2,
+                2: 0.4,
+                3: 0.55,
+                4: 0.7,
+                5: 0.8,
+            },
+        )
         self.flipper_jog_duration = float(rospy.get_param("~flipper_jog_duration", 0.15))
 
-        self.base_linear = {
-            self.SPEED_NORMAL: float(rospy.get_param("~base_linear_normal", 0.4)),
-            self.SPEED_FAST: float(rospy.get_param("~base_linear_fast", 0.8)),
-            self.SPEED_SLOW: float(rospy.get_param("~base_linear_slow", 0.2)),
-        }
-        self.base_angular = {
-            self.SPEED_NORMAL: float(rospy.get_param("~base_angular_normal", 0.8)),
-            self.SPEED_FAST: float(rospy.get_param("~base_angular_fast", 1.5)),
-            self.SPEED_SLOW: float(rospy.get_param("~base_angular_slow", 0.4)),
-        }
-        self.arm_linear = {
-            self.SPEED_NORMAL: float(rospy.get_param("~arm_linear_normal", 0.08)),
-            self.SPEED_FAST: float(rospy.get_param("~arm_linear_fast", 0.15)),
-            self.SPEED_SLOW: float(rospy.get_param("~arm_linear_slow", 0.04)),
-        }
-        self.arm_angular = {
-            self.SPEED_NORMAL: float(rospy.get_param("~arm_angular_normal", 0.4)),
-            self.SPEED_FAST: float(rospy.get_param("~arm_angular_fast", 0.8)),
-            self.SPEED_SLOW: float(rospy.get_param("~arm_angular_slow", 0.2)),
-        }
+        self.base_linear = self.load_speed_levels(
+            "base_linear",
+            {
+                1: 0.2,
+                2: 0.4,
+                3: 0.55,
+                4: 0.7,
+                5: 0.8,
+            },
+        )
+        self.base_angular = self.load_speed_levels(
+            "base_angular",
+            {
+                1: 0.4,
+                2: 0.8,
+                3: 1.0,
+                4: 1.25,
+                5: 1.5,
+            },
+        )
+        self.arm_linear = self.load_speed_levels(
+            "arm_linear",
+            {
+                1: 0.04,
+                2: 0.08,
+                3: 0.10,
+                4: 0.125,
+                5: 0.15,
+            },
+        )
+        self.arm_angular = self.load_speed_levels(
+            "arm_angular",
+            {
+                1: 0.2,
+                2: 0.4,
+                3: 0.55,
+                4: 0.7,
+                5: 0.8,
+            },
+        )
 
         self.mode = self.MODE_BASE
         self.focused = False
@@ -166,6 +199,13 @@ class KeyboardTeleopNode(object):
             if self.mode == self.MODE_BASE:
                 self.ensure_flipper_profile(force=True)
 
+        speed_level_pulses = [
+            int(key) for key in pulses if key.isdigit() and int(key) in self.SPEED_LEVELS
+        ]
+        if speed_level_pulses:
+            self.speed_level = self.clamp_speed_level(speed_level_pulses[-1])
+            rospy.loginfo("keyboard_teleop_node speed_level=%d", self.speed_level)
+
     def on_timer(self, event):
         now = event.current_real
         dt = max((now - self.last_cycle_time).to_sec(), 0.0)
@@ -185,12 +225,12 @@ class KeyboardTeleopNode(object):
             self.publish_status(now, stale=stale)
             return
 
-        speed_mode = self.current_speed_mode()
+        speed_level = self.current_speed_level()
 
         if self.mode == self.MODE_BASE:
-            self.publish_base_outputs(now, speed_mode)
+            self.publish_base_outputs(now, speed_level)
         else:
-            self.publish_arm_outputs(now, dt, speed_mode)
+            self.publish_arm_outputs(now, dt, speed_level)
 
         self.publish_status(now, stale=False)
 
@@ -250,21 +290,21 @@ class KeyboardTeleopNode(object):
                 exc,
             )
 
-    def publish_base_outputs(self, now, speed_mode):
+    def publish_base_outputs(self, now, speed_level):
         cmd = Twist()
-        cmd.linear.x = self.axis_value("w", "s") * self.base_linear[speed_mode]
-        cmd.angular.z = self.axis_value("a", "d") * self.base_angular[speed_mode]
+        cmd.linear.x = self.axis_value("w", "s") * self.base_linear[speed_level]
+        cmd.angular.z = self.axis_value("a", "d") * self.base_angular[speed_level]
         self.base_pub.publish(cmd)
 
         self.publish_zero_servo(now)
-        self.publish_flipper_jog(now, speed_mode)
+        self.publish_flipper_jog(now, speed_level)
 
-    def publish_arm_outputs(self, now, dt, speed_mode):
+    def publish_arm_outputs(self, now, dt, speed_level):
         self.base_pub.publish(Twist())
         self.publish_zero_flipper(now)
 
-        linear = self.arm_linear[speed_mode]
-        angular = self.arm_angular[speed_mode]
+        linear = self.arm_linear[speed_level]
+        angular = self.arm_angular[speed_level]
 
         cmd = TwistStamped()
         cmd.header.stamp = now
@@ -273,11 +313,11 @@ class KeyboardTeleopNode(object):
         cmd.twist.linear.y = self.axis_value("a", "d") * linear
         cmd.twist.linear.z = self.axis_value("w", "s") * linear
         cmd.twist.angular.x = self.axis_value("q", "e") * angular
-        cmd.twist.angular.y = self.axis_value("i", "k") * angular
+        cmd.twist.angular.y = self.axis_value("k", "i") * angular
         cmd.twist.angular.z = self.axis_value("j", "l") * angular
         self.servo_pub.publish(cmd)
 
-        gripper_delta = self.axis_value("f", "h") * self.gripper_rates[speed_mode] * dt
+        gripper_delta = self.axis_value("f", "h") * self.gripper_rates[speed_level] * dt
         if abs(gripper_delta) > 0.0:
             self.gripper_target = self.clamp_gripper(self.gripper_target + gripper_delta)
             self.gripper_pub.publish(Float64(data=self.gripper_target))
@@ -303,11 +343,11 @@ class KeyboardTeleopNode(object):
         msg.duration = self.flipper_jog_duration
         self.flipper_pub.publish(msg)
 
-    def publish_flipper_jog(self, now, speed_mode):
+    def publish_flipper_jog(self, now, speed_level):
         if not self.flipper_joint_names:
             return
 
-        flipper_speed = self.flipper_velocities[speed_mode]
+        flipper_speed = self.flipper_velocities[speed_level]
         key_pairs = [
             ("u", "j"),
             ("i", "k"),
@@ -329,7 +369,8 @@ class KeyboardTeleopNode(object):
     def publish_status(self, now, stale):
         payload = {
             "mode": self.mode,
-            "speed_mode": self.current_speed_mode(),
+            "speed_mode": "level_%d" % self.current_speed_level(),
+            "speed_level": self.current_speed_level(),
             "focused": self.focused,
             "stale": stale,
             "pressed": sorted(self.current_pressed),
@@ -342,12 +383,19 @@ class KeyboardTeleopNode(object):
         }
         self.status_pub.publish(String(data=json.dumps(payload, sort_keys=True)))
 
-    def current_speed_mode(self):
-        if "z" in self.current_pressed:
-            return self.SPEED_SLOW
-        if "shift" in self.current_pressed:
-            return self.SPEED_FAST
-        return self.SPEED_NORMAL
+    def current_speed_level(self):
+        return self.speed_level
+
+    def clamp_speed_level(self, level):
+        return max(self.SPEED_LEVELS[0], min(self.SPEED_LEVELS[-1], level))
+
+    def load_speed_levels(self, prefix, defaults):
+        values = {}
+        for level in self.SPEED_LEVELS:
+            values[level] = float(
+                rospy.get_param("~%s_level_%d" % (prefix, level), defaults[level])
+            )
+        return values
 
     def axis_value(self, positive_key, negative_key):
         value = 0.0
