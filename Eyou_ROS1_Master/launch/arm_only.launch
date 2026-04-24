@@ -1,0 +1,24 @@
+<launch>
+  <arg name="canopen_dcf_path" default="$(find Eyou_Canopen_Master)/config/master_arm_only.dcf"/>
+  <arg name="canopen_joints_path" default="$(find Eyou_Canopen_Master)/config/joints_arm_only.yaml"/>
+  <arg name="can_driver_config" default="$(find can_driver)/config/can_driver_arm_only.yaml"/>
+  <arg name="robot_urdf" default="$(find car_urdf)/urdf/car_urdf.urdf"/>
+  <arg name="loop_hz" default="200.0"/>
+  <arg name="auto_init" default="false"/>
+  <arg name="auto_enable" default="false"/>
+  <arg name="auto_release" default="false"/>
+
+  <include file="$(find Eyou_ROS1_Master)/launch/hybrid_motor_hw.launch">
+    <arg name="canopen_dcf_path" value="$(arg canopen_dcf_path)"/>
+    <arg name="canopen_joints_path" value="$(arg canopen_joints_path)"/>
+    <arg name="can_driver_config" value="$(arg can_driver_config)"/>
+    <arg name="robot_urdf" value="$(arg robot_urdf)"/>
+    <arg name="loop_hz" value="$(arg loop_hz)"/>
+    <arg name="auto_init" value="$(arg auto_init)"/>
+    <arg name="auto_enable" value="$(arg auto_enable)"/>
+    <arg name="auto_release" value="$(arg auto_release)"/>
+    <arg name="controllers_file" value="$(find Eyou_ROS1_Master)/config/controllers_jtc.yaml"/>
+    <arg name="start_controllers" value="joint_state_controller arm_position_controller gripper_controller"/>
+    <arg name="stopped_controllers" value=""/>
+  </include>
+</launch>
