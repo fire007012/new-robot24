@@ -11,3 +11,4 @@ car_urdf_nouse/
 Testing/
 control/
 arm_traj_splitter/
+build/
