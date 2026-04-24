@@ -14,6 +14,7 @@ Eyou_ROS1_Master/
 |   |-- README.md
 |   `-- 归档/
 |-- launch/
+|   |-- arm_only.launch
 |   |-- hybrid_motor_hw.launch
 |   `-- hybrid_moveit_servo.launch
 |-- msg/
@@ -50,6 +51,12 @@ source devel/setup.bash
 
 ```bash
 roslaunch Eyou_ROS1_Master hybrid_motor_hw.launch
+```
+
+仅启动机械臂：
+
+```bash
+roslaunch Eyou_ROS1_Master arm_only.launch
 ```
 
 覆盖关键配置路径：
@@ -128,6 +135,8 @@ rosrun Eyou_ROS1_Master hybrid_joint_action_ui.py \
   - 统一 mode 字符串到后端实际模式的映射
 - `launch/hybrid_motor_hw.launch`
   - 默认启动入口
+- `launch/arm_only.launch`
+  - 机械臂专用入口，使用 `master_arm_only.dcf + joints_arm_only.yaml + can_driver_arm_only.yaml`
 
 关键消息 / 服务：
 

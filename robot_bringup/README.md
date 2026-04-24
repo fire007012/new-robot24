@@ -39,6 +39,19 @@ roslaunch robot_bringup full_system_simulate.launch
 roslaunch robot_bringup full_system.launch
 ```
 
+分组启动入口已经下放到各自包内维护：
+
+```bash
+# 仅启动机械臂（跨包 hybrid）
+roslaunch Eyou_ROS1_Master arm_only.launch
+
+# 仅启动摆臂（CANopen 4 轴）
+roslaunch Eyou_Canopen_Master flipper_only.launch
+
+# 仅启动履带（can_driver + diff_drive_controller）
+roslaunch can_driver tracks_only.launch
+```
+
 `full_system.launch` 依赖 `Eyou_ROS1_Master`，并默认从 `Eyou_Canopen_Master` 读取 DCF 和关节配置；如果包名或路径不同，需要显式覆盖 `canopen_dcf_path` 和 `canopen_joints_path`。
 
 ## 常用命令
@@ -63,6 +76,10 @@ roslaunch robot_bringup full_system.launch enable_rviz:=false
   - 启动 Gazebo、底盘控制、摆臂控制、夹爪命令、MoveIt、RViz。
 - `full_system.launch`
   - 以 `Eyou_ROS1_Master` 为硬件统一门面，再接入同一套上层控制节点。
+- 分组启动入口
+  - `Eyou_ROS1_Master/arm_only.launch`
+  - `Eyou_Canopen_Master/flipper_only.launch`
+  - `can_driver/tracks_only.launch`
 - `keyboard_moveit_server.py`
   - 笛卡尔平移：`w/a/s/d/r/f`
   - 姿态调节：`i/j/k/l/u/o`

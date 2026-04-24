@@ -31,5 +31,7 @@
 
 ## 项目级相关文档
 
-- [`../../docs/17_can_driver解耦与Eyou_ROS1_Master事务回滚修复报告_2026-04-09.md`](../../docs/17_can_driver%E8%A7%A3%E8%80%A6%E4%B8%8EEyou_ROS1_Master%E4%BA%8B%E5%8A%A1%E5%9B%9E%E6%BB%9A%E4%BF%AE%E5%A4%8D%E6%8A%A5%E5%91%8A_2026-04-09.md)
 - [`../../docs/20_电机生命周期管理约定_2026-04-15.md`](../../docs/20_%E7%94%B5%E6%9C%BA%E7%94%9F%E5%91%BD%E5%91%A8%E6%9C%9F%E7%AE%A1%E7%90%86%E7%BA%A6%E5%AE%9A_2026-04-15.md)
+  - 当前统一生命周期接口口径
+- [`../../docs/归档/17_can_driver解耦与Eyou_ROS1_Master事务回滚修复报告_2026-04-09.md`](../../docs/%E5%BD%92%E6%A1%A3/17_can_driver%E8%A7%A3%E8%80%A6%E4%B8%8EEyou_ROS1_Master%E4%BA%8B%E5%8A%A1%E5%9B%9E%E6%BB%9A%E4%BF%AE%E5%A4%8D%E6%8A%A5%E5%91%8A_2026-04-09.md)
+  - 历史修复背景

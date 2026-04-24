@@ -30,10 +30,8 @@
 
 ## 历史设计参考
 
-当前包内没有需要单独归档的历史报告。与摆臂控制相关的阶段性设计/实施记录暂时保留在项目级 `docs/`：
+当前包内没有需要单独归档的历史报告。与摆臂控制相关的阶段性设计/实施记录已归入项目级 `docs/归档/`：
 
-- [/home/rera/robot24_ws/src/docs/19_控制包拆分与当前结构说明_2026-04-14.md](/home/rera/robot24_ws/src/docs/19_控制包拆分与当前结构说明_2026-04-14.md)
-- [/home/rera/robot24_ws/src/docs/21_摆臂控制器模式与冷切换设计_2026-04-15.md](/home/rera/robot24_ws/src/docs/21_摆臂控制器模式与冷切换设计_2026-04-15.md)
-- [/home/rera/robot24_ws/src/docs/22_摆臂控制落地与提交路线图_2026-04-15.md](/home/rera/robot24_ws/src/docs/22_摆臂控制落地与提交路线图_2026-04-15.md)
-
-如果后续这些文档不再需要作为项目级资料，可以再迁入本包的 `docs/归档/`。
+- [/home/rera/robot24_ws/src/docs/归档/19_控制包拆分与当前结构说明_2026-04-14.md](/home/rera/robot24_ws/src/docs/归档/19_控制包拆分与当前结构说明_2026-04-14.md)
+- [/home/rera/robot24_ws/src/docs/归档/21_摆臂控制器模式与冷切换设计_2026-04-15.md](/home/rera/robot24_ws/src/docs/归档/21_摆臂控制器模式与冷切换设计_2026-04-15.md)
+- [/home/rera/robot24_ws/src/docs/归档/22_摆臂控制落地与提交路线图_2026-04-15.md](/home/rera/robot24_ws/src/docs/归档/22_摆臂控制落地与提交路线图_2026-04-15.md)
