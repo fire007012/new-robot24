@@ -12,13 +12,13 @@
   <arg name="can_driver_config"   default="$(find can_driver)/config/can_driver.yaml"/>
   <arg name="joint_mode_mappings_file" default="$(find Eyou_ROS1_Master)/config/joint_mode_mappings.yaml"/>
 
-  <!-- ros_controllers（默认走 JTC） -->
+  <!-- ros_controllers（摆臂默认走 CSV forward，机械臂仍走 JTC） -->
   <arg name="controllers_file"    default="$(find Eyou_ROS1_Master)/config/controllers_jtc.yaml"/>
   <arg name="spawn_controllers"   default="true"/>
   <arg name="start_gripper_controller" default="false"/>
   <arg name="start_controllers"
-       default="$(eval 'joint_state_controller arm_position_controller gripper_controller flipper_csp_controller wheel_controller' if str(start_gripper_controller).lower() == 'true' else 'joint_state_controller arm_position_controller flipper_csp_controller wheel_controller')"/>
-  <arg name="stopped_controllers" default="flipper_csv_controller"/>
+       default="$(eval 'joint_state_controller arm_position_controller gripper_controller flipper_csv_forward_controller wheel_controller' if str(start_gripper_controller).lower() == 'true' else 'joint_state_controller arm_position_controller flipper_csv_forward_controller wheel_controller')"/>
+  <arg name="stopped_controllers" default="flipper_csp_controller"/>
 
   <!-- 控制循环频率 -->
   <arg name="loop_hz"             default="200.0"/>
