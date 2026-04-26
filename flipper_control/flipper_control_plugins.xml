@@ -1,0 +1,10 @@
+<library path="lib/libflipper_control_controllers">
+  <class name="flipper_control/JointGroupVelocityController"
+         type="flipper_control::JointGroupVelocityController"
+         base_class_type="controller_interface::ControllerBase">
+    <description>
+      Realtime-friendly group velocity forward controller for flipper CSV
+      teleoperation.
+    </description>
+  </class>
+</library>

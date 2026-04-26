@@ -110,6 +110,34 @@ TEST(FlipperReferenceGeneratorTest, TimeoutZerosVelocityWithoutDriftingFurther) 
   EXPECT_NEAR(generator.filtered_velocities()[0], 0.0, 1e-9);
 }
 
+TEST(FlipperReferenceGeneratorTest, NoCommandKeepsZeroVelocityOutput) {
+  auto generator = MakeGenerator();
+
+  std::string error;
+  ASSERT_TRUE(generator.SetMeasuredPositions({0.5, -0.4, 0.3, -0.2}, &error)) << error;
+  ASSERT_TRUE(generator.Step(ros::Time(0.1), 0.01));
+
+  EXPECT_TRUE(generator.command_timed_out());
+  EXPECT_NEAR(generator.filtered_velocities()[0], 0.0, 1e-9);
+}
+
+TEST(FlipperReferenceGeneratorTest, ClearVelocityCommandStopsFurtherOutput) {
+  auto generator = MakeGenerator();
+
+  std::string error;
+  ASSERT_TRUE(generator.UpdateVelocityCommand({"left_front_arm_joint"}, {1.0},
+                                              ros::Time(0.0), &error))
+      << error;
+  ASSERT_TRUE(generator.Step(ros::Time(0.1), 0.01));
+
+  generator.ClearVelocityCommand();
+  ASSERT_TRUE(generator.SetMeasuredPositions({0.6, -0.2, 0.1, -0.1}, &error)) << error;
+  ASSERT_TRUE(generator.Step(ros::Time(0.2), 0.01));
+
+  EXPECT_TRUE(generator.command_timed_out());
+  EXPECT_NEAR(generator.filtered_velocities()[0], 0.0, 1e-9);
+}
+
 TEST(FlipperReferenceGeneratorTest, ConflictingLinkedInputsAreRejected) {
   auto generator = MakeGenerator();
   generator.SetLinkageMode(LinkageMode::kLeftRightMirror);

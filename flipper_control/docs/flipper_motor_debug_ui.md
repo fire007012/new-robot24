@@ -20,7 +20,7 @@
 - `Runtime Summary`
   - 显示 `backend`、`backend_ns`、`active_profile`、`hardware_mode`、`active_controller`、`linkage_mode`、`switch_state`、`lifecycle`、`lifecycle_src`、`ready`、`switching`、`timed_out`、`degraded` 和 `detail`。
 - `Backend Ops`
-  - 显示 `joint_state_controller`、`flipper_csp_controller`、`flipper_csv_controller` 的当前状态。
+  - 显示 `joint_state_controller`、`flipper_csp_controller`、`flipper_csv_forward_controller` 的当前状态。
   - 提供 `init / enable / disable / halt / resume / recover / shutdown` 按钮。
   - 显示后端侧概览信息 `backend_detail`。
 - `Mode Control`
@@ -130,7 +130,7 @@ rosrun flipper_control flipper_motor_debug_ui.py \
 - 再看 `Backend Ops` 里的三个 controller state。
 - 正常情况下：
   - `joint_state_controller` 应处于 `running`。
-  - 当前使用的 `flipper_csp_controller` 或 `flipper_csv_controller` 应处于 `running`。
+  - 当前使用的 `flipper_csp_controller` 或 `flipper_csv_forward_controller` 应处于 `running`。
   - 未使用的那个控制器可能是 `stopped`。
 
 如果 `active_controller` 已经切过来，但 `list_controllers` 里目标控制器不是 `running`，就说明链路没有真正切通。

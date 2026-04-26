@@ -2,12 +2,16 @@ cmake_minimum_required(VERSION 3.0.2)
 project(flipper_control)
 
 find_package(catkin REQUIRED COMPONENTS
+  controller_interface
   controller_manager_msgs
   control_msgs
   diagnostic_msgs
   Eyou_Canopen_Master
   Eyou_ROS1_Master
+  hardware_interface
   message_generation
+  pluginlib
+  realtime_tools
   roscpp
   sensor_msgs
   std_msgs
@@ -34,14 +38,18 @@ generate_messages(
 
 catkin_package(
   INCLUDE_DIRS include
-  LIBRARIES flipper_control_core
+  LIBRARIES flipper_control_core flipper_control_controllers
   CATKIN_DEPENDS
+    controller_interface
     controller_manager_msgs
     control_msgs
     diagnostic_msgs
     Eyou_Canopen_Master
     Eyou_ROS1_Master
+    hardware_interface
     message_runtime
+    pluginlib
+    realtime_tools
     roscpp
     sensor_msgs
     std_msgs
@@ -68,6 +76,17 @@ add_dependencies(flipper_control_core
   ${catkin_EXPORTED_TARGETS}
 )
 target_link_libraries(flipper_control_core
+  ${catkin_LIBRARIES}
+)
+
+add_library(flipper_control_controllers
+  src/joint_group_velocity_controller.cpp
+)
+add_dependencies(flipper_control_controllers
+  ${${PROJECT_NAME}_EXPORTED_TARGETS}
+  ${catkin_EXPORTED_TARGETS}
+)
+target_link_libraries(flipper_control_controllers
   ${catkin_LIBRARIES}
 )
 
@@ -99,7 +118,7 @@ if(CATKIN_ENABLE_TESTING)
   endif()
 endif()
 
-install(TARGETS flipper_control_core flipper_manager_node
+install(TARGETS flipper_control_core flipper_control_controllers flipper_manager_node
   ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
   LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
   RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
@@ -110,5 +129,9 @@ install(DIRECTORY include/${PROJECT_NAME}/
 )
 
 install(DIRECTORY launch config docs
+  DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}
+)
+
+install(FILES flipper_control_plugins.xml
   DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}
 )

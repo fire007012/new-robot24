@@ -14,6 +14,7 @@
 #include <diagnostic_msgs/DiagnosticArray.h>
 #include <ros/ros.h>
 #include <sensor_msgs/JointState.h>
+#include <std_msgs/Float64MultiArray.h>
 #include <std_msgs/String.h>
 #include <std_srvs/Trigger.h>
 #include <trajectory_msgs/JointTrajectory.h>
@@ -46,6 +47,11 @@ enum class HardwareMode {
 enum class BackendType {
   kHybrid = 0,
   kCanopen,
+};
+
+enum class CsvCommandInterface {
+  kTrajectory = 0,
+  kMultiArray,
 };
 
 std::string ToString(ControlProfile profile) {
@@ -90,6 +96,22 @@ bool ParseBackendType(const std::string& value, BackendType* backend_type) {
   }
   if (value == "canopen") {
     *backend_type = BackendType::kCanopen;
+    return true;
+  }
+  return false;
+}
+
+bool ParseCsvCommandInterface(const std::string& value,
+                              CsvCommandInterface* command_interface) {
+  if (command_interface == nullptr) {
+    return false;
+  }
+  if (value == "trajectory") {
+    *command_interface = CsvCommandInterface::kTrajectory;
+    return true;
+  }
+  if (value == "multi_array") {
+    *command_interface = CsvCommandInterface::kMultiArray;
     return true;
   }
   return false;
@@ -213,8 +235,14 @@ class FlipperManagerNode {
     active_profile_pub_ = pnh_.advertise<std_msgs::String>("active_profile", 5, true);
     csp_command_pub_ = nh_.advertise<trajectory_msgs::JointTrajectory>(
         ControllerCommandTopic(controllers_.csp), 5);
-    csv_command_pub_ = nh_.advertise<trajectory_msgs::JointTrajectory>(
-        ControllerCommandTopic(controllers_.csv), 5);
+    if (csv_command_interface_ == CsvCommandInterface::kTrajectory) {
+      csv_command_pub_ = nh_.advertise<trajectory_msgs::JointTrajectory>(
+          ControllerCommandTopic(controllers_.csv), 5);
+    } else {
+      csv_velocity_command_pub_ =
+          nh_.advertise<std_msgs::Float64MultiArray>(
+              ControllerCommandTopic(controllers_.csv), 5);
+    }
 
     set_profile_srv_ = pnh_.advertiseService(
         "set_control_profile", &FlipperManagerNode::OnSetControlProfile, this);
@@ -258,7 +286,7 @@ class FlipperManagerNode {
  private:
   struct ControllerNames {
     std::string csp = "flipper_csp_controller";
-    std::string csv = "flipper_csv_controller";
+    std::string csv = "flipper_csv_forward_controller";
   };
 
   struct CanopenDiagnosticState {
@@ -356,6 +384,15 @@ class FlipperManagerNode {
 
     pnh_.param("controllers/csp", controllers_.csp, controllers_.csp);
     pnh_.param("controllers/csv", controllers_.csv, controllers_.csv);
+    std::string csv_command_interface = "trajectory";
+    pnh_.param("csv_command_interface", csv_command_interface,
+               csv_command_interface);
+    if (!ParseCsvCommandInterface(csv_command_interface,
+                                  &csv_command_interface_)) {
+      ROS_WARN("Unknown csv_command_interface '%s', fallback to trajectory",
+               csv_command_interface.c_str());
+      csv_command_interface_ = CsvCommandInterface::kTrajectory;
+    }
 
     std::string backend_type = "hybrid";
     pnh_.param("backend_type", backend_type, backend_type);
@@ -705,11 +742,14 @@ class FlipperManagerNode {
       return;
     }
 
-    const trajectory_msgs::JointTrajectory cmd = BuildJogTrajectory(event.current_real);
     if (active_profile_ == ControlProfile::kCsvVelocity) {
-      csv_command_pub_.publish(cmd);
+      if (csv_command_interface_ == CsvCommandInterface::kMultiArray) {
+        PublishCsvVelocityCommand(generator_->filtered_velocities());
+      } else {
+        csv_command_pub_.publish(BuildJogTrajectory(event.current_real));
+      }
     } else {
-      csp_command_pub_.publish(cmd);
+      csp_command_pub_.publish(BuildJogTrajectory(event.current_real));
     }
   }
 
@@ -1078,6 +1118,12 @@ class FlipperManagerNode {
       return;
     }
 
+    if (mode == HardwareMode::kCsv &&
+        csv_command_interface_ == CsvCommandInterface::kMultiArray) {
+      PublishCsvVelocityCommand(std::vector<double>(joint_names_.size(), 0.0));
+      return;
+    }
+
     trajectory_msgs::JointTrajectory traj;
     traj.header.stamp = stamp;
     traj.joint_names = joint_names_;
@@ -1094,6 +1140,14 @@ class FlipperManagerNode {
     } else {
       csp_command_pub_.publish(traj);
     }
+  }
+
+  void PublishCsvVelocityCommand(
+      const std::vector<double>& semantic_velocities) {
+    std_msgs::Float64MultiArray msg;
+    msg.data = semantic_velocities;
+    TransformOrderedValuesToHardware(&msg.data);
+    csv_velocity_command_pub_.publish(msg);
   }
 
   bool WaitForService(ros::ServiceClient* client, const std::string& name,
@@ -1295,6 +1349,7 @@ class FlipperManagerNode {
 
   ros::Publisher csp_command_pub_;
   ros::Publisher csv_command_pub_;
+  ros::Publisher csv_velocity_command_pub_;
   ros::Publisher state_pub_;
   ros::Publisher active_profile_pub_;
 
@@ -1330,6 +1385,7 @@ class FlipperManagerNode {
   bool have_canopen_diag_;
   bool have_runtime_state_;
   bool require_backend_feedback_;
+  CsvCommandInterface csv_command_interface_ = CsvCommandInterface::kTrajectory;
 
   BackendType backend_type_ = BackendType::kHybrid;
   std::map<std::string, Eyou_ROS1_Master::JointRuntimeState> runtime_state_map_;

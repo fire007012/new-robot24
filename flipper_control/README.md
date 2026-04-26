@@ -42,7 +42,7 @@ flipper_manager_node
   - CSP <-> CSV 冷切换
         |
         +--> /flipper_csp_controller/command
-        `--> /flipper_csv_controller/command
+        `--> /flipper_csv_forward_controller/command
                 |
                 +--> hybrid backend: /hybrid_motor_hw_node
                 `--> canopen backend: /canopen_hw_node
@@ -94,7 +94,7 @@ rosrun flipper_control flipper_motor_debug_ui.py \
   - 读取 `/hybrid_motor_hw_node/joint_runtime_states`，显示真实生命周期、online/enabled/fault。
 - `canopen`
   - 读取 `/diagnostics` 与 controller manager 状态，提供 `init/enable/disable/halt/resume/recover/shutdown` 按钮，并给出 lifecycle 估计值与来源。
-- 两种后端都会显示 `joint_state_controller` / `flipper_csp_controller` / `flipper_csv_controller` 的当前状态，便于确认命令是否经过控制器。
+- 两种后端都会显示 `joint_state_controller` / `flipper_csp_controller` / `flipper_csv_forward_controller` 的当前状态，便于确认命令是否经过控制器。
 
 ## 接口速查
 
@@ -121,7 +121,9 @@ rosrun flipper_control flipper_motor_debug_ui.py \
 - `~state` `flipper_control/FlipperControlState`
 - `~active_profile` `std_msgs/String`
 - `/<csp_controller>/command` `trajectory_msgs/JointTrajectory`
-- `/<csv_controller>/command` `trajectory_msgs/JointTrajectory`
+- `/<csv_controller>/command`
+  - `csv_command_interface=trajectory` 时为 `trajectory_msgs/JointTrajectory`
+  - `csv_command_interface=multi_array` 时为 `std_msgs/Float64MultiArray`
 
 服务：
 
@@ -196,6 +198,8 @@ rostopic echo /flipper_control/state
   - 控制循环与状态发布频率。
 - `command_timeout`
   - `jog` 超时后自动清零速度。
+- `csv_velocity`
+  - 为纯速度命令链，不叠加位置持位或位置纠偏。
 - `dt_clamp` / `jog_velocity_alpha` / `reference_drift_threshold`
   - 参考生成器稳定性参数。
 - `require_backend_feedback`

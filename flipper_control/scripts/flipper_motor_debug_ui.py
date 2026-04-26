@@ -308,7 +308,8 @@ class FlipperMotorDebugUi:
             ),
             "csv": str(
                 rospy.get_param(
-                    self.flipper_ns + "/controllers/csv", "flipper_csv_controller"
+                    self.flipper_ns + "/controllers/csv",
+                    "flipper_csv_forward_controller",
                 )
             ),
         }

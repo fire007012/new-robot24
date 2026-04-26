@@ -226,9 +226,14 @@ bool FlipperReferenceGenerator::Step(const ros::Time& now, double dt_sec) {
 
   const double clamped_dt = ClampValue(dt_sec, 0.0, dt_clamp_sec_);
   std::vector<double> limited_target = target_velocities_;
-  if (has_velocity_command_ && command_timeout_sec_ > 0.0 &&
-      (now - last_velocity_command_stamp_).toSec() > command_timeout_sec_) {
+  if (!has_velocity_command_) {
     std::fill(limited_target.begin(), limited_target.end(), 0.0);
+    std::fill(filtered_velocities_.begin(), filtered_velocities_.end(), 0.0);
+    command_timed_out_ = true;
+  } else if (command_timeout_sec_ > 0.0 &&
+             (now - last_velocity_command_stamp_).toSec() > command_timeout_sec_) {
+    std::fill(limited_target.begin(), limited_target.end(), 0.0);
+    std::fill(filtered_velocities_.begin(), filtered_velocities_.end(), 0.0);
     command_timed_out_ = true;
   } else {
     command_timed_out_ = false;

@@ -5,6 +5,9 @@
   <arg name="canopen_ns" default="/canopen_hw_node"/>
   <arg name="canopen_diagnostics_topic" default="/diagnostics"/>
   <arg name="require_backend_feedback" default="true"/>
+  <arg name="initial_profile" default="csv_velocity"/>
+  <arg name="csv_command_interface" default="multi_array"/>
+  <arg name="csv_controller" default=""/>
 
   <rosparam file="$(arg config_file)" command="load" ns="flipper_control"/>
   <param name="flipper_control/backend_type" value="$(arg backend_type)"/>
@@ -12,6 +15,10 @@
   <param name="flipper_control/canopen_ns" value="$(arg canopen_ns)"/>
   <param name="flipper_control/canopen_diagnostics_topic" value="$(arg canopen_diagnostics_topic)"/>
   <param name="flipper_control/require_backend_feedback" value="$(arg require_backend_feedback)"/>
+  <param name="flipper_control/initial_profile" value="$(arg initial_profile)"/>
+  <param name="flipper_control/csv_command_interface" value="$(arg csv_command_interface)"/>
+  <param name="flipper_control/controllers/csv" value="$(arg csv_controller)"
+         if="$(eval arg('csv_controller') != '')"/>
 
   <node name="flipper_control"
         pkg="flipper_control"

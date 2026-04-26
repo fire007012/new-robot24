@@ -12,16 +12,17 @@ direction_corrections:
 
 controllers:
   csp: flipper_csp_controller
-  csv: flipper_csv_controller
+  csv: flipper_csv_forward_controller
 
-initial_profile: csp_position
+initial_profile: csv_velocity
 initial_linkage_mode: independent
+csv_command_interface: multi_array
 
 control_loop_hz: 100.0
 state_publish_hz: 20.0
 command_timeout: 0.4
 dt_clamp: 0.02
-jog_velocity_alpha: 1.0
+jog_velocity_alpha: 0.35
 reference_drift_threshold: 0.35
 require_backend_feedback: true
 short_horizon: 0.10
