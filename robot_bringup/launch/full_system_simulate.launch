@@ -25,12 +25,16 @@
     <arg name="world_name" value="$(arg world_name)"/>
     <arg name="world_pose" value="$(arg world_pose)"/>
     <arg name="initial_joint_positions" value="$(arg initial_joint_positions)"/>
+    <arg name="flipper_controller" value="flipper_csv_forward_controller"/>
   </include>
 
   <!-- Northbound chassis and flipper control -->
   <include if="$(arg enable_mobility_control)" file="$(find mobility_control)/launch/base_cmd.launch"/>
   <include if="$(arg enable_flipper_control)" file="$(find flipper_control)/launch/flipper_control.launch">
     <arg name="require_backend_feedback" value="false"/>
+    <arg name="initial_profile" value="csv_velocity"/>
+    <arg name="csv_command_interface" value="multi_array"/>
+    <arg name="csv_controller" value="flipper_csv_forward_controller"/>
   </include>
   <include if="$(arg enable_gripper_cmd)" file="$(find arm_control)/launch/gripper_cmd.launch"/>
 
