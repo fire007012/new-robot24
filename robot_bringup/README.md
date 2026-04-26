@@ -18,6 +18,9 @@ robot_bringup/
 |   |-- full_system_simulate.launch
 |   `-- keyboard_moveit_server.launch
 `-- scripts/
+    |-- bringup_can_interfaces.sh
+    |-- bringup_canable0.sh
+    |-- bringup_canable1.sh
     |-- keyboard_moveit_server.py
     `-- wait_for_graph.sh
 ```
@@ -68,6 +71,15 @@ roslaunch robot_bringup full_system_simulate.launch enable_rviz:=false
 
 # 实机入口，关闭 RViz
 roslaunch robot_bringup full_system.launch enable_rviz:=false
+
+# 同时启动 canable0 和 canable1
+rosrun robot_bringup bringup_can_interfaces.sh
+
+# 仅启动 canable0
+rosrun robot_bringup bringup_canable0.sh
+
+# 仅启动 canable1
+rosrun robot_bringup bringup_canable1.sh
 ```
 
 ## 节点与接口摘要
@@ -92,6 +104,12 @@ roslaunch robot_bringup full_system.launch enable_rviz:=false
   - 检查 `/move_group/status`
   - 检查两条 `follow_joint_trajectory` goal 接口
   - 检查 `/joint_states`
+- `bringup_can_interfaces.sh`
+  - 依次按 `1000000` bitrate 和 `10000` txqueuelen 配置并拉起 `canable0`、`canable1`
+- `bringup_canable0.sh`
+  - 单独配置并拉起 `canable0`
+- `bringup_canable1.sh`
+  - 单独配置并拉起 `canable1`
 
 ## 详细文档索引
 

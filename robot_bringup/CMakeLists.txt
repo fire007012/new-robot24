@@ -121,6 +121,9 @@ install(DIRECTORY launch
 )
 
 install(PROGRAMS
+  scripts/bringup_can_interfaces.sh
+  scripts/bringup_canable0.sh
+  scripts/bringup_canable1.sh
   scripts/wait_for_graph.sh
   scripts/keyboard_moveit_server.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
