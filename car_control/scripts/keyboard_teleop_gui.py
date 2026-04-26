@@ -1,10 +1,18 @@
 #!/usr/bin/env python3
 
 import json
+import os
+import sys
 import threading
 
 import rospy
 from std_msgs.msg import String
+
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+if SCRIPT_DIR not in sys.path:
+    sys.path.insert(0, SCRIPT_DIR)
+
+from keyboard_teleop_node import KeyboardTeleopNode
 
 try:
     import tkinter as tk
@@ -15,12 +23,32 @@ except ImportError as exc:
 
 class KeyboardTeleopGui(object):
     PUBLISH_PULSE_KEYS = {"tab", "enter", "1", "2", "3", "4", "5"}
+    DEFAULT_RAW_STATE_TOPIC = "/car_control/keyboard_teleop/raw_state"
+    DEFAULT_STATUS_TOPIC = "/car_control/keyboard_teleop/status"
+    DEFAULT_PUBLISH_RATE = 30.0
+    DEFAULT_WINDOW_TITLE = "Robot24 Keyboard Teleop"
+    DEFAULT_EMBED_TRANSLATOR = True
 
     def __init__(self):
-        self.raw_state_topic = rospy.get_param("~raw_state_topic")
-        self.status_topic = rospy.get_param("~status_topic")
-        self.publish_rate = float(rospy.get_param("~publish_rate", 30.0))
-        self.window_title = rospy.get_param("~window_title", "Robot24 Keyboard Teleop")
+        self.raw_state_topic = rospy.get_param(
+            "~raw_state_topic", self.DEFAULT_RAW_STATE_TOPIC
+        )
+        self.status_topic = rospy.get_param(
+            "~status_topic", self.DEFAULT_STATUS_TOPIC
+        )
+        self.publish_rate = float(
+            rospy.get_param("~publish_rate", self.DEFAULT_PUBLISH_RATE)
+        )
+        self.window_title = rospy.get_param(
+            "~window_title", self.DEFAULT_WINDOW_TITLE
+        )
+        self.embed_translator = bool(
+            rospy.get_param("~embed_translator", self.DEFAULT_EMBED_TRANSLATOR)
+        )
+        self.translator = None
+
+        if self.embed_translator:
+            self.translator = KeyboardTeleopNode()
 
         self.state_pub = rospy.Publisher(self.raw_state_topic, String, queue_size=10)
         self.status_sub = rospy.Subscriber(
@@ -55,7 +83,10 @@ class KeyboardTeleopGui(object):
         self.root.after(0, self.tick)
 
         rospy.loginfo(
-            "keyboard_teleop_gui started: raw=%s status=%s", self.raw_state_topic, self.status_topic
+            "keyboard_teleop_gui started: raw=%s status=%s embed_translator=%s",
+            self.raw_state_topic,
+            self.status_topic,
+            self.embed_translator,
         )
 
     def build_ui(self):

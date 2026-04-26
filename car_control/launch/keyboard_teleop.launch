@@ -14,5 +14,7 @@
         pkg="car_control"
         type="keyboard_teleop_gui.py"
         name="keyboard_teleop_gui"
-        output="screen" />
+        output="screen">
+    <param name="embed_translator" value="$(eval 'false' if arg('start_translator') else 'true')"/>
+  </node>
 </launch>

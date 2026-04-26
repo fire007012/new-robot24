@@ -15,25 +15,61 @@ class KeyboardTeleopNode(object):
     MODE_ARM = "arm"
     SPEED_LEVELS = (1, 2, 3, 4, 5)
     DEFAULT_SPEED_LEVEL = 2
+    DEFAULT_RAW_STATE_TOPIC = "/car_control/keyboard_teleop/raw_state"
+    DEFAULT_STATUS_TOPIC = "/car_control/keyboard_teleop/status"
+    DEFAULT_PUBLISH_RATE = 30.0
+    DEFAULT_INPUT_TIMEOUT = 0.3
+    DEFAULT_CHASSIS_CMD_TOPIC = "/cmd_vel"
+    DEFAULT_SERVO_CMD_TOPIC = "/servo_server/delta_twist_cmds"
+    DEFAULT_SERVO_FRAME_PARAM = "/servo_server/robot_link_command_frame"
+    DEFAULT_SERVO_FRAME = "catch_camera"
+    DEFAULT_GRIPPER_POSITION_TOPIC = "/arm_control/gripper_position"
+    DEFAULT_GRIPPER_JOINT_NAME = "left_gripper_finger_joint"
+    DEFAULT_JOINT_STATES_TOPIC = "/joint_states"
+    DEFAULT_FLIPPER_JOG_TOPIC = "/flipper_control/jog_cmd"
+    DEFAULT_FLIPPER_PROFILE_SERVICE = "/flipper_control/set_control_profile"
+    DEFAULT_FLIPPER_TARGET_PROFILE = "csv_velocity"
+    DEFAULT_FLIPPER_JOINT_NAMES = [
+        "left_front_arm_joint",
+        "right_front_arm_joint",
+        "left_rear_arm_joint",
+        "right_rear_arm_joint",
+    ]
 
     def __init__(self):
-        self.raw_state_topic = rospy.get_param("~raw_state_topic")
-        self.status_topic = rospy.get_param("~status_topic")
-        self.publish_rate = float(rospy.get_param("~publish_rate", 30.0))
-        self.input_timeout = float(rospy.get_param("~input_timeout", 0.3))
+        self.raw_state_topic = rospy.get_param(
+            "~raw_state_topic", self.DEFAULT_RAW_STATE_TOPIC
+        )
+        self.status_topic = rospy.get_param(
+            "~status_topic", self.DEFAULT_STATUS_TOPIC
+        )
+        self.publish_rate = float(
+            rospy.get_param("~publish_rate", self.DEFAULT_PUBLISH_RATE)
+        )
+        self.input_timeout = float(
+            rospy.get_param("~input_timeout", self.DEFAULT_INPUT_TIMEOUT)
+        )
 
-        self.chassis_cmd_topic = rospy.get_param("~chassis_cmd_topic")
-        self.servo_cmd_topic = rospy.get_param("~servo_cmd_topic")
+        self.chassis_cmd_topic = rospy.get_param(
+            "~chassis_cmd_topic", self.DEFAULT_CHASSIS_CMD_TOPIC
+        )
+        self.servo_cmd_topic = rospy.get_param(
+            "~servo_cmd_topic", self.DEFAULT_SERVO_CMD_TOPIC
+        )
         self.servo_command_frame_param = rospy.get_param(
-            "~servo_command_frame_param", "/servo_server/robot_link_command_frame"
+            "~servo_command_frame_param", self.DEFAULT_SERVO_FRAME_PARAM
         )
-        self.servo_frame = rospy.get_param("~servo_frame", "catch_camera")
+        self.servo_frame = rospy.get_param("~servo_frame", self.DEFAULT_SERVO_FRAME)
 
-        self.gripper_position_topic = rospy.get_param("~gripper_position_topic")
-        self.gripper_joint_name = rospy.get_param(
-            "~gripper_joint_name", "left_gripper_finger_joint"
+        self.gripper_position_topic = rospy.get_param(
+            "~gripper_position_topic", self.DEFAULT_GRIPPER_POSITION_TOPIC
         )
-        self.joint_states_topic = rospy.get_param("~joint_states_topic", "/joint_states")
+        self.gripper_joint_name = rospy.get_param(
+            "~gripper_joint_name", self.DEFAULT_GRIPPER_JOINT_NAME
+        )
+        self.joint_states_topic = rospy.get_param(
+            "~joint_states_topic", self.DEFAULT_JOINT_STATES_TOPIC
+        )
         self.gripper_min_position = float(rospy.get_param("~gripper_min_position", 0.0))
         self.gripper_max_position = float(rospy.get_param("~gripper_max_position", 0.044))
         self.gripper_target = float(rospy.get_param("~gripper_initial_position", 0.022))
@@ -53,13 +89,21 @@ class KeyboardTeleopNode(object):
         )
         self.have_gripper_state = False
 
-        self.flipper_jog_topic = rospy.get_param("~flipper_jog_topic")
-        self.flipper_profile_service = rospy.get_param("~flipper_profile_service")
-        self.flipper_target_profile = rospy.get_param("~flipper_target_profile", "csp_jog")
+        self.flipper_jog_topic = rospy.get_param(
+            "~flipper_jog_topic", self.DEFAULT_FLIPPER_JOG_TOPIC
+        )
+        self.flipper_profile_service = rospy.get_param(
+            "~flipper_profile_service", self.DEFAULT_FLIPPER_PROFILE_SERVICE
+        )
+        self.flipper_target_profile = rospy.get_param(
+            "~flipper_target_profile", self.DEFAULT_FLIPPER_TARGET_PROFILE
+        )
         self.flipper_profile_retry_sec = float(
             rospy.get_param("~flipper_profile_retry_sec", 2.0)
         )
-        self.flipper_joint_names = list(rospy.get_param("~flipper_joint_names", []))
+        self.flipper_joint_names = list(
+            rospy.get_param("~flipper_joint_names", self.DEFAULT_FLIPPER_JOINT_NAMES)
+        )
         self.flipper_velocities = self.load_speed_levels(
             "flipper_velocity",
             {

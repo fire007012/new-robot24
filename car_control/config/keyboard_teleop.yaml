@@ -24,7 +24,7 @@ keyboard_teleop_node:
 
   flipper_jog_topic: /flipper_control/jog_cmd
   flipper_profile_service: /flipper_control/set_control_profile
-  flipper_target_profile: csp_jog
+  flipper_target_profile: csv_velocity
   flipper_profile_retry_sec: 2.0
   flipper_joint_names:
     - left_front_arm_joint
