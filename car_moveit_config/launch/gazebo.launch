@@ -6,6 +6,7 @@
   <arg name="world_name" default="worlds/empty.world" doc="Gazebo world file"/>
   <arg name="world_pose" default="-x 0 -y 0 -z 0 -R 0 -P 0 -Y 0" doc="Pose to spawn the robot at"/>
   <arg name="initial_joint_positions" default=" -J elbow_pitch_joint 2.65 -J shoulder_pitch_joint -0.85 -J shoulder_yaw_joint 0.0009 -J wrist_pitch_joint 0.1892 -J wrist_roll_joint 0.0021 -J wrist_yaw_joint 0" doc="Initial joint configuration of the robot"/>
+  <arg name="flipper_controller" default="flipper_csv_controller" doc="Flipper controller to spawn"/>
 
   <!-- Start Gazebo paused to allow the controllers to pickup the initial pose -->
   <include file="$(find gazebo_ros)/launch/empty_world.launch" pass_all_args="true">
@@ -30,7 +31,7 @@
   <!-- The base is driven by the Gazebo skid-steer plugin via /wheel_controller/cmd_vel.
        Arm, flipper, and gripper joints run through gazebo_ros_control. -->
   <node name="controller_spawner" pkg="controller_manager" type="spawner" respawn="false" output="screen"
-    args="joint_state_controller arm_position_controller flipper_csp_controller gripper_controller" />
+    args="joint_state_controller arm_position_controller $(arg flipper_controller) gripper_controller" />
 
   <!-- Given the published joint states, publish tf for the robot links -->
   <node name="robot_state_publisher" pkg="robot_state_publisher" type="robot_state_publisher" respawn="true" output="screen" />
