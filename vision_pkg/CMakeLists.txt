@@ -117,7 +117,6 @@ target_link_libraries(panorama_node
 )
 
 if(GSTREAMER_FOUND)
-<<<<<<< HEAD
   if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/src/h265_encoder_node.cpp)
     add_executable(h265_encoder_node
       src/h265_encoder_node.cpp
@@ -141,27 +140,6 @@ if(GSTREAMER_FOUND)
       ${GSTREAMER_LIBRARIES}
     )
   endif()
-=======
-  add_executable(h265_encoder_node
-    src/h265_encoder_node.cpp
-  )
-  add_dependencies(h265_encoder_node ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
-  target_link_libraries(h265_encoder_node
-    ${catkin_LIBRARIES}
-    ${OpenCV_LIBRARIES}
-    ${GSTREAMER_LIBRARIES}
-  )
-
-  add_executable(h265_decoder_node
-    src/h265_decoder_node.cpp
-  )
-  add_dependencies(h265_decoder_node ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
-  target_link_libraries(h265_decoder_node
-    ${catkin_LIBRARIES}
-    ${OpenCV_LIBRARIES}
-    ${GSTREAMER_LIBRARIES}
-  )
->>>>>>> Big Change
 endif()
 
 add_executable(object_pose_node
@@ -201,11 +179,7 @@ target_link_libraries(yolov8_node
   ${OpenCV_LIBRARIES}
 )
 
-<<<<<<< HEAD
 catkin_install_python(PROGRAMS
   scripts/detect_behind_camera.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
-
-=======
->>>>>>> Big Change
