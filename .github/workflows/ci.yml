@@ -1,8 +1,9 @@
-name: CI (ROS Noetic, workspace)
-
 on:
   push:
   pull_request:
+
+env:
+  OpenCV_DIR: /usr/local/lib/cmake/opencv4
 
 jobs:
   build-and-test:
@@ -14,6 +15,8 @@ jobs:
       ROS_MASTER_URI: http://127.0.0.1:11311
       ROS_IP: 127.0.0.1
       ROS_HOSTNAME: 127.0.0.1
+      OpenCV_DIR: /usr/local/lib/cmake/opencv4
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -23,21 +26,57 @@ jobs:
         run: |
           set -eux
           apt-get update
-          # rosdep may miss socketcan_interface in some images; install explicitly.
           apt-get install -y --no-install-recommends \
-            build-essential cmake git python3-rosdep \
+            build-essential cmake git pkg-config \
+            python3-rosdep \
             ros-noetic-catkin ros-noetic-rostest \
             ros-noetic-ddynamic-reconfigure \
-            ros-noetic-socketcan-interface
+            ros-noetic-socketcan-interface \
+            libgtk-3-dev \
+            libavcodec-dev libavformat-dev libswscale-dev \
+            libv4l-dev \
+            libxvidcore-dev libx264-dev \
+            libjpeg-dev libpng-dev libtiff-dev \
+            gfortran openexr libatlas-base-dev \
+            python3-dev python3-numpy
+
+      - name: Build OpenCV 4.10
+        shell: bash
+        run: |
+          set -eux
+          git clone --depth 1 --branch 4.10.0 https://github.com/opencv/opencv.git /tmp/opencv
+
+          cmake -S /tmp/opencv -B /tmp/opencv/build \
+            -D CMAKE_BUILD_TYPE=Release \
+            -D CMAKE_INSTALL_PREFIX=/usr/local \
+            -D BUILD_LIST=core,dnn,highgui,imgcodecs,imgproc,objdetect,videoio,calib3d,features2d,flann \
+            -D BUILD_TESTS=OFF \
+            -D BUILD_PERF_TESTS=OFF \
+            -D BUILD_EXAMPLES=OFF \
+            -D BUILD_opencv_python2=OFF \
+            -D BUILD_opencv_python3=OFF
+
+          cmake --build /tmp/opencv/build --parallel 2
+          cmake --install /tmp/opencv/build
+          ldconfig
+
+      - name: Check OpenCV 4.10
+        shell: bash
+        run: |
+          set -eux
+          echo "OpenCV_DIR=$OpenCV_DIR"
+          ls "$OpenCV_DIR"
+          pkg-config --modversion opencv4 || true
 
       - name: Fetch submodule sources
         shell: bash
         run: |
           set -eux
-          rm -rf can_driver Eyou_Canopen_Master realsense-ros
+          rm -rf can_driver Eyou_Canopen_Master realsense-ros vision_opencv
           git clone --depth 1 https://github.com/dianhuaeven/can_driver.git can_driver
           git clone --depth 1 https://github.com/dianhuaeven/Eyou_Canopen_master.git Eyou_Canopen_Master
           git clone --depth 1 https://github.com/IntelRealSense/realsense-ros.git realsense-ros
+          git clone --depth 1 --branch noetic https://github.com/ros-perception/vision_opencv.git vision_opencv
 
       - name: Normalize ROS hostname resolution
         shell: bash
@@ -58,15 +97,17 @@ jobs:
           shopt -s dotglob
           cp -a ./* "$CATKIN_WS/src/"
           source /opt/ros/noetic/setup.bash
-          # Skip trees that are not buildable in this ROS 1 CI environment.
+
           if [ -d "$CATKIN_WS/src/realsense-ros" ]; then
             touch "$CATKIN_WS/src/realsense-ros/CATKIN_IGNORE"
           fi
+
           for skipped_pkg in Eyou_Canopen_Master Eyou_ROS1_Master flipper_control control arm_traj_splitter; do
             if [ -d "$CATKIN_WS/src/$skipped_pkg" ]; then
               touch "$CATKIN_WS/src/$skipped_pkg/CATKIN_IGNORE"
             fi
           done
+
           for skipped_tree in \
             can_driver/lib/myactuator_rmd-main \
             can_driver/lib/myactuator_rmd_ros-main; do
@@ -74,8 +115,7 @@ jobs:
               touch "$CATKIN_WS/src/$skipped_tree/CATKIN_IGNORE"
             fi
           done
-          # Keep or refresh apt indexes before rosdep, otherwise apt-based rosdeps
-          # that are not preinstalled in the image may become unresolvable.
+
           apt-get update
           rosdep init || true
           rosdep update --rosdistro noetic
@@ -92,6 +132,7 @@ jobs:
           export ROS_MASTER_URI=http://127.0.0.1:11311
           export ROS_IP=127.0.0.1
           export ROS_HOSTNAME=127.0.0.1
+          export OpenCV_DIR=/usr/local/lib/cmake/opencv4
           source /opt/ros/noetic/setup.bash
           cd "$CATKIN_WS"
           catkin_make -DCATKIN_ENABLE_TESTING=ON
@@ -103,11 +144,10 @@ jobs:
           export ROS_MASTER_URI=http://127.0.0.1:11311
           export ROS_IP=127.0.0.1
           export ROS_HOSTNAME=127.0.0.1
+          export OpenCV_DIR=/usr/local/lib/cmake/opencv4
           source /opt/ros/noetic/setup.bash
           cd "$CATKIN_WS"
           source devel/setup.bash
-          # These packages only register offline gtests / nosetests.
-          # Running them without a ROS core avoids noisy XMLRPC retries in CI.
           catkin_make run_tests -j2
 
       - name: Collect results
