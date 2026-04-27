@@ -6,6 +6,8 @@
 #include <algorithm>
 #include <vector>
 #include "vision_pkg/Detection.h"
+#include "vision_pkg/DetectedObject3D.h"
+#include "vision_pkg/DetectedObject3DArray.h"
 
 class ObjectPoseNode
 {
@@ -20,15 +22,18 @@ public:
         nh_.param<double>("smooth_alpha", smooth_alpha_, 0.3);
 
         pose_pub_ = nh_.advertise<geometry_msgs::PoseStamped>("/detected_object_pose", 10);
+        array_pub_ = nh_.advertise<vision_pkg::DetectedObject3DArray>("detected_objects_3d", 10);
 
         det_sub_ = nh_.subscribe(detection_topic, 10, &ObjectPoseNode::detectionCallback, this);
         depth_sub_ = nh_.subscribe(depth_topic, 1, &ObjectPoseNode::depthCallback, this);
         info_sub_ = nh_.subscribe(camera_info_topic, 1, &ObjectPoseNode::cameraInfoCallback, this);
 
-        ROS_INFO("object_pose_node started");
-        ROS_INFO("  detection_topic: %s", detection_topic.c_str());
-        ROS_INFO("  depth_topic:     %s", depth_topic.c_str());
-        ROS_INFO("  camera_info:     %s", camera_info_topic.c_str());
+        ROS_INFO_STREAM(
+            "object_pose_node started: detection_topic=" << detection_topic
+            << " depth_topic=" << depth_topic
+            << " camera_info_topic=" << camera_info_topic
+            << " publish_rate=" << publish_rate_
+            << " smooth_alpha=" << smooth_alpha_);
     }
 
     void run()
@@ -39,6 +44,14 @@ public:
             if (has_pose_) {
                 cached_pose_.header.stamp = ros::Time::now();
                 pose_pub_.publish(cached_pose_);
+            }
+            if (!pending_objects_.empty()) {
+                vision_pkg::DetectedObject3DArray arr;
+                arr.header.stamp = ros::Time::now();
+                arr.header.frame_id = "paw_camera_color_optical_frame";
+                arr.objects = std::move(pending_objects_);
+                array_pub_.publish(arr);
+                pending_objects_.clear();
             }
             rate.sleep();
         }
@@ -66,7 +79,7 @@ private:
             depth_image_ = cv_bridge::toCvCopy(msg, sensor_msgs::image_encodings::TYPE_16UC1)->image;
             has_depth_ = true;
         } catch (cv_bridge::Exception& e) {
-            ROS_WARN_THROTTLE(5.0, "depth cv_bridge error: %s", e.what());
+            ROS_WARN_ONCE("depth cv_bridge error: %s", e.what());
         }
     }
 
@@ -74,26 +87,11 @@ private:
     {
         if (!has_camera_info_ || !has_depth_) return;
 
-        // 只处理置信度更高的检测（每帧可能收到多个 Detection）
-        if (msg->confidence <= best_confidence_) return;
-        best_confidence_ = msg->confidence;
-
-        // 延迟重置：用 ros timer 在下一个周期清零
-        if (!reset_timer_.isValid()) {
-            reset_timer_ = nh_.createTimer(ros::Duration(0.05), [this](const ros::TimerEvent&) {
-                best_confidence_ = 0.0f;
-            }, true);
-        } else {
-            reset_timer_.setPeriod(ros::Duration(0.05));
-            reset_timer_.start();
-        }
-
         int u = msg->x + msg->width / 2;
         int v = msg->y + msg->height / 2;
 
         if (u < 0 || u >= depth_image_.cols || v < 0 || v >= depth_image_.rows) return;
 
-        // --- 5x5 中值滤波 ---
         std::vector<uint16_t> valid_depths;
         valid_depths.reserve(25);
         for (int dy = -2; dy <= 2; ++dy) {
@@ -109,35 +107,57 @@ private:
         std::nth_element(valid_depths.begin(), valid_depths.begin() + valid_depths.size() / 2, valid_depths.end());
         uint16_t depth_mm = valid_depths[valid_depths.size() / 2];
 
-        double z = depth_mm * 0.001;  // mm -> m
+        double z = depth_mm * 0.001;
         double x = (u - cx_) * z / fx_;
         double y = (v - cy_) * z / fy_;
 
-        // --- EMA 平滑 ---
-        if (first_pose_) {
-            smooth_x_ = x;
-            smooth_y_ = y;
-            smooth_z_ = z;
-            first_pose_ = false;
-        } else {
-            smooth_x_ = smooth_alpha_ * x + (1.0 - smooth_alpha_) * smooth_x_;
-            smooth_y_ = smooth_alpha_ * y + (1.0 - smooth_alpha_) * smooth_y_;
-            smooth_z_ = smooth_alpha_ * z + (1.0 - smooth_alpha_) * smooth_z_;
+        // --- 单目标 EMA 平滑（向后兼容，只跟踪最高置信度目标） ---
+        if (msg->confidence > best_confidence_) {
+            best_confidence_ = msg->confidence;
+
+            if (first_pose_) {
+                smooth_x_ = x; smooth_y_ = y; smooth_z_ = z;
+                first_pose_ = false;
+            } else {
+                smooth_x_ = smooth_alpha_ * x + (1.0 - smooth_alpha_) * smooth_x_;
+                smooth_y_ = smooth_alpha_ * y + (1.0 - smooth_alpha_) * smooth_y_;
+                smooth_z_ = smooth_alpha_ * z + (1.0 - smooth_alpha_) * smooth_z_;
+            }
+
+            cached_pose_.header.frame_id = "paw_camera_color_optical_frame";
+            cached_pose_.pose.position.x = smooth_x_;
+            cached_pose_.pose.position.y = smooth_y_;
+            cached_pose_.pose.position.z = smooth_z_;
+            cached_pose_.pose.orientation.w = 1.0;
+            has_pose_ = true;
         }
 
-        cached_pose_.header.frame_id = "paw_camera_color_optical_frame";
-        cached_pose_.pose.position.x = smooth_x_;
-        cached_pose_.pose.position.y = smooth_y_;
-        cached_pose_.pose.position.z = smooth_z_;
-        cached_pose_.pose.orientation.x = 0.0;
-        cached_pose_.pose.orientation.y = 0.0;
-        cached_pose_.pose.orientation.z = 0.0;
-        cached_pose_.pose.orientation.w = 1.0;
-        has_pose_ = true;
+        if (!reset_timer_.isValid()) {
+            reset_timer_ = nh_.createTimer(ros::Duration(0.05), [this](const ros::TimerEvent&) {
+                best_confidence_ = 0.0f;
+            }, true);
+        } else {
+            reset_timer_.setPeriod(ros::Duration(0.05));
+            reset_timer_.start();
+        }
+
+        // --- 收集到 pending 列表，run() 里统一发布 ---
+        vision_pkg::DetectedObject3D obj;
+        obj.class_name = msg->class_name;
+        obj.id = msg->id;
+        obj.confidence = msg->confidence;
+        obj.pose.header.stamp = ros::Time::now();
+        obj.pose.header.frame_id = "paw_camera_color_optical_frame";
+        obj.pose.pose.position.x = x;
+        obj.pose.pose.position.y = y;
+        obj.pose.pose.position.z = z;
+        obj.pose.pose.orientation.w = 1.0;
+        pending_objects_.push_back(obj);
     }
 
     ros::NodeHandle nh_;
     ros::Publisher pose_pub_;
+    ros::Publisher array_pub_;
     ros::Subscriber det_sub_;
     ros::Subscriber depth_sub_;
     ros::Subscriber info_sub_;
@@ -155,6 +175,7 @@ private:
     float best_confidence_ = 0.0f;
     cv::Mat depth_image_;
     geometry_msgs::PoseStamped cached_pose_;
+    std::vector<vision_pkg::DetectedObject3D> pending_objects_;
 };
 
 int main(int argc, char** argv)

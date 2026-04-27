@@ -9,10 +9,11 @@ vision_pkg 是一个运行在 **Ubuntu 20.04 + ROS1 Noetic** 上的视觉处理�
 - **物体 3D 位姿估计**：结合检测结果与深度图，计算物体 3D 位置（含深度滤波 + EMA 平滑）
 - **障碍物预警**：深度图三区域（左/中/右）最近距离检测，细白线分割，距离文字显示
 - **中心距离显示**：细白线十字准星，实时显示画面中心深度距离
-- **双鱼眼全景拼接**：前后 180° 鱼眼自动估圆裁切，按等距柱状投影展开后"前居中 + 后左右"拼接，接缝处 alpha 融合；同时输出 2:1 等距柱状图和方位等距圆盘图，纯 OpenCV 2D 实现（已去除 OpenGL/EGL 依赖）
+- **双鱼眼显示/全景处理**：支持 `azimuthal` 方位等距圆盘、`stacked` 前后透视图上下拼接、`cropped_stacked` 原始鱼眼矩形裁剪后上下拼接；裁剪框可通过 launch 参数配置
 - **RealSense D405**：paw_camera 提供彩色图、深度图和点云数据
 - **Behind Camera**：支持 Astra+ 或 RealSense D435i（可通过 launch 参数或环境变量指定；也可用外部脚本自动检测后传参）
-- **多路 USB 摄像头**：支持 4 路 USB 摄像头采集
+- **多路 USB 摄像头**：支持 forward/back/head/hand/arm 多路 USB 摄像头采集，其中前后鱼眼默认按 1920×1080@30 输入
+- **最终视频流压缩**：支持对 `/panorama/panorama_image`、`/paw_vision/vision_image`、`/behind_vision/vision_image` 按需启动 H.265 编码节点，供上位机订阅压缩码流
 - **热成像相机**：Xtherm T2S+ 热成像（独立包 `thermal_camera`，默认随 vision.launch 启动）
 
 ---
@@ -27,8 +28,8 @@ vision_pkg/
 ├── include/vision_pkg/
 │   ├── camerainit.h                        # USB 摄像头采集类（V4L2）
 │   ├── realsense.h                         # RealSense 深度相机采集类
-│   ├── fisheye.h                           # 鱼眼展开 + 等距柱状/方位等距投影
-│   ├── panorama.h                          # 全景处理管线（双鱼眼 → 等距柱状拼接 → 方位等距渲染）
+│   ├── fisheye.h                           # 鱼眼展开、透视重投影、原始鱼眼裁剪
+│   ├── panorama.h                          # 双鱼眼显示管线（圆盘/透视拼接/裁剪拼接）
 │   ├── yolov8.h                            # YOLOv8 目标检测封装
 │   └── yolov8_utils.h                      # 检测结果数据结构与绘图工具
 ├── src/
@@ -40,6 +41,7 @@ vision_pkg/
 │   ├── fisheye.cpp                         # 鱼眼展开 / 等距柱状 / 方位等距 / 透视重投影
 │   ├── panorama.cpp                        # 全景管线实现
 │   ├── panorama_node.cpp                   # 全景处理 ROS 节点
+│   ├── h265_encoder_node.cpp               # 最终图像流 H.265 编码发布节点
 │   └── vision_display_node.cpp             # 综合视觉显示节点
 ├── scripts/
 │   └── detect_behind_camera.py             # behind_camera 类型自动检测脚本
@@ -80,26 +82,79 @@ thermal_camera/                              # 热成像独立包
 ```bash
 source ~/catkin_ws/devel/setup.bash
 roslaunch vision_pkg vision.launch
-启动请检查behind_camera位置的相机是realsense还是astra，默认是realsense，需更改请参考下面的launch参数配置
 ```
+
+启动前请确认 behind_camera 位置的相机类型是 RealSense 还是 Astra+。默认是 RealSense，需更改时参考下面的 `behind_camera_type` 参数。
 
 ### launch 参数
 
 | 参数 | 默认值 | 说明 |
 |------|--------|------|
-| `enable_usb_cams` | `false` | 启用 4 路 USB 摄像头 |
+| `enable_usb_cams` | `false` | 启用 USB 摄像头组：forward/back/head/hand/arm |
 | `enable_paw_camera` | `true` | 启用 RealSense D405 |
 | `enable_behind_camera` | `true` | 启用 behind_camera |
 | `enable_thermal` | `true` | 启用热成像 |
- | `behind_camera_type` | `realsense` | Behind 相机类型：`astra` 或 `realsense`（可用环境变量 `BEHIND_CAMERA_TYPE` 覆盖） |
+| `behind_camera_type` | `realsense` | Behind 相机类型：`astra` 或 `realsense`（可用环境变量 `BEHIND_CAMERA_TYPE` 覆盖） |
 | `paw_serial` | `130322273001` | RealSense D405 序列号 |
 | `behind_serial` | `219323070286` | Astra+ 序列号 |
-| `behind_realsense_serial` | `""` | D435i 序列号（需手动填写） |
+| `behind_realsense_serial` | `112222070518` | D435i 序列号 |
+| `panorama_display_mode` | `azimuthal` | 全景输出模式：`azimuthal` 圆盘、`stacked` 去畸变透视上下拼接、`cropped_stacked` 原始鱼眼裁剪上下拼接 |
 | `panorama_fisheye_source_fov_deg` | `180.0` | 前/后鱼眼相机的源视场角（°），用于展开 map 计算 |
+| `panorama_operator_view_fov_deg` | `120.0` | `stacked` 模式下单路透视视场角 |
+| `panorama_operator_view_width` | `640` | `stacked` 模式下单路输出宽度 |
+| `panorama_operator_view_height` | `360` | `stacked` 模式下单路输出高度 |
+| `panorama_front_rotate_180` | `false` | 前鱼眼输入是否旋转 180° |
+| `panorama_back_rotate_180` | `true` | 后鱼眼输入是否旋转 180° |
+| `panorama_input_transport` | `raw` | 全景输入图像传输方式，可改为 `compressed` |
+| `panorama_tcp_nodelay` | `true` | 全景输入订阅启用 TCP_NODELAY，降低 TCPROS 延迟 |
+| `panorama_output_queue_size` | `1` | 全景输出队列长度，低延迟建议保持 1 |
+| `panorama_front_crop_ref_width` / `panorama_front_crop_ref_height` | `1920` / `1080` | 前鱼眼裁剪参数采集时的参考分辨率 |
+| `panorama_front_crop_x` / `panorama_front_crop_y` | `525` / `276` | 前鱼眼裁剪框左上角 |
+| `panorama_front_crop_width` / `panorama_front_crop_height` | `876` / `538` | 前鱼眼裁剪框宽高 |
+| `panorama_back_crop_ref_width` / `panorama_back_crop_ref_height` | `1920` / `1080` | 后鱼眼裁剪参数采集时的参考分辨率 |
+| `panorama_back_crop_x` / `panorama_back_crop_y` | `558` / `250` | 后鱼眼裁剪框左上角 |
+| `panorama_back_crop_width` / `panorama_back_crop_height` | `876` / `538` | 后鱼眼裁剪框宽高 |
+| `forward_cam_dev` / `back_cam_dev` | `""` / `""` | 前后 USB 鱼眼设备路径，如 `/dev/video0`、`/dev/video2` |
+| `head_cam_dev` / `hand_cam_dev` / `arm_cam_dev` | `""` | 额外 3 路 USB 摄像头设备路径；为空时不会启动对应节点，避免空设备反复报错 |
+| `forward_cam_width` / `forward_cam_height` | `1920` / `1080` | 前鱼眼采集分辨率 |
+| `back_cam_width` / `back_cam_height` | `1920` / `1080` | 后鱼眼采集分辨率 |
+| `forward_cam_framerate` / `back_cam_framerate` | `30` / `30` | 前后鱼眼采集帧率 |
+| `paw_color_input_transport` / `behind_color_input_transport` | `raw` / `raw` | D405/behind 彩色图输入传输方式，可改为 `compressed` |
+| `paw_depth_input_transport` / `behind_depth_input_transport` | `raw` / `raw` | D405/behind 深度图输入传输方式 |
+| `paw_*_queue_size` / `behind_*_queue_size` | `1` | 彩色图、深度图、相机内参和输出图队列长度，低延迟建议保持 1 |
+| `paw_enable_qrcode_detection` / `behind_enable_qrcode_detection` | `true` / `false` | 是否在综合视觉节点中启用二维码识别 |
+| `paw_enable_motion_detection` / `behind_enable_motion_detection` | `true` / `false` | 是否在综合视觉节点中启用动态检测 |
+| `paw_enable_motion_debug_images` / `behind_enable_motion_debug_images` | `false` / `false` | 是否发布动态检测九宫格调试中间图 |
+| `paw_motion_depth_min_m` / `paw_motion_depth_max_m` | `0.0` / `0.7` | D405 动态检测深度过滤范围 |
+| `paw_motion_min_area` | `80` | D405 动态检测最小轮廓面积 |
+| `paw_motion_max_foreground_ratio` | `0.12` | 相机/场景整体运动占比阈值，超过后抑制运动标记 |
+| `enable_panorama_h265` | `false` | 是否对 `/panorama/panorama_image` 额外发布 H.265 压缩码流 |
+| `enable_paw_h265` | `false` | 是否对 `/paw_vision/vision_image` 额外发布 H.265 压缩码流 |
+| `enable_behind_h265` | `false` | 是否对 `/behind_vision/vision_image` 额外发布 H.265 压缩码流 |
+| `*_h265_bitrate_kbps` | `1200`~`1500` | H.265 输出目标码率 |
+| `*_h265_fps` / `*_h265_max_input_fps` | `15` / `15.0` | H.265 输出帧率与输入限帧 |
 
 ```bash
 # 示例：关闭热成像
 roslaunch vision_pkg vision.launch enable_thermal:=false
+
+# 只测试前后鱼眼裁剪上下拼接图
+roslaunch vision_pkg vision.launch \
+  enable_usb_cams:=true \
+  enable_paw_camera:=false \
+  enable_behind_camera:=false \
+  enable_thermal:=false \
+  forward_cam_dev:=/dev/video0 \
+  back_cam_dev:=/dev/video2 \
+  panorama_display_mode:=cropped_stacked
+
+# 如果要给上位机订阅 H.265 压缩后的最终全景图
+roslaunch vision_pkg vision.launch \
+  enable_usb_cams:=true \
+  forward_cam_dev:=/dev/video0 \
+  back_cam_dev:=/dev/video2 \
+  panorama_display_mode:=cropped_stacked \
+  enable_panorama_h265:=true
 
 # 手动指定 behind_camera 为 Astra+
 roslaunch vision_pkg vision.launch behind_camera_type:=astra
@@ -168,10 +223,11 @@ rqt_image_view /behind_camera/depth/image_raw
 
 | 话题 | 消息类型 | 说明 |
 |------|---------|------|
-| `/forward_camera/image_raw` | `sensor_msgs/Image` | 前方摄像头 |
-| `/back_camera/image_raw` | `sensor_msgs/Image` | 后方摄像头 |
-| `/hand_camera/image_raw` | `sensor_msgs/Image` | 手部摄像头 |
-| `/arm_camera/image_raw` | `sensor_msgs/Image` | 机械臂摄像头 |
+| `/forward_camera/image_raw` | `sensor_msgs/Image` | 前鱼眼/前方摄像头，默认 1920×1080@30 |
+| `/back_camera/image_raw` | `sensor_msgs/Image` | 后鱼眼/后方摄像头，默认 1920×1080@30 |
+| `/head_camera/image_raw` | `sensor_msgs/Image` | 头部/预留 USB 摄像头，默认 640×480@30 |
+| `/hand_camera/image_raw` | `sensor_msgs/Image` | 手部摄像头，默认 640×480 |
+| `/arm_camera/image_raw` | `sensor_msgs/Image` | 机械臂摄像头，默认 640×480 |
 
 ```bash
 roslaunch vision_pkg vision.launch enable_usb_cams:=true
@@ -257,26 +313,42 @@ rostopic echo /detected_object_pose
 rviz   # 添加 Pose 显示，话题选 /detected_object_pose
 ```
 
-#### 7. panorama_node（双鱼眼全景拼接）
+#### 7. panorama_node（双鱼眼显示/全景处理）
 
 | 话题 | 消息类型 | 方向 | 说明 |
 |------|---------|------|------|
 | `/forward_camera/image_raw` | `sensor_msgs/Image` | 订阅 | 前方鱼眼图像（`cam1_topic` 参数） |
 | `/back_camera/image_raw` | `sensor_msgs/Image` | 订阅 | 后方鱼眼图像（`cam2_topic` 参数） |
-| `/panorama/panorama_image` | `sensor_msgs/Image` | 发布 | 方位等距投影全景（圆盘图，默认 640×640） |
+| `/panorama/panorama_image` | `sensor_msgs/Image` | 发布 | 主输出图像，内容由 `panorama_display_mode` 决定 |
 | `/panorama/panorama_equirect` | `sensor_msgs/Image` | 发布 | 等距柱状全景（2:1 长条图，仅在有订阅者时发布） |
+| `/panorama/panorama_image/h265` | `sensor_msgs/CompressedImage` | 发布 | 可选 H.265 码流，需 `enable_panorama_h265:=true` |
 
-**参数：** `~cam1_topic` / `~cam2_topic` / `~fisheye_source_fov_deg`（源鱼眼 FOV，默认 180°）。
+**主要参数：** `~cam1_topic` / `~cam2_topic` / `~display_mode` / `~fisheye_source_fov_deg` / `~input_transport` / `~front_crop_*` / `~back_crop_*`。
 
-**管线说明：** 自动估计鱼眼有效圆半径 → 中心裁方 → 构建 remap 表将半球展开到等距柱状 → 后视相机先 `ROTATE_180` 再用同一张 map 展开 → "前居中 + 后左右"拼成 2:1 等距柱状图 → 接缝处 alpha 线性融合 → 再投影一份方位等距圆盘图用于实时查看。
+**输出模式：**
+
+| 模式 | `/panorama/panorama_image` 内容 | 适用场景 |
+|------|-------------------------------|----------|
+| `azimuthal` | 方位等距圆盘图 | 需要保留完整 360° 环视关系 |
+| `stacked` | 前后两个去畸变透视图上下拼接 | 操作手希望地板、边线等直线更接近现实直线 |
+| `cropped_stacked` | 从原始鱼眼画面按配置矩形裁剪后上下拼接 | 低延迟、少计算、保留原始鱼眼局部画质 |
+
+**管线说明：** `azimuthal`/`stacked` 会先将鱼眼图展开到等距柱状图，再渲染圆盘或前后透视图；`cropped_stacked` 不做展开，直接按前后裁剪框从原始图中取 ROI，上下拼接后发布，适合当前操作手查看需求。
 
 ```bash
-# 查看圆盘形全景
-roslaunch vision_pkg vision.launch enable_usb_cams:=true
+# 查看当前主输出图
+roslaunch vision_pkg vision.launch \
+  enable_usb_cams:=true \
+  forward_cam_dev:=/dev/video0 \
+  back_cam_dev:=/dev/video2 \
+  panorama_display_mode:=cropped_stacked
 rqt_image_view /panorama/panorama_image
 
 # 查看等距柱状全景（可直接导入 360° 全景播放器）
 rqt_image_view /panorama/panorama_equirect
+
+# 查看 H.265 码流是否发布
+rostopic echo -n 1 /panorama/panorama_image/h265
 ```
 
 ---
@@ -292,6 +364,7 @@ rqt_image_view /panorama/panorama_equirect
 /behind_camera/depth/image_raw         # Astra+/D435i 深度图
 /forward_camera/image_raw              # USB 前方（需 enable）
 /back_camera/image_raw                 # USB 后方（需 enable）
+/head_camera/image_raw                 # USB 头部/预留（需 enable）
 /hand_camera/image_raw                 # USB 手部（需 enable）
 /arm_camera/image_raw                  # USB 机臂（需 enable）
 /thermal_camera/image_raw              # 热成像伪彩色
@@ -304,8 +377,11 @@ rqt_image_view /panorama/panorama_equirect
 /behind_vision/detections              # behind YOLO 检测结果
 /behind_vision/obstacle_warning        # behind 障碍物预警
 /detected_object_pose                  # 物体 3D 位姿
-/panorama/panorama_image               # 方位等距圆盘全景
+/panorama/panorama_image               # 全景/裁剪拼接主输出，取决于 panorama_display_mode
 /panorama/panorama_equirect            # 等距柱状 2:1 全景（按需发布）
+/panorama/panorama_image/h265          # 可选 H.265 压缩全景码流
+/paw_vision/vision_image/h265          # 可选 H.265 压缩 D405 综合视觉码流
+/behind_vision/vision_image/h265       # 可选 H.265 压缩 behind 综合视觉码流
 ```
 
 **快速查看所有话题：**
@@ -386,12 +462,20 @@ sudo apt install -y \
     libglfw3-dev libglu1-mesa-dev \
     python3-catkin-tools \
     ros-noetic-image-transport \
+    ros-noetic-compressed-image-transport \
+    ros-noetic-compressed-depth-image-transport \
     ros-noetic-cv-bridge \
     ros-noetic-usb-cam \
     ros-noetic-joy \
     ros-noetic-ddynamic-reconfigure \
     ros-noetic-rgbd-launch \
     ros-noetic-backward-ros \
+    libgstreamer1.0-dev \
+    libgstreamer-plugins-base1.0-dev \
+    gstreamer1.0-tools \
+    gstreamer1.0-plugins-base \
+    gstreamer1.0-plugins-good \
+    gstreamer1.0-plugins-bad \
     libopenni2-dev \
     libuvc-dev
 
@@ -557,8 +641,51 @@ roslaunch vision_pkg vision.launch
 - 热成像 Xtherm T2S+
 - YOLOv8 综合视觉显示节点（paw_vision + behind_vision）
 - 物体 3D 位姿估计节点
-- 双鱼眼全景拼接节点（输出方位等距圆盘 + 等距柱状 2 路）
-- 4 路 USB 摄像头（默认关闭，需设置 `enable_usb_cams:=true`）
+- 双鱼眼显示/全景节点（输出内容由 `panorama_display_mode` 决定）
+- forward/back/head/hand/arm USB 摄像头（默认关闭，需设置 `enable_usb_cams:=true`）
+- 可选 H.265 最终图像流编码节点（默认关闭，需设置 `enable_panorama_h265` / `enable_paw_h265` / `enable_behind_h265`）
+
+---
+
+## 视频流低延迟与压缩建议
+
+当前代码按低延迟优先做了几项处理：
+
+- `panorama_node` 和 `vision_display_node` 使用 `image_transport` 订阅图像，`*_input_transport` 可从 `raw` 改成 `compressed`，用于跨机器传输时降低带宽。
+- 主要图像输出队列默认是 `1`，旧帧会尽快丢弃，避免上位机看到明显滞后的画面。
+- `panorama_node` 只有在 `/panorama/panorama_image` 或 `/panorama/panorama_equirect` 有订阅者时才处理图像，减少无订阅时的计算负载。
+- `vision_display_node` 只有在最终图像、检测结果或调试图有订阅者时才执行对应计算，运动调试图默认关闭。
+- H.265 节点只编码最终输出图，不把中间处理图都发到网络上。
+
+常用启动方式：
+
+```bash
+# 本机调试：保留 raw，方便 rqt_image_view 查看
+roslaunch vision_pkg vision.launch \
+  enable_usb_cams:=true \
+  forward_cam_dev:=/dev/video0 \
+  back_cam_dev:=/dev/video2 \
+  panorama_display_mode:=cropped_stacked
+
+# 上位机订阅最终压缩码流：开启 H.265
+roslaunch vision_pkg vision.launch \
+  enable_usb_cams:=true \
+  forward_cam_dev:=/dev/video0 \
+  back_cam_dev:=/dev/video2 \
+  panorama_display_mode:=cropped_stacked \
+  enable_panorama_h265:=true \
+  panorama_h265_bitrate_kbps:=1500 \
+  panorama_h265_fps:=15
+
+# 如果上游 camera raw 图像跨网线传输，可尝试 compressed 输入
+roslaunch vision_pkg vision.launch \
+  enable_usb_cams:=true \
+  panorama_input_transport:=compressed \
+  paw_color_input_transport:=compressed \
+  behind_color_input_transport:=compressed
+```
+
+H.265 输出话题是 `sensor_msgs/CompressedImage`，`format` 字段为 `h265`。它保留给上位机通讯/解码使用，不能按普通 JPEG/PNG 压缩图直接用 `rqt_image_view` 查看。
 
 ---
 
@@ -570,9 +697,89 @@ roslaunch vision_pkg vision.launch
 4. **Behind Camera** 选择方式：vision.launch 通过 behind_camera_type 选择 astra 或 realsense。可手动传参
     （behind_camera_type:=astra/realsense）或设置环境变量 BEHIND_CAMERA_TYPE。若需自动检测，请在外部脚本检测后再传给
     roslaunch。
-5. **USB 摄像头设备路径**：launch 文件中的设备路径需要根据实际硬件连接情况调整，可通过 `v4l2-ctl --list-devices` 查看可用设备。
-6. **全景源 FOV**：`panorama_fisheye_source_fov_deg` 需匹配实际鱼眼镜头的视场角（默认 180°），否则展开图会变形。
+5. **USB 摄像头设备路径**：launch 文件中的设备路径需要根据实际硬件连接情况调整，可通过 `v4l2-ctl --list-devices` 查看可用设备；前后鱼眼常用 `/dev/video0` 和 `/dev/video2`，但以现场枚举结果为准。
+6. **全景源 FOV**：`panorama_fisheye_source_fov_deg` 需匹配实际鱼眼镜头的视场角（默认 180°）。`cropped_stacked` 模式不依赖展开 FOV，只使用裁剪框。
 7. **Astra+ USB 规则**：首次使用 Astra+ 需要配置 udev 规则，否则可能无权限访问设备，详见安装步骤。
 8. **热成像依赖**：热成像节点需要 `scikit-image` 和 `matplotlib`，通过 `pip3 install scikit-image` 安装。
+9. **H.265 查看方式**：H.265 话题是 `sensor_msgs/CompressedImage`，`format=h265`，不是普通 `image_transport/compressed` JPEG/PNG 图像；`rqt_image_view` 通常不能直接显示，需要上位机或自定义节点解码。
+---
 
+## 二维码与动态检测
 
+当前二维码识别和动态检测都在 `vision_display_node` 中完成；`panorama_node` 只负责双鱼眼显示/全景处理，不再承担二维码或动态检测。
+
+### 接入位置
+
+| 节点 | 默认状态 | 输入 | 输出 |
+|------|----------|------|------|
+| `paw_vision` | 二维码开启，动态检测开启 | `/paw_camera/color/image_raw` + `/paw_camera/depth/image_rect_raw` | `/paw_vision/vision_image` |
+| `behind_vision` | 二维码关闭，动态检测关闭 | behind 彩色图 + 深度图 | `/behind_vision/vision_image` |
+
+### 常用参数
+
+| 参数 | 默认值 | 说明 |
+|------|--------|------|
+| `paw_enable_qrcode_detection` | `true` | 是否给 D405 画面开启二维码识别 |
+| `behind_enable_qrcode_detection` | `false` | 是否给后方视觉画面开启二维码识别 |
+| `paw_enable_motion_detection` | `true` | 是否给 D405 画面开启动态物体检测 |
+| `behind_enable_motion_detection` | `false` | 是否给后方视觉画面开启动态物体检测 |
+| `paw_enable_motion_depth_filter` | `true` | 是否按深度范围过滤 D405 动态检测结果 |
+| `paw_motion_depth_min_m` / `paw_motion_depth_max_m` | `0.0` / `0.7` | 只保留 0~70cm 范围内的运动区域 |
+| `paw_motion_min_area` | `80` | 动态检测保留的最小轮廓面积 |
+| `paw_motion_canny_low_threshold` / `paw_motion_canny_high_threshold` | `50.0` / `150.0` | 用于细化运动物体边缘的 Canny 阈值 |
+| `paw_motion_diff_threshold` | `18.0` | 帧差/背景差分阈值 |
+| `paw_motion_learning_rate` | `0.01` | 动态背景更新学习率 |
+| `paw_motion_max_foreground_ratio` | `0.12` | 前景占比过大时视为整机/场景运动，并抑制运动标记 |
+
+### D405 测试启动
+
+```bash
+cd ~/catkin_ws
+source /opt/ros/noetic/setup.bash
+catkin_make -DCATKIN_ENABLE_TESTING=False -DCMAKE_BUILD_TYPE=Release
+source ~/catkin_ws/devel/setup.bash
+
+roslaunch vision_pkg vision.launch \
+  paw_enable_qrcode_detection:=true \
+  paw_enable_motion_detection:=true \
+  paw_enable_motion_debug_images:=true \
+  paw_enable_motion_depth_filter:=true \
+  paw_motion_min_area:=80 \
+  paw_motion_depth_min_m:=0.0 \
+  paw_motion_depth_max_m:=0.7
+```
+
+验证主输出：
+
+```bash
+rostopic hz /paw_camera/color/image_raw
+rosparam get /paw_vision/enable_qrcode_detection
+rosparam get /paw_vision/enable_motion_detection
+rqt_image_view /paw_vision/vision_image
+```
+
+动态检测调试图：
+
+```bash
+/paw_vision/debug/motion_gray
+/paw_vision/debug/motion_frame_diff
+/paw_vision/debug/motion_fg_raw
+/paw_vision/debug/motion_fg_after_diff
+/paw_vision/debug/motion_fg_after_open
+/paw_vision/debug/motion_fg_after_close
+/paw_vision/debug/motion_fg_after_dilate
+/paw_vision/debug/motion_depth_mask
+/paw_vision/debug/motion_fg_final
+```
+
+查看调试图示例：
+
+```bash
+rqt_image_view /paw_vision/debug/motion_fg_final
+```
+
+预期现象：
+
+- 画面出现二维码时，会画出二维码边框，并在框附近标出解码内容。
+- 画面中出现摆动、摇摆、来回移动的目标时，会对运动区域轮廓描边，并标注 `Moving`。
+- 如果整幅画面变化占比过大，系统会按相机/场景整体运动处理，避免把全画面误标成目标运动。

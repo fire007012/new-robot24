@@ -1,58 +1,161 @@
 <launch>
-    <!-- ============================================================ -->
-    <!-- Switches                                                      -->
-    <!-- ============================================================ -->
-    <arg name="enable_usb_cams"      default="false"/>
-    <arg name="enable_paw_camera"    default="true"/>
-    <arg name="enable_behind_camera" default="true"/>
-    <arg name="enable_thermal"       default="true"/>
-    <arg name="panorama_fisheye_source_fov_deg" default="180.0"/>
+  <!-- Switches -->
+  <arg name="enable_usb_cams" default="false"/>
+  <arg name="enable_paw_camera" default="true"/>
+  <arg name="enable_behind_camera" default="true"/>
+  <arg name="enable_thermal" default="true"/>
 
-    <!-- USB camera device paths -->
-    <arg name="forward_cam_dev" default=""/>
-    <arg name="back_cam_dev"    default=""/>
-    <arg name="hand_cam_dev"    default=""/>
-    <arg name="arm_cam_dev"     default=""/>
+  <!-- Panorama -->
+  <arg name="panorama_display_mode" default="azimuthal"/>
+  <arg name="panorama_fisheye_source_fov_deg" default="180.0"/>
+  <arg name="panorama_operator_view_fov_deg" default="120.0"/>
+  <arg name="panorama_operator_view_width" default="640"/>
+  <arg name="panorama_operator_view_height" default="360"/>
+  <arg name="panorama_front_rotate_180" default="false"/>
+  <arg name="panorama_back_rotate_180" default="true"/>
+  <arg name="panorama_input_transport" default="raw"/>
+  <arg name="panorama_tcp_nodelay" default="true"/>
+  <arg name="panorama_output_queue_size" default="1"/>
+  <arg name="panorama_front_crop_ref_width" default="1920"/>
+  <arg name="panorama_front_crop_ref_height" default="1080"/>
+  <arg name="panorama_front_crop_x" default="525"/>
+  <arg name="panorama_front_crop_y" default="276"/>
+  <arg name="panorama_front_crop_width" default="876"/>
+  <arg name="panorama_front_crop_height" default="538"/>
+  <arg name="panorama_back_crop_ref_width" default="1920"/>
+  <arg name="panorama_back_crop_ref_height" default="1080"/>
+  <arg name="panorama_back_crop_x" default="558"/>
+  <arg name="panorama_back_crop_y" default="250"/>
+  <arg name="panorama_back_crop_width" default="876"/>
+  <arg name="panorama_back_crop_height" default="538"/>
 
-    <!-- D405 RealSense serial numbers 130322273001 or 260322273334-->
-    <arg name="paw_serial"    default="260322273334"/>
+  <!-- QR / motion switches -->
+  <arg name="paw_enable_qrcode_detection" default="true"/>
+  <arg name="behind_enable_qrcode_detection" default="false"/>
+  <arg name="paw_enable_motion_detection" default="true"/>
+  <arg name="behind_enable_motion_detection" default="false"/>
+  <arg name="paw_enable_motion_debug_images" default="false"/>
+  <arg name="behind_enable_motion_debug_images" default="false"/>
+  <arg name="paw_enable_motion_depth_filter" default="true"/>
+  <arg name="behind_enable_motion_depth_filter" default="false"/>
 
-    <!-- Astra+ serial number -->
-    <arg name="behind_serial" default="219323070286"/>
+  <!-- Transport / queue tuning -->
+  <arg name="paw_color_input_transport" default="raw"/>
+  <arg name="paw_depth_input_transport" default="raw"/>
+  <arg name="behind_color_input_transport" default="raw"/>
+  <arg name="behind_depth_input_transport" default="raw"/>
+  <arg name="paw_tcp_nodelay" default="true"/>
+  <arg name="behind_tcp_nodelay" default="true"/>
+  <arg name="paw_color_queue_size" default="1"/>
+  <arg name="paw_depth_queue_size" default="1"/>
+  <arg name="paw_camera_info_queue_size" default="1"/>
+  <arg name="paw_output_queue_size" default="1"/>
+  <arg name="behind_color_queue_size" default="1"/>
+  <arg name="behind_depth_queue_size" default="1"/>
+  <arg name="behind_camera_info_queue_size" default="1"/>
+  <arg name="behind_output_queue_size" default="1"/>
 
-    <!-- D435i serial number (behind_camera 为 RealSense 时使用) -->
-    <arg name="behind_realsense_serial" default="112222070518"/>
+  <!-- H265 final-stream encoding -->
+  <arg name="enable_panorama_h265" default="false"/>
+  <arg name="enable_paw_h265" default="false"/>
+  <arg name="enable_behind_h265" default="false"/>
+  <arg name="panorama_h265_topic" default="/panorama/panorama_image/h265"/>
+  <arg name="paw_h265_topic" default="/paw_vision/vision_image/h265"/>
+  <arg name="behind_h265_topic" default="/behind_vision/vision_image/h265"/>
+  <arg name="panorama_h265_bitrate_kbps" default="1500"/>
+  <arg name="paw_h265_bitrate_kbps" default="1500"/>
+  <arg name="behind_h265_bitrate_kbps" default="1200"/>
+  <arg name="panorama_h265_fps" default="15"/>
+  <arg name="paw_h265_fps" default="15"/>
+  <arg name="behind_h265_fps" default="15"/>
+  <arg name="panorama_h265_gop" default="15"/>
+  <arg name="paw_h265_gop" default="15"/>
+  <arg name="behind_h265_gop" default="15"/>
+  <arg name="panorama_h265_max_input_fps" default="15.0"/>
+  <arg name="paw_h265_max_input_fps" default="15.0"/>
+  <arg name="behind_h265_max_input_fps" default="15.0"/>
 
-    <!-- behind_camera 类型: 通过环境变量或 roslaunch 参数指定 -->
-    <!-- 优先级：roslaunch传参 > 环境变量 BEHIND_CAMERA_TYPE > 默认 realsense -->
-    <!-- 示例：
-         roslaunch vision_pkg vision.launch behind_camera_type:=astra
-         export BEHIND_CAMERA_TYPE=astra && roslaunch vision_pkg vision.launch
-    -->
-    <arg name="behind_camera_type" default="$(optenv BEHIND_CAMERA_TYPE realsense)"/>
+  <!-- Motion parameters -->
+  <arg name="paw_motion_min_area" default="80"/>
+  <arg name="behind_motion_min_area" default="80"/>
+  <arg name="paw_motion_canny_low_threshold" default="50.0"/>
+  <arg name="paw_motion_canny_high_threshold" default="150.0"/>
+  <arg name="behind_motion_canny_low_threshold" default="50.0"/>
+  <arg name="behind_motion_canny_high_threshold" default="150.0"/>
+  <arg name="paw_motion_depth_min_m" default="0.0"/>
+  <arg name="paw_motion_depth_max_m" default="0.7"/>
+  <arg name="behind_motion_depth_min_m" default="0.0"/>
+  <arg name="behind_motion_depth_max_m" default="0.7"/>
+  <arg name="paw_motion_learning_rate" default="0.01"/>
+  <arg name="behind_motion_learning_rate" default="0.01"/>
+  <arg name="paw_motion_diff_threshold" default="18.0"/>
+  <arg name="behind_motion_diff_threshold" default="18.0"/>
+  <arg name="paw_motion_max_foreground_ratio" default="0.12"/>
+  <arg name="behind_motion_max_foreground_ratio" default="0.12"/>
 
-    <!-- ========================================================== -->
-    <!-- 驱动层：相机启动                                            -->
-    <!-- ========================================================== -->
+  <!-- USB camera device paths -->
+  <arg name="forward_cam_dev" default=""/>
+  <arg name="back_cam_dev" default=""/>
+  <arg name="head_cam_dev" default=""/>
+  <arg name="hand_cam_dev" default=""/>
+  <arg name="arm_cam_dev" default=""/>
+  <arg name="forward_cam_width" default="1920"/>
+  <arg name="forward_cam_height" default="1080"/>
+  <arg name="back_cam_width" default="1920"/>
+  <arg name="back_cam_height" default="1080"/>
+  <arg name="head_cam_width" default="640"/>
+  <arg name="head_cam_height" default="480"/>
+  <arg name="forward_cam_framerate" default="30"/>
+  <arg name="back_cam_framerate" default="30"/>
+  <arg name="head_cam_framerate" default="30"/>
+  <arg name="forward_cam_pixel_format" default="yuyv"/>
+  <arg name="back_cam_pixel_format" default="yuyv"/>
+  <arg name="head_cam_pixel_format" default="yuyv"/>
 
-    <!-- 1. USB 摄像头 -->
-    <group if="$(arg enable_usb_cams)">
+  <!-- Camera serial numbers -->
+  <arg name="paw_serial" default="130322273001"/>
+  <arg name="behind_serial" default="219323070286"/>
+  <arg name="behind_realsense_serial" default="112222070518"/>
+
+  <!-- Choose behind camera type by roslaunch arg or environment variable -->
+  <arg name="behind_camera_type" default="$(optenv BEHIND_CAMERA_TYPE realsense)"/>
+
+  <!-- USB cameras -->
+  <group if="$(arg enable_usb_cams)">
+    <group if="$(eval arg('forward_cam_dev') != '')">
       <node pkg="usb_cam" type="usb_cam_node" name="forward_camera" output="screen">
         <param name="video_device" value="$(arg forward_cam_dev)"/>
-        <param name="pixel_format" value="yuyv"/>
-        <param name="image_width" value="640"/>
-        <param name="image_height" value="480"/>
+        <param name="pixel_format" value="$(arg forward_cam_pixel_format)"/>
+        <param name="image_width" value="$(arg forward_cam_width)"/>
+        <param name="image_height" value="$(arg forward_cam_height)"/>
+        <param name="framerate" value="$(arg forward_cam_framerate)"/>
         <param name="camera_frame_id" value="forward_camera"/>
       </node>
+    </group>
 
+    <group if="$(eval arg('back_cam_dev') != '')">
       <node pkg="usb_cam" type="usb_cam_node" name="back_camera" output="screen">
         <param name="video_device" value="$(arg back_cam_dev)"/>
-        <param name="pixel_format" value="yuyv"/>
-        <param name="image_width" value="640"/>
-        <param name="image_height" value="480"/>
+        <param name="pixel_format" value="$(arg back_cam_pixel_format)"/>
+        <param name="image_width" value="$(arg back_cam_width)"/>
+        <param name="image_height" value="$(arg back_cam_height)"/>
+        <param name="framerate" value="$(arg back_cam_framerate)"/>
         <param name="camera_frame_id" value="back_camera"/>
       </node>
+    </group>
 
+    <group if="$(eval arg('head_cam_dev') != '')">
+      <node pkg="usb_cam" type="usb_cam_node" name="head_camera" output="screen">
+        <param name="video_device" value="$(arg head_cam_dev)"/>
+        <param name="pixel_format" value="$(arg head_cam_pixel_format)"/>
+        <param name="image_width" value="$(arg head_cam_width)"/>
+        <param name="image_height" value="$(arg head_cam_height)"/>
+        <param name="framerate" value="$(arg head_cam_framerate)"/>
+        <param name="camera_frame_id" value="head_camera"/>
+      </node>
+    </group>
+
+    <group if="$(eval arg('hand_cam_dev') != '')">
       <node pkg="usb_cam" type="usb_cam_node" name="hand_camera" output="screen">
         <param name="video_device" value="$(arg hand_cam_dev)"/>
         <param name="pixel_format" value="yuyv"/>
@@ -60,7 +163,9 @@
         <param name="image_height" value="480"/>
         <param name="camera_frame_id" value="hand_camera"/>
       </node>
+    </group>
 
+    <group if="$(eval arg('arm_cam_dev') != '')">
       <node pkg="usb_cam" type="usb_cam_node" name="arm_camera" output="screen">
         <param name="video_device" value="$(arg arm_cam_dev)"/>
         <param name="pixel_format" value="yuyv"/>
@@ -69,12 +174,33 @@
         <param name="camera_frame_id" value="arm_camera"/>
       </node>
     </group>
+  </group>
 
-    <!-- 2. RealSense D405 (paw_camera) -->
-    <group if="$(arg enable_paw_camera)">
+  <!-- Paw camera: D405 -->
+  <group if="$(arg enable_paw_camera)">
+    <include file="$(find realsense2_camera)/launch/rs_camera.launch">
+      <arg name="serial_no" value="$(arg paw_serial)"/>
+      <arg name="camera" value="paw_camera"/>
+      <arg name="enable_color" value="true"/>
+      <arg name="enable_depth" value="true"/>
+      <arg name="enable_infra1" value="false"/>
+      <arg name="enable_infra2" value="false"/>
+      <arg name="enable_pointcloud" value="true"/>
+    </include>
+  </group>
+
+  <!-- Behind camera: Astra+ or D435i -->
+  <group if="$(arg enable_behind_camera)">
+    <group if="$(eval arg('behind_camera_type') == 'astra')">
+      <include file="$(find orbbec_camera)/launch/astra_adv.launch">
+        <arg name="camera_name" value="behind_camera"/>
+      </include>
+    </group>
+
+    <group if="$(eval arg('behind_camera_type') == 'realsense')">
       <include file="$(find realsense2_camera)/launch/rs_camera.launch">
-        <arg name="serial_no" value="$(arg paw_serial)"/>
-        <arg name="camera" value="paw_camera"/>
+        <arg name="serial_no" value="$(arg behind_realsense_serial)"/>
+        <arg name="camera" value="behind_camera"/>
         <arg name="enable_color" value="true"/>
         <arg name="enable_depth" value="true"/>
         <arg name="enable_infra1" value="false"/>
@@ -82,77 +208,138 @@
         <arg name="enable_pointcloud" value="true"/>
       </include>
     </group>
+  </group>
 
-    <!-- 3. Behind Camera (Astra+ / RealSense D435i) -->
-    <group if="$(arg enable_behind_camera)">
-      <!-- 3a. Astra+ -->
-      <group if="$(eval arg('behind_camera_type') == 'astra')">
-        <include file="$(find orbbec_camera)/launch/astra_adv.launch">
-          <arg name="camera_name" value="behind_camera"/>
-        </include>
-      </group>
+  <!-- Thermal camera -->
+  <group if="$(arg enable_thermal)">
+    <include file="$(find thermal_camera)/launch/thermal_camera.launch"/>
+  </group>
 
-      <!-- 3b. RealSense D435i -->
-      <group if="$(eval arg('behind_camera_type') == 'realsense')">
-        <include file="$(find realsense2_camera)/launch/rs_camera.launch">
-          <arg name="serial_no" value="$(arg behind_realsense_serial)"/>
-          <arg name="camera" value="behind_camera"/>
-          <arg name="enable_color" value="true"/>
-          <arg name="enable_depth" value="true"/>
-          <arg name="enable_infra1" value="false"/>
-          <arg name="enable_infra2" value="false"/>
-          <arg name="enable_pointcloud" value="true"/>
-        </include>
-      </group>
-    </group>
-
-    <!-- 4. 热成像 Xtherm T2S+ (thermal_camera) -->
-    <group if="$(arg enable_thermal)">
-      <include file="$(find thermal_camera)/launch/thermal_camera.launch"/>
-    </group>
-
-    <!-- ========================================================== -->
-    <!-- 功能层：处理节点                                            -->
-    <!-- ========================================================== -->
-
-    <!-- 1. 综合视觉显示 (paw_vision) + 物体位姿估计 (object_pose) -->
-    <group if="$(arg enable_paw_camera)">
-      <node pkg="vision_pkg" type="vision_display_node" name="paw_vision" output="screen">
-        <param name="model_path" value="$(find vision_pkg)/model/best.onnx"/>
-        <param name="color_topic" value="/paw_camera/color/image_raw"/>
-        <param name="depth_topic" value="/paw_camera/depth/image_rect_raw"/>
-        <param name="camera_info_topic" value="/paw_camera/color/camera_info"/>
-        <param name="warning_distance" value="0.5"/>
-        <param name="use_rows_ratio" value="0.6"/>
-        <param name="use_cuda" value="false"/>
-      </node>
-
-      <node pkg="vision_pkg" type="object_pose_node" name="paw_object_pose" output="screen">
-        <param name="detection_topic" value="/paw_vision/detections"/>
-        <param name="depth_topic" value="/paw_camera/depth/image_rect_raw"/>
-        <param name="camera_info_topic" value="/paw_camera/color/camera_info"/>
-      </node>
-    </group>
-
-    <!-- 2. 综合视觉显示 (behind_vision) -->
-    <group if="$(arg enable_behind_camera)">
-      <node pkg="vision_pkg" type="vision_display_node" name="behind_vision" output="screen">
-        <param name="model_path" value="$(find vision_pkg)/model/best.onnx"/>
-        <param name="color_topic" value="/behind_camera/color/image_raw"/>
-        <param name="depth_topic" value="/behind_camera/depth/image_raw"/>
-        <param name="camera_info_topic" value="/behind_camera/color/camera_info"/>
-        <param name="warning_distance" value="0.5"/>
-        <param name="use_rows_ratio" value="0.6"/>
-        <param name="use_cuda" value="false"/>
-      </node>
-    </group>
-
-    <!-- 3. 全景拼接 (panorama) -->
-    <node pkg="vision_pkg" type="panorama_node" name="panorama" output="screen">
-      <param name="cam1_topic" value="/forward_camera/image_raw"/>
-      <param name="cam2_topic" value="/back_camera/image_raw"/>
-      <param name="fisheye_source_fov_deg" value="$(arg panorama_fisheye_source_fov_deg)"/>
+  <!-- Paw vision -->
+  <group if="$(arg enable_paw_camera)">
+    <node pkg="vision_pkg" type="vision_display_node" name="paw_vision" output="screen">
+      <param name="model_path" value="$(find vision_pkg)/model/best.onnx"/>
+      <param name="color_topic" value="/paw_camera/color/image_raw"/>
+      <param name="depth_topic" value="/paw_camera/depth/image_rect_raw"/>
+      <param name="camera_info_topic" value="/paw_camera/color/camera_info"/>
+      <param name="enable_qrcode_detection" value="$(arg paw_enable_qrcode_detection)"/>
+      <param name="enable_motion_detection" value="$(arg paw_enable_motion_detection)"/>
+      <param name="enable_motion_debug_images" value="$(arg paw_enable_motion_debug_images)"/>
+      <param name="enable_motion_depth_filter" value="$(arg paw_enable_motion_depth_filter)"/>
+      <param name="motion_min_area" value="$(arg paw_motion_min_area)"/>
+      <param name="motion_canny_low_threshold" value="$(arg paw_motion_canny_low_threshold)"/>
+      <param name="motion_canny_high_threshold" value="$(arg paw_motion_canny_high_threshold)"/>
+      <param name="motion_depth_min_m" value="$(arg paw_motion_depth_min_m)"/>
+      <param name="motion_depth_max_m" value="$(arg paw_motion_depth_max_m)"/>
+      <param name="motion_learning_rate" value="$(arg paw_motion_learning_rate)"/>
+      <param name="motion_diff_threshold" value="$(arg paw_motion_diff_threshold)"/>
+      <param name="motion_max_foreground_ratio" value="$(arg paw_motion_max_foreground_ratio)"/>
+      <param name="warning_distance" value="0.5"/>
+      <param name="use_rows_ratio" value="0.6"/>
+      <param name="use_cuda" value="false"/>
+      <param name="color_input_transport" value="$(arg paw_color_input_transport)"/>
+      <param name="depth_input_transport" value="$(arg paw_depth_input_transport)"/>
+      <param name="tcp_nodelay" value="$(arg paw_tcp_nodelay)"/>
+      <param name="color_queue_size" value="$(arg paw_color_queue_size)"/>
+      <param name="depth_queue_size" value="$(arg paw_depth_queue_size)"/>
+      <param name="camera_info_queue_size" value="$(arg paw_camera_info_queue_size)"/>
+      <param name="output_queue_size" value="$(arg paw_output_queue_size)"/>
     </node>
 
-  </launch>
+    <node pkg="vision_pkg" type="object_pose_node" name="paw_object_pose" output="screen">
+      <param name="detection_topic" value="/paw_vision/detections"/>
+      <param name="depth_topic" value="/paw_camera/depth/image_rect_raw"/>
+      <param name="camera_info_topic" value="/paw_camera/color/camera_info"/>
+    </node>
 
+    <node if="$(arg enable_paw_h265)" pkg="vision_pkg" type="h265_encoder_node" name="paw_h265" output="screen">
+      <param name="input_topic" value="/paw_vision/vision_image"/>
+      <param name="output_topic" value="$(arg paw_h265_topic)"/>
+      <param name="queue_size" value="1"/>
+      <param name="bitrate_kbps" value="$(arg paw_h265_bitrate_kbps)"/>
+      <param name="fps" value="$(arg paw_h265_fps)"/>
+      <param name="gop" value="$(arg paw_h265_gop)"/>
+      <param name="max_input_fps" value="$(arg paw_h265_max_input_fps)"/>
+    </node>
+  </group>
+
+  <!-- Behind vision -->
+  <group if="$(arg enable_behind_camera)">
+    <node pkg="vision_pkg" type="vision_display_node" name="behind_vision" output="screen">
+      <param name="model_path" value="$(find vision_pkg)/model/best.onnx"/>
+      <param name="color_topic" value="/behind_camera/color/image_raw"/>
+      <param name="depth_topic" value="/behind_camera/depth/image_raw"/>
+      <param name="camera_info_topic" value="/behind_camera/color/camera_info"/>
+      <param name="enable_qrcode_detection" value="$(arg behind_enable_qrcode_detection)"/>
+      <param name="enable_motion_detection" value="$(arg behind_enable_motion_detection)"/>
+      <param name="enable_motion_debug_images" value="$(arg behind_enable_motion_debug_images)"/>
+      <param name="enable_motion_depth_filter" value="$(arg behind_enable_motion_depth_filter)"/>
+      <param name="motion_min_area" value="$(arg behind_motion_min_area)"/>
+      <param name="motion_canny_low_threshold" value="$(arg behind_motion_canny_low_threshold)"/>
+      <param name="motion_canny_high_threshold" value="$(arg behind_motion_canny_high_threshold)"/>
+      <param name="motion_depth_min_m" value="$(arg behind_motion_depth_min_m)"/>
+      <param name="motion_depth_max_m" value="$(arg behind_motion_depth_max_m)"/>
+      <param name="motion_learning_rate" value="$(arg behind_motion_learning_rate)"/>
+      <param name="motion_diff_threshold" value="$(arg behind_motion_diff_threshold)"/>
+      <param name="motion_max_foreground_ratio" value="$(arg behind_motion_max_foreground_ratio)"/>
+      <param name="warning_distance" value="0.5"/>
+      <param name="use_rows_ratio" value="0.6"/>
+      <param name="use_cuda" value="false"/>
+      <param name="color_input_transport" value="$(arg behind_color_input_transport)"/>
+      <param name="depth_input_transport" value="$(arg behind_depth_input_transport)"/>
+      <param name="tcp_nodelay" value="$(arg behind_tcp_nodelay)"/>
+      <param name="color_queue_size" value="$(arg behind_color_queue_size)"/>
+      <param name="depth_queue_size" value="$(arg behind_depth_queue_size)"/>
+      <param name="camera_info_queue_size" value="$(arg behind_camera_info_queue_size)"/>
+      <param name="output_queue_size" value="$(arg behind_output_queue_size)"/>
+    </node>
+
+    <node if="$(arg enable_behind_h265)" pkg="vision_pkg" type="h265_encoder_node" name="behind_h265" output="screen">
+      <param name="input_topic" value="/behind_vision/vision_image"/>
+      <param name="output_topic" value="$(arg behind_h265_topic)"/>
+      <param name="queue_size" value="1"/>
+      <param name="bitrate_kbps" value="$(arg behind_h265_bitrate_kbps)"/>
+      <param name="fps" value="$(arg behind_h265_fps)"/>
+      <param name="gop" value="$(arg behind_h265_gop)"/>
+      <param name="max_input_fps" value="$(arg behind_h265_max_input_fps)"/>
+    </node>
+  </group>
+
+  <!-- Panorama -->
+  <node pkg="vision_pkg" type="panorama_node" name="panorama" output="screen">
+    <param name="cam1_topic" value="/forward_camera/image_raw"/>
+    <param name="cam2_topic" value="/back_camera/image_raw"/>
+    <param name="display_mode" value="$(arg panorama_display_mode)"/>
+    <param name="fisheye_source_fov_deg" value="$(arg panorama_fisheye_source_fov_deg)"/>
+    <param name="operator_view_fov_deg" value="$(arg panorama_operator_view_fov_deg)"/>
+    <param name="operator_view_width" value="$(arg panorama_operator_view_width)"/>
+    <param name="operator_view_height" value="$(arg panorama_operator_view_height)"/>
+    <param name="front_rotate_180" value="$(arg panorama_front_rotate_180)"/>
+    <param name="back_rotate_180" value="$(arg panorama_back_rotate_180)"/>
+    <param name="input_transport" value="$(arg panorama_input_transport)"/>
+    <param name="tcp_nodelay" value="$(arg panorama_tcp_nodelay)"/>
+    <param name="output_queue_size" value="$(arg panorama_output_queue_size)"/>
+    <param name="front_crop_ref_width" value="$(arg panorama_front_crop_ref_width)"/>
+    <param name="front_crop_ref_height" value="$(arg panorama_front_crop_ref_height)"/>
+    <param name="front_crop_x" value="$(arg panorama_front_crop_x)"/>
+    <param name="front_crop_y" value="$(arg panorama_front_crop_y)"/>
+    <param name="front_crop_width" value="$(arg panorama_front_crop_width)"/>
+    <param name="front_crop_height" value="$(arg panorama_front_crop_height)"/>
+    <param name="back_crop_ref_width" value="$(arg panorama_back_crop_ref_width)"/>
+    <param name="back_crop_ref_height" value="$(arg panorama_back_crop_ref_height)"/>
+    <param name="back_crop_x" value="$(arg panorama_back_crop_x)"/>
+    <param name="back_crop_y" value="$(arg panorama_back_crop_y)"/>
+    <param name="back_crop_width" value="$(arg panorama_back_crop_width)"/>
+    <param name="back_crop_height" value="$(arg panorama_back_crop_height)"/>
+  </node>
+
+  <node if="$(arg enable_panorama_h265)" pkg="vision_pkg" type="h265_encoder_node" name="panorama_h265" output="screen">
+    <param name="input_topic" value="/panorama/panorama_image"/>
+    <param name="output_topic" value="$(arg panorama_h265_topic)"/>
+    <param name="queue_size" value="1"/>
+    <param name="bitrate_kbps" value="$(arg panorama_h265_bitrate_kbps)"/>
+    <param name="fps" value="$(arg panorama_h265_fps)"/>
+    <param name="gop" value="$(arg panorama_h265_gop)"/>
+    <param name="max_input_fps" value="$(arg panorama_h265_max_input_fps)"/>
+  </node>
+</launch>
