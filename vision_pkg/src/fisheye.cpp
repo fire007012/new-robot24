@@ -1,8 +1,50 @@
 #include "vision_pkg/fisheye.h"
 #include <ros/ros.h>
+#include <algorithm>
 #include <cmath>
 
 Fisheye::Fisheye() {}
+
+cv::Mat Fisheye::cropRect(const cv::Mat &img, int x, int y, int width, int height) const
+{
+    if (img.empty()) {
+        return cv::Mat();
+    }
+
+    if (width <= 0 || height <= 0) {
+        return img;
+    }
+
+    int x1 = std::max(0, std::min(x, img.cols - 1));
+    int y1 = std::max(0, std::min(y, img.rows - 1));
+    int x2 = std::max(x1 + 1, std::min(x + width, img.cols));
+    int y2 = std::max(y1 + 1, std::min(y + height, img.rows));
+
+    return img(cv::Rect(x1, y1, x2 - x1, y2 - y1));
+}
+
+void Fisheye::extractConfiguredCrops(const cv::Mat &frame1, const cv::Mat &frame2,
+                                     cv::Mat &front_crop, cv::Mat &back_crop) const
+{
+    const double front_scale_x = frame1.cols > 0 ? static_cast<double>(frame1.cols) / front_crop_ref_width_ : 1.0;
+    const double front_scale_y = frame1.rows > 0 ? static_cast<double>(frame1.rows) / front_crop_ref_height_ : 1.0;
+    const double back_scale_x = frame2.cols > 0 ? static_cast<double>(frame2.cols) / back_crop_ref_width_ : 1.0;
+    const double back_scale_y = frame2.rows > 0 ? static_cast<double>(frame2.rows) / back_crop_ref_height_ : 1.0;
+
+    front_crop = cropRect(
+        frame1,
+        static_cast<int>(std::lround(front_crop_x_ * front_scale_x)),
+        static_cast<int>(std::lround(front_crop_y_ * front_scale_y)),
+        static_cast<int>(std::lround(front_crop_width_ * front_scale_x)),
+        static_cast<int>(std::lround(front_crop_height_ * front_scale_y)));
+
+    back_crop = cropRect(
+        frame2,
+        static_cast<int>(std::lround(back_crop_x_ * back_scale_x)),
+        static_cast<int>(std::lround(back_crop_y_ * back_scale_y)),
+        static_cast<int>(std::lround(back_crop_width_ * back_scale_x)),
+        static_cast<int>(std::lround(back_crop_height_ * back_scale_y)));
+}
 
 int Fisheye::detectFisheyeRadius(const cv::Mat &img)
 {
@@ -48,7 +90,7 @@ cv::Mat Fisheye::cropFisheyeCircle(const cv::Mat &img, int detected_radius)
     int side = std::min(x2 - x1, y2 - y1);
     x1 = cx - side / 2;
     y1 = cy - side / 2;
-    return img(cv::Rect(x1, y1, side, side)).clone();
+    return img(cv::Rect(x1, y1, side, side));
 }
 
 void Fisheye::buildUnwarpMaps(int radius, int out_w, int out_h)
@@ -287,21 +329,38 @@ cv::Mat Fisheye::renderAzimuthal(const cv::Mat &equirect, int out_size)
 void Fisheye::processFrames(const cv::Mat &frame1, const cv::Mat &frame2)
 {
     if (frame1.empty() || frame2.empty()) {
-        ROS_ERROR_THROTTLE(5.0, "Fisheye: input frame empty");
+        ROS_ERROR_ONCE("Fisheye: input frame empty");
         return;
     }
 
-    if (!unwarp_maps_ready_ || frame1.cols != last_input_w_ || frame1.rows != last_input_h_) {
-        detected_radius_ = detectFisheyeRadius(frame1);
-        last_input_w_ = frame1.cols;
-        last_input_h_ = frame1.rows;
-        ROS_INFO("Detected fisheye circle radius: %d (image: %dx%d)",
-                 detected_radius_, frame1.cols, frame1.rows);
+    cv::Mat front_rect;
+    cv::Mat back_rect;
+    extractConfiguredCrops(frame1, frame2, front_rect, back_rect);
+    if (front_rect.empty() || back_rect.empty()) {
+        ROS_ERROR_ONCE("Fisheye: crop rect produced empty image");
+        return;
+    }
+
+    if (!unwarp_maps_ready_ || front_rect.cols != last_input_w_ || front_rect.rows != last_input_h_) {
+        detected_radius_ = detectFisheyeRadius(front_rect);
+        last_input_w_ = front_rect.cols;
+        last_input_h_ = front_rect.rows;
+        ROS_INFO("Detected fisheye circle radius: %d (front crop: %dx%d, back crop: %dx%d)",
+                 detected_radius_, front_rect.cols, front_rect.rows, back_rect.cols, back_rect.rows);
         unwarp_maps_ready_ = false;
     }
 
-    cv::Mat crop1 = cropFisheyeCircle(frame1, detected_radius_);
-    cv::Mat crop2 = cropFisheyeCircle(frame2, detected_radius_);
+    cv::Mat crop1 = cropFisheyeCircle(front_rect, detected_radius_);
+    cv::Mat crop2 = cropFisheyeCircle(back_rect, detected_radius_);
+    if (crop1.empty() || crop2.empty()) {
+        ROS_ERROR_ONCE("Fisheye: circle crop produced empty image");
+        return;
+    }
+
+    cv::Mat crop2_resized = crop2;
+    if (crop2.size() != crop1.size()) {
+        cv::resize(crop2, crop2_resized, crop1.size(), 0.0, 0.0, cv::INTER_LINEAR);
+    }
 
     int radius = crop1.cols / 2;
     int out_w = radius * 2;
@@ -314,14 +373,24 @@ void Fisheye::processFrames(const cv::Mat &frame1, const cv::Mat &frame2)
                  radius, out_w, out_h, source_fov_deg_);
     }
 
+    cv::Mat front_source = crop1;
+    cv::Mat front_rotated;
+    if (front_rotate_180_) {
+        cv::rotate(crop1, front_rotated, cv::ROTATE_180);
+        front_source = front_rotated;
+    }
     cv::Mat front_unwarp;
-    cv::remap(crop1, front_unwarp, front_map1_, front_map2_,
+    cv::remap(front_source, front_unwarp, front_map1_, front_map2_,
               cv::INTER_LINEAR, cv::BORDER_CONSTANT);
 
-    cv::Mat crop2_rot;
-    cv::rotate(crop2, crop2_rot, cv::ROTATE_180);
+    cv::Mat back_source = crop2_resized;
+    cv::Mat back_rotated;
+    if (back_rotate_180_) {
+        cv::rotate(crop2_resized, back_rotated, cv::ROTATE_180);
+        back_source = back_rotated;
+    }
     cv::Mat back_unwarp;
-    cv::remap(crop2_rot, back_unwarp, front_map1_, front_map2_,
+    cv::remap(back_source, back_unwarp, front_map1_, front_map2_,
               cv::INTER_LINEAR, cv::BORDER_CONSTANT);
 
     cv::Mat pano = stitch360(front_unwarp, back_unwarp);
@@ -330,4 +399,3 @@ void Fisheye::processFrames(const cv::Mat &frame1, const cv::Mat &frame2)
         m_callback(pano, pano);
     }
 }
-

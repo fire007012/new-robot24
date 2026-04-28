@@ -11,7 +11,7 @@
  * @brief YOLOv8 目标检测封装类
  *
  * 通过 OpenCV DNN 模块加载 ONNX 模型，支持 CPU 和 CUDA 推理。
- * 用于检测 17 类危险品标识。
+ * 用于检测 15 类危险品标识。
  */
 class Yolov8
 {
@@ -49,13 +49,12 @@ public:
                      const std::vector<std::string>& classNames,
                      const std::vector<cv::Scalar>& color);
 
-    // 17 类危险品标识名称
+    // 15 类危险品标识名称
     std::vector<std::string> className = {
-        "FLAMMABLEGAS", "FUELOIL", "ORGANICPEROXIDE", "OXIDIZER",
-        "DANGEROUS", "FLAMMABLESOLID", "EXPLOSIVES", "OXYGEN",
+        "FLAMMABLE GAS", "FUELOIL", "ORGANICPEROXIDE", "OXIDIZER",
+        "DANGEROUS", "FLAMMABLE SOLID", "EXPLOSIVES", "OXYGEN",
         "POISON", "NON-FLAMMABLE GAS", "COMBUSTIBLE", "INHALATION HAZARD",
-        "RADIOACTIVE", "BLASTING AGENTS", "FLAMMABLE SOLID",
-        "FLAMMABLE GAS", "CORROSIVE"
+        "RADIOACTIVE", "BLASTING AGENTS","CORROSIVE"
     };
 
 private:
@@ -79,7 +78,7 @@ private:
 
     int _netWidth = 640;          // 网络输入宽度
     int _netHeight = 640;         // 网络输入高度
-    float _classThreshold = 0.25; // 类别置信度阈值
+    float _classThreshold = 0.7;  // 类别置信度阈值（提高到0.5）
     float _nmsThreshold = 0.45;   // NMS（非极大值抑制）IoU 阈值
 };
 
