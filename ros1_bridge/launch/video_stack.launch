@@ -1,0 +1,108 @@
+<launch>
+  <!--
+    One-entry lower-machine video stack.
+
+    Typical use after ros1_bridge is visible to ROS_PACKAGE_PATH:
+      roslaunch ros1_bridge video_stack.launch
+  -->
+
+  <arg name="video_config" default="$(find ros1_bridge)/video_sources.local.yaml" />
+  <arg name="log_dir" default="/tmp/rtsp_logs" />
+
+  <arg name="video_manager_host" default="127.0.0.1" />
+  <arg name="video_manager_port" default="18081" />
+  <arg name="video_manager_poll_sec" default="1.0" />
+  <arg name="startup_check_sec" default="1.5" />
+  <arg name="device_timeout_sec" default="5.0" />
+  <arg name="restart_backoff_sec" default="5.0" />
+  <arg name="video_manager_extra_args" default="" />
+
+  <arg name="rtsp_port" default="8554" />
+  <arg name="start_mediamtx" default="false" />
+  <arg name="mediamtx_bin" default="mediamtx" />
+  <arg name="mediamtx_extra_args" default="" />
+  <arg name="bridge_mode" default="--ros" />
+  <arg name="bridge_host" default="0.0.0.0" />
+  <arg name="bridge_port" default="9090" />
+  <arg name="debug_host" default="0.0.0.0" />
+  <arg name="debug_port" default="18080" />
+  <arg name="video_manager_timeout" default="5.0" />
+  <arg name="video_poll_sec" default="1.0" />
+
+  <arg name="cmd_vel_topic" default="/cmd_vel" />
+  <arg name="servo_topic" default="/servo_server/delta_twist_cmds" />
+  <arg name="servo_frame" default="catch_camera" />
+  <arg name="gripper_position_topic" default="/arm_control/gripper_position" />
+  <arg name="hybrid_service_ns" default="/hybrid_motor_hw_node" />
+  <arg name="joint_runtime_topic" default="/hybrid_motor_hw_node/joint_runtime_states" />
+  <arg name="watchdog_ms" default="300" />
+  <arg name="linear_speed" default="0.8" />
+  <arg name="angular_speed" default="1.5" />
+  <arg name="gripper_min_position" default="0.0" />
+  <arg name="gripper_max_position" default="0.044" />
+  <arg name="gripper_initial_position" default="0.022" />
+  <arg name="bridge_extra_args" default="" />
+
+  <arg name="respawn" default="true" />
+  <arg name="respawn_delay" default="2.0" />
+
+  <node if="$(arg start_mediamtx)"
+        pkg="ros1_bridge"
+        type="mediamtx_launcher.sh"
+        name="mediamtx"
+        output="screen"
+        respawn="false"
+        args="--bin $(arg mediamtx_bin)
+              --port $(arg rtsp_port)
+              $(arg mediamtx_extra_args)" />
+
+  <node pkg="ros1_bridge"
+        type="video_manager_node.py"
+        name="video_manager_node"
+        output="screen"
+        respawn="$(arg respawn)"
+        respawn_delay="$(arg respawn_delay)"
+        args="--host $(arg video_manager_host)
+              --port $(arg video_manager_port)
+              --config $(arg video_config)
+              --rtsp-port $(arg rtsp_port)
+              --log-dir $(arg log_dir)
+              --poll-sec $(arg video_manager_poll_sec)
+              --startup-check-sec $(arg startup_check_sec)
+              --device-timeout-sec $(arg device_timeout_sec)
+              --restart-backoff-sec $(arg restart_backoff_sec)
+              --autostart
+              $(arg video_manager_extra_args)" />
+
+  <node pkg="ros1_bridge"
+        type="host_bridge_node.py"
+        name="host_bridge_node"
+        output="screen"
+        respawn="$(arg respawn)"
+        respawn_delay="$(arg respawn_delay)"
+        args="$(arg bridge_mode)
+              --host $(arg bridge_host)
+              --port $(arg bridge_port)
+              --no-camera-config
+              --video-manager
+              --video-manager-host $(arg video_manager_host)
+              --video-manager-port $(arg video_manager_port)
+              --video-manager-timeout $(arg video_manager_timeout)
+              --video-poll-sec $(arg video_poll_sec)
+              --debug-ui
+              --debug-host $(arg debug_host)
+              --debug-port $(arg debug_port)
+              --cmd-vel-topic $(arg cmd_vel_topic)
+              --servo-topic $(arg servo_topic)
+              --servo-frame $(arg servo_frame)
+              --gripper-position-topic $(arg gripper_position_topic)
+              --hybrid-service-ns $(arg hybrid_service_ns)
+              --joint-runtime-topic $(arg joint_runtime_topic)
+              --watchdog-ms $(arg watchdog_ms)
+              --linear-speed $(arg linear_speed)
+              --angular-speed $(arg angular_speed)
+              --gripper-min-position $(arg gripper_min_position)
+              --gripper-max-position $(arg gripper_max_position)
+              --gripper-initial-position $(arg gripper_initial_position)
+              $(arg bridge_extra_args)" />
+</launch>

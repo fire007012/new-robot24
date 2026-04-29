@@ -1,0 +1,38 @@
+rtsp:
+  public_host: 192.168.1.50
+  publish_host: 127.0.0.1
+  port: 8554
+  server: mediamtx
+  transport: tcp
+
+direct_sources:
+  - camera_id: 0
+    source_id: front_raw
+    slot_hint: 0
+    name: Front Raw
+    runner: ffmpeg
+    device: /dev/video0
+    input_format: mjpeg
+    width: 1280
+    height: 720
+    fps: 30
+    codec: h264
+    bitrate_kbps: 2500
+    crop_aspect: "4:3"
+    rtsp_path: front_raw
+    enabled: true
+
+  - camera_id: 1
+    source_id: rear_raw
+    slot_hint: 1
+    name: Rear Raw
+    runner: ffmpeg
+    device: /dev/video1
+    input_format: mjpeg
+    width: 1280
+    height: 720
+    fps: 30
+    codec: h264
+    bitrate_kbps: 2500
+    rtsp_path: rear_raw
+    enabled: false

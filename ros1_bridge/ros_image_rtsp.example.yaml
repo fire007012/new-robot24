@@ -1,0 +1,6 @@
+image_topic: /camera/image/compressed
+rtsp_url: rtsp://127.0.0.1:8554/camera_topic
+
+fps: 30
+bitrate_kbps: 2500
+output_codec: h264
