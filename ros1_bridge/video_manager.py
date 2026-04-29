@@ -488,17 +488,20 @@ def load_video_config(path: str) -> VideoConfig:
 
 def normalize_v4l2_input_format(input_format: str) -> str:
     normalized = input_format.strip()
+    key = normalized.lower()
     aliases = {
+        "mjpeg": "mjpeg",
         "mjpg": "mjpeg",
         "mjpe": "mjpeg",
         "jpeg": "mjpeg",
         "yuyv": "yuyv422",
+        "yuyv422": "yuyv422",
         "yuy2": "yuyv422",
         "h264": "h264",
         "h265": "hevc",
         "hevc": "hevc",
     }
-    return aliases.get(normalized.lower(), normalized)
+    return aliases.get(key, key)
 
 
 def is_rtsp_listening(port: int) -> bool:

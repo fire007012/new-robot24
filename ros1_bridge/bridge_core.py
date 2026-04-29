@@ -299,6 +299,18 @@ class BridgeCore:
         self.publish_twist(TwistCommand(0.0, 0.0, source))
         self.publish_servo(ServoCommand(frame_id=self.servo_frame, source=source))
 
+    def reset_operator_input_session(self, source: str) -> None:
+        with self.state_lock:
+            self.state.last_operator_seq = 0
+            self.state.last_valid_input_ms = 0
+            self.state.watchdog_active = False
+            self.state.last_pressed_keys = []
+            self.state.last_gamepad_buttons = []
+        self.publish_zero(source)
+        self.events.emit("operator_input", "operator input session reset", data={
+            "source": source,
+        })
+
     def publish_twist(self, twist: TwistCommand) -> None:
         with self.state_lock:
             self.state.last_twist = twist
@@ -488,6 +500,7 @@ class BridgeCore:
         current_ms = now_ms()
         pressed = self.normalized_pressed_keys(msg)
         gamepad = msg.get("gamepad", {}) if isinstance(msg.get("gamepad", {}), dict) else {}
+        current_buttons = self.active_gamepad_buttons(gamepad)
 
         status: Optional[str] = None
         with self.state_lock:
@@ -499,6 +512,7 @@ class BridgeCore:
             elif self.state.emergency_active:
                 self.state.last_operator_seq = seq
                 self.state.last_pressed_keys = sorted(pressed)
+                self.state.last_gamepad_buttons = sorted(current_buttons)
                 status = "ignored_emergency"
 
         if status == "dropped_old_seq":
@@ -511,31 +525,41 @@ class BridgeCore:
 
         if status == "ignored_emergency":
             self.publish_zero("emergency_active")
-            self.events.emit("operator_input", "operator input ignored emergency", level="warning", data={"seq": seq})
+            with self.state_lock:
+                emergency_source = self.state.emergency_source
+            self.events.emit("operator_input", "operator input ignored emergency", level="warning", data={
+                "seq": seq,
+                "emergency_source": emergency_source,
+                "pressed_keys": sorted(pressed),
+                "active_gamepad_buttons": sorted(current_buttons),
+            })
             return [self.input_status(seq, status)]
 
         key_edges: Set[str]
         button_edges: Set[str]
-        current_buttons: Set[str]
         with self.state_lock:
             previous_pressed = set(self.state.last_pressed_keys)
             key_edges = pressed - previous_pressed
-            current_buttons = self.active_gamepad_buttons(gamepad)
             button_edges = current_buttons - set(self.state.last_gamepad_buttons)
             self.state.last_pressed_keys = sorted(pressed)
             self.state.last_gamepad_buttons = sorted(current_buttons)
             self.state.last_operator_seq = seq
             self.state.watchdog_active = False
 
-        if self.has_emergency_input(pressed, current_buttons):
+        emergency_source = self.emergency_input_source(key_edges, current_buttons, button_edges)
+        if emergency_source:
             with self.state_lock:
                 self.state.emergency_active = True
-                self.state.emergency_source = "keyboard_space" if "space" in pressed else "gamepad_l3_r3"
+                self.state.emergency_source = emergency_source
                 self.state.watchdog_active = False
             self.publish_zero("operator_input_emergency")
             self.events.emit("emergency", "operator input emergency key accepted", level="warning", data={
                 "seq": seq,
+                "source": emergency_source,
                 "pressed_keys": sorted(pressed),
+                "key_edges": sorted(key_edges),
+                "active_gamepad_buttons": sorted(current_buttons),
+                "button_edges": sorted(button_edges),
             })
             return [
                 self.input_status(seq, "emergency_key"),
@@ -719,8 +743,17 @@ class BridgeCore:
         buttons = gamepad.get("buttons", {}) if isinstance(gamepad.get("buttons", {}), dict) else {}
         return {name for name, value in buttons.items() if bool(value)}
 
-    def has_emergency_input(self, pressed: Set[str], active_buttons: Set[str]) -> bool:
-        return bool(self.EMERGENCY_KEYS & pressed) or {"l3", "r3"}.issubset(active_buttons)
+    def emergency_input_source(
+        self,
+        key_edges: Set[str],
+        active_buttons: Set[str],
+        button_edges: Set[str],
+    ) -> str:
+        if self.EMERGENCY_KEYS & key_edges:
+            return "keyboard_space"
+        if {"l3", "r3"}.issubset(active_buttons) and ({"l3", "r3"} & button_edges):
+            return "gamepad_l3_r3"
+        return ""
 
     def apply_mode_and_speed_edges(self, key_edges: Set[str], button_edges: Set[str], seq: int) -> None:
         mode_changed = False

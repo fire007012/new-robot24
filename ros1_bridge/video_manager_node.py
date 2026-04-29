@@ -9,6 +9,10 @@ import threading
 import time
 from typing import Any, Dict, Optional
 
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+if SCRIPT_DIR not in sys.path:
+    sys.path.insert(0, SCRIPT_DIR)
+
 from video_manager import VideoConfigError, VideoManager, load_video_config
 from video_manager_ipc import DEFAULT_VIDEO_MANAGER_HOST, DEFAULT_VIDEO_MANAGER_PORT, MAX_FRAME_BYTES
 

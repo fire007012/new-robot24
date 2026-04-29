@@ -7,7 +7,7 @@
 #include <cctype>
 #include <cstring>
 #include <fstream>
-#include <sstream>
+#include <memory>
 #include <stdexcept>
 #include <string>
 #include <sys/types.h>
@@ -18,7 +18,8 @@
 
 namespace {
 
-struct Config {
+struct StreamConfig {
+  std::string name;
   std::string image_topic;
   std::string rtsp_url;
   std::string ffmpeg_path = "ffmpeg";
@@ -26,6 +27,11 @@ struct Config {
   std::string rtsp_transport = "tcp";
   int fps = 30;
   int bitrate_kbps = 2500;
+  double frame_timeout_sec = 3.0;
+};
+
+struct Config {
+  std::vector<StreamConfig> streams;
 };
 
 std::string trim(const std::string& value) {
@@ -88,6 +94,52 @@ int parsePositiveInt(const std::string& key, const std::string& value) {
   }
 }
 
+double parsePositiveDouble(const std::string& key, const std::string& value) {
+  try {
+    const double parsed = std::stod(value);
+    if (parsed <= 0.0) {
+      throw std::invalid_argument("must be positive");
+    }
+    return parsed;
+  } catch (const std::exception&) {
+    throw std::runtime_error(key + " must be a positive number");
+  }
+}
+
+void applyStreamField(StreamConfig& stream, const std::string& key, const std::string& value) {
+  if (key == "name") {
+    stream.name = value;
+  } else if (key == "image_topic") {
+    stream.image_topic = value;
+  } else if (key == "rtsp_url") {
+    stream.rtsp_url = value;
+  } else if (key == "ffmpeg_path") {
+    stream.ffmpeg_path = value.empty() ? stream.ffmpeg_path : value;
+  } else if (key == "output_codec") {
+    stream.output_codec = value.empty() ? stream.output_codec : value;
+  } else if (key == "rtsp_transport") {
+    stream.rtsp_transport = value;
+  } else if (key == "fps") {
+    stream.fps = parsePositiveInt(key, value);
+  } else if (key == "bitrate_kbps") {
+    stream.bitrate_kbps = parsePositiveInt(key, value);
+  } else if (key == "frame_timeout_sec") {
+    stream.frame_timeout_sec = parsePositiveDouble(key, value);
+  } else {
+    ROS_WARN("ignoring unknown stream config key: %s", key.c_str());
+  }
+}
+
+void validateStream(const StreamConfig& stream, size_t index) {
+  const std::string prefix = "streams[" + std::to_string(index) + "]";
+  if (stream.image_topic.empty()) {
+    throw std::runtime_error(prefix + ".image_topic is required");
+  }
+  if (stream.rtsp_url.empty()) {
+    throw std::runtime_error(prefix + ".rtsp_url is required");
+  }
+}
+
 Config loadConfig(const std::string& path) {
   std::ifstream input(path);
   if (!input) {
@@ -95,46 +147,55 @@ Config loadConfig(const std::string& path) {
   }
 
   Config config;
+  StreamConfig* current = nullptr;
+  bool in_streams = false;
   std::string line;
   int line_number = 0;
+
   while (std::getline(input, line)) {
     ++line_number;
     line = trim(stripInlineComment(line));
-    if (line.empty() || line[0] == '#') {
+    if (line.empty()) {
       continue;
+    }
+    if (line == "streams:") {
+      in_streams = true;
+      continue;
+    }
+    if (!in_streams) {
+      ROS_WARN("ignoring top-level config line %d: %s", line_number, line.c_str());
+      continue;
+    }
+
+    if (line[0] == '-') {
+      config.streams.emplace_back();
+      current = &config.streams.back();
+      line = trim(line.substr(1));
+      if (line.empty()) {
+        continue;
+      }
+    }
+    if (!current) {
+      throw std::runtime_error("stream field before list item at line " + std::to_string(line_number));
     }
 
     const size_t colon = line.find(':');
     if (colon == std::string::npos) {
       throw std::runtime_error("invalid YAML line " + std::to_string(line_number) + ": " + line);
     }
-
     const std::string key = trim(line.substr(0, colon));
     const std::string value = unquote(line.substr(colon + 1));
-    if (key == "image_topic") {
-      config.image_topic = value;
-    } else if (key == "rtsp_url") {
-      config.rtsp_url = value;
-    } else if (key == "ffmpeg_path") {
-      config.ffmpeg_path = value.empty() ? config.ffmpeg_path : value;
-    } else if (key == "output_codec") {
-      config.output_codec = value.empty() ? config.output_codec : value;
-    } else if (key == "rtsp_transport") {
-      config.rtsp_transport = value;
-    } else if (key == "fps") {
-      config.fps = parsePositiveInt(key, value);
-    } else if (key == "bitrate_kbps") {
-      config.bitrate_kbps = parsePositiveInt(key, value);
-    } else {
-      ROS_WARN("ignoring unknown config key: %s", key.c_str());
-    }
+    applyStreamField(*current, key, value);
   }
 
-  if (config.image_topic.empty()) {
-    throw std::runtime_error("image_topic is required");
+  if (config.streams.empty()) {
+    throw std::runtime_error("streams must contain at least one stream");
   }
-  if (config.rtsp_url.empty()) {
-    throw std::runtime_error("rtsp_url is required");
+  for (size_t i = 0; i < config.streams.size(); ++i) {
+    validateStream(config.streams[i], i);
+    if (config.streams[i].name.empty()) {
+      config.streams[i].name = "stream_" + std::to_string(i);
+    }
   }
   return config;
 }
@@ -162,11 +223,11 @@ bool writeAll(int fd, const uint8_t* data, size_t size) {
   return true;
 }
 
-std::vector<std::string> buildFfmpegCommand(const Config& config) {
-  const int safe_fps = std::max(config.fps, 1);
+std::vector<std::string> buildFfmpegCommand(const StreamConfig& stream) {
+  const int safe_fps = std::max(stream.fps, 1);
 
   std::vector<std::string> command = {
-      config.ffmpeg_path,
+      stream.ffmpeg_path,
       "-hide_banner",
       "-loglevel",
       "warning",
@@ -181,7 +242,7 @@ std::vector<std::string> buildFfmpegCommand(const Config& config) {
       "-an",
   };
 
-  const std::string codec = toLower(config.output_codec);
+  const std::string codec = toLower(stream.output_codec);
   if (codec == "copy" || codec == "passthrough") {
     command.insert(command.end(), {"-c:v", "copy"});
   } else if (codec == "h264" || codec == "libx264") {
@@ -205,21 +266,21 @@ std::vector<std::string> buildFfmpegCommand(const Config& config) {
         "-x264-params",
         "repeat-headers=1",
         "-b:v",
-        std::to_string(std::max(config.bitrate_kbps, 1)) + "k",
+        std::to_string(std::max(stream.bitrate_kbps, 1)) + "k",
     });
   } else {
     command.insert(command.end(), {
         "-c:v",
-        config.output_codec,
+        stream.output_codec,
         "-b:v",
-        std::to_string(std::max(config.bitrate_kbps, 1)) + "k",
+        std::to_string(std::max(stream.bitrate_kbps, 1)) + "k",
     });
   }
 
-  if (!config.rtsp_transport.empty()) {
-    command.insert(command.end(), {"-rtsp_transport", config.rtsp_transport});
+  if (!stream.rtsp_transport.empty()) {
+    command.insert(command.end(), {"-rtsp_transport", stream.rtsp_transport});
   }
-  command.insert(command.end(), {"-f", "rtsp", config.rtsp_url});
+  command.insert(command.end(), {"-f", "rtsp", stream.rtsp_url});
   return command;
 }
 
@@ -236,11 +297,12 @@ std::string joinCommand(const std::vector<std::string>& command) {
 
 }  // namespace
 
-class RosImageRtspNode {
+class StreamRuntime {
  public:
-  explicit RosImageRtspNode(Config config) : config_(std::move(config)) {}
+  StreamRuntime(ros::NodeHandle& nh, StreamConfig config)
+      : nh_(nh), config_(std::move(config)) {}
 
-  ~RosImageRtspNode() {
+  ~StreamRuntime() {
     stopFfmpeg();
   }
 
@@ -248,13 +310,28 @@ class RosImageRtspNode {
     subscriber_ = nh_.subscribe(
         config_.image_topic,
         1,
-        &RosImageRtspNode::onImage,
+        &StreamRuntime::onImage,
         this,
         ros::TransportHints().tcpNoDelay());
 
-    ROS_INFO("ros_image_rtsp_node subscribing %s -> %s",
+    ROS_INFO("[%s] subscribing %s -> %s",
+             config_.name.c_str(),
              config_.image_topic.c_str(),
              config_.rtsp_url.c_str());
+  }
+
+  void checkTimeout(const ros::Time& now) {
+    if (child_pid_ <= 0 || last_frame_time_.isZero()) {
+      return;
+    }
+    const double silence_sec = (now - last_frame_time_).toSec();
+    if (silence_sec < config_.frame_timeout_sec) {
+      return;
+    }
+    ROS_WARN("[%s] no image frames for %.2fs, stopping ffmpeg",
+             config_.name.c_str(),
+             silence_sec);
+    stopFfmpeg();
   }
 
  private:
@@ -266,7 +343,7 @@ class RosImageRtspNode {
         return stdin_fd_ >= 0;
       }
       if (ret == child_pid_) {
-        ROS_WARN("ffmpeg exited, status=%d", status);
+        ROS_WARN("[%s] ffmpeg exited, status=%d", config_.name.c_str(), status);
       }
       closePipe();
       child_pid_ = -1;
@@ -278,7 +355,7 @@ class RosImageRtspNode {
   bool startFfmpeg() {
     int pipe_fds[2] = {-1, -1};
     if (::pipe(pipe_fds) != 0) {
-      ROS_ERROR("pipe failed: %s", std::strerror(errno));
+      ROS_ERROR("[%s] pipe failed: %s", config_.name.c_str(), std::strerror(errno));
       return false;
     }
 
@@ -286,7 +363,7 @@ class RosImageRtspNode {
 
     const pid_t pid = ::fork();
     if (pid < 0) {
-      ROS_ERROR("fork failed: %s", std::strerror(errno));
+      ROS_ERROR("[%s] fork failed: %s", config_.name.c_str(), std::strerror(errno));
       ::close(pipe_fds[0]);
       ::close(pipe_fds[1]);
       return false;
@@ -312,7 +389,10 @@ class RosImageRtspNode {
     ::close(pipe_fds[0]);
     stdin_fd_ = pipe_fds[1];
     child_pid_ = pid;
-    ROS_INFO("started ffmpeg pid=%d: %s", static_cast<int>(pid), joinCommand(command).c_str());
+    ROS_INFO("[%s] started ffmpeg pid=%d: %s",
+             config_.name.c_str(),
+             static_cast<int>(pid),
+             joinCommand(command).c_str());
     return true;
   }
 
@@ -320,9 +400,12 @@ class RosImageRtspNode {
     if (msg->data.empty()) {
       return;
     }
+    last_frame_time_ = ros::Time::now();
     if (!looksLikeJpegFormat(msg->format)) {
       if (!warned_format_) {
-        ROS_WARN("dropping non-JPEG compressed image format=%s", msg->format.c_str());
+        ROS_WARN("[%s] dropping non-JPEG compressed image format=%s",
+                 config_.name.c_str(),
+                 msg->format.c_str());
         warned_format_ = true;
       }
       return;
@@ -331,7 +414,9 @@ class RosImageRtspNode {
       return;
     }
     if (!writeAll(stdin_fd_, msg->data.data(), msg->data.size())) {
-      ROS_WARN("failed to write image to ffmpeg stdin: %s", std::strerror(errno));
+      ROS_WARN("[%s] failed to write image to ffmpeg stdin: %s",
+               config_.name.c_str(),
+               std::strerror(errno));
       stopFfmpeg();
     }
   }
@@ -364,13 +449,43 @@ class RosImageRtspNode {
     child_pid_ = -1;
   }
 
-  Config config_;
-  ros::NodeHandle nh_;
+  ros::NodeHandle& nh_;
+  StreamConfig config_;
   ros::Subscriber subscriber_;
   bool warned_format_ = false;
-
+  ros::Time last_frame_time_;
   pid_t child_pid_ = -1;
   int stdin_fd_ = -1;
+};
+
+class RosImageRtspNode {
+ public:
+  explicit RosImageRtspNode(Config config) : config_(std::move(config)) {}
+
+  void start() {
+    for (const auto& stream : config_.streams) {
+      streams_.emplace_back(new StreamRuntime(nh_, stream));
+      streams_.back()->start();
+    }
+    watchdog_timer_ = nh_.createTimer(
+        ros::Duration(0.5),
+        &RosImageRtspNode::onWatchdogTimer,
+        this);
+    ROS_INFO("ros_image_rtsp_node started %zu stream(s)", streams_.size());
+  }
+
+ private:
+  void onWatchdogTimer(const ros::TimerEvent& event) {
+    const ros::Time now = event.current_real;
+    for (const auto& stream : streams_) {
+      stream->checkTimeout(now);
+    }
+  }
+
+  Config config_;
+  ros::NodeHandle nh_;
+  ros::Timer watchdog_timer_;
+  std::vector<std::unique_ptr<StreamRuntime>> streams_;
 };
 
 int main(int argc, char** argv) {

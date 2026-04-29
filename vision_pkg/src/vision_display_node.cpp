@@ -5,6 +5,7 @@
 #include <std_msgs/Header.h>
 #include <cv_bridge/cv_bridge.h>
 #include <image_transport/image_transport.h>
+#include <opencv2/core/version.hpp>
 #include <opencv2/imgproc.hpp>
 #include <opencv2/objdetect.hpp>
 #include <algorithm>
@@ -230,6 +231,7 @@ private:
     {
         if (!enable_qrcode_detection_ || src.empty()) return;
 
+#if CV_VERSION_MAJOR > 4 || (CV_VERSION_MAJOR == 4 && CV_VERSION_MINOR >= 3)
         std::vector<std::string> decoded_info;
         cv::Mat points;
         bool multi_ok = qr_detector_.detectAndDecodeMulti(src, decoded_info, points);
@@ -250,6 +252,7 @@ private:
             }
             return;
         }
+#endif
 
         cv::Mat single_points;
         const std::string decoded = qr_detector_.detectAndDecode(src, single_points);
@@ -636,7 +639,11 @@ private:
         cv::line(img, cv::Point(cthird * 2, cy0), cv::Point(cthird * 2, cy1), cv::Scalar(255, 255, 255), 1);
 
         double dists[3] = {left_dist, center_dist, right_dist};
-        bool warns[3] = {warn.left_warn, warn.center_warn, warn.right_warn};
+        bool warns[3] = {
+            static_cast<bool>(warn.left_warn),
+            static_cast<bool>(warn.center_warn),
+            static_cast<bool>(warn.right_warn)
+        };
         int xs[3] = {cthird / 2, cthird + cthird / 2, cthird * 2 + cthird / 2};
 
         for (int i = 0; i < 3; ++i) {

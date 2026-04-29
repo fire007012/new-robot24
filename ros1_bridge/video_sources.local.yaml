@@ -1,5 +1,5 @@
 rtsp:
-  public_host: 192.168.1.83
+  public_host: 127.0.0.1
   publish_host: 127.0.0.1
   port: 8554
   server: mediamtx
@@ -12,7 +12,7 @@ direct_sources:
     name: Paw RealSense
     runner: ffmpeg
     device: /dev/paw_realsense
-    input_format: yuyv422
+    input_format: MJPEG
     input_width: 1280
     input_height: 720
     width: 960
@@ -24,92 +24,3 @@ direct_sources:
     rtsp_path: paw_realsense
     enabled: true
 
-  - camera_id: 1
-    source_id: overheadcam
-    slot_hint: 1
-    name: Overhead Camera
-    runner: ffmpeg
-    device: /dev/overheadcam
-    input_format: mjpeg
-    input_width: 1280
-    input_height: 720
-    width: 960
-    height: 720
-    fps: 30
-    codec: h264
-    bitrate_kbps: 2500
-    vf: crop=960:720:160:0
-    rtsp_path: overheadcam
-    enabled: true
-
-  - camera_id: 2
-    source_id: pawcam
-    slot_hint: 2
-    name: Paw Camera
-    runner: ffmpeg
-    device: /dev/pawcam
-    input_format: mjpeg
-    input_width: 1280
-    input_height: 720
-    width: 960
-    height: 720
-    fps: 30
-    codec: h264
-    bitrate_kbps: 2500
-    vf: crop=960:720:160:0
-    rtsp_path: pawcam
-    enabled: true
-
-  - camera_id: 3
-    source_id: frontcam
-    slot_hint: 3
-    name: Front Camera
-    runner: ffmpeg
-    device: /dev/frontcam
-    input_format: mjpeg
-    input_width: 1280
-    input_height: 720
-    width: 960
-    height: 720
-    fps: 30
-    codec: h264
-    bitrate_kbps: 2500
-    vf: crop=960:720:160:0
-    rtsp_path: frontcam
-    enabled: true
-
-  - camera_id: 4
-    source_id: armcam
-    slot_hint: 4
-    name: Arm Camera
-    runner: ffmpeg
-    device: /dev/armcam
-    input_format: mjpeg
-    input_width: 1280
-    input_height: 720
-    width: 960
-    height: 720
-    fps: 30
-    codec: h264
-    bitrate_kbps: 2500
-    vf: crop=960:720:160:0
-    rtsp_path: armcam
-    enabled: true
-
-  - camera_id: 5
-    source_id: backcam
-    slot_hint: 5
-    name: Back Camera
-    runner: ffmpeg
-    device: /dev/backcam
-    input_format: mjpeg
-    input_width: 1280
-    input_height: 720
-    width: 960
-    height: 720
-    fps: 30
-    codec: h264
-    bitrate_kbps: 2500
-    vf: crop=960:720:160:0
-    rtsp_path: backcam
-    enabled: false

@@ -8,6 +8,10 @@ import sys
 import threading
 from typing import Any, Dict, List, Optional, Tuple
 
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+if SCRIPT_DIR not in sys.path:
+    sys.path.insert(0, SCRIPT_DIR)
+
 from bridge_core import BridgeCore, BridgeRuntime
 from bridge_protocol import DEFAULT_WATCHDOG_MS, MAX_FRAME_BYTES, PROTOCOL_VERSION, now_ms
 from bridge_protocol import json_line
@@ -192,6 +196,7 @@ class BridgeClient:
     def run(self) -> None:
         print(f"[bridge] client connected: {self.addr}", flush=True)
         self.server.events.emit("tcp", "client connected", data={"addr": f"{self.addr[0]}:{self.addr[1]}"})
+        self.server.core.reset_operator_input_session("client_connected")
         self.conn.settimeout(1.0)
         try:
             self.send_json(self.server.core.make_hello())
