@@ -4,8 +4,10 @@
   <arg name="enable_flipper_control" default="true"/>
   <arg name="enable_mobility_control" default="true"/>
   <arg name="enable_gripper_cmd" default="true"/>
+  <arg name="enable_moveit_servo" default="true"/>
 
   <arg name="pipeline" default="ompl"/>
+  <arg name="servo_config" default="$(find car_control)/config/moveit_servo.yaml"/>
 
   <arg name="canopen_dcf_path" default="$(find Eyou_Canopen_Master)/config/master.dcf"/>
   <arg name="canopen_joints_path" default="$(find Eyou_Canopen_Master)/config/joints.yaml"/>
@@ -40,6 +42,11 @@
     <arg name="allow_trajectory_execution" value="true"/>
     <arg name="moveit_controller_manager" value="simple"/>
     <arg name="load_robot_description" value="false"/>
+  </include>
+
+  <include if="$(eval arg('enable_moveit') and arg('enable_moveit_servo'))"
+           file="$(find car_control)/launch/moveit_servo.launch">
+    <arg name="servo_config" value="$(arg servo_config)"/>
   </include>
 
   <include if="$(arg enable_rviz)" file="$(find car_moveit_config)/launch/moveit_rviz.launch">
