@@ -24,6 +24,7 @@
   <arg name="bridge_mode" default="--ros" />
   <arg name="bridge_host" default="0.0.0.0" />
   <arg name="bridge_port" default="9090" />
+  <arg name="bridge_control_config" default="$(find ros1_bridge)/bridge_control.yaml" />
   <arg name="debug_host" default="0.0.0.0" />
   <arg name="debug_port" default="18080" />
   <arg name="video_manager_timeout" default="5.0" />
@@ -120,6 +121,7 @@
         args="$(arg bridge_mode)
               --host $(arg bridge_host)
               --port $(arg bridge_port)
+              --bridge-control-config $(arg bridge_control_config)
               --no-camera-config
               --video-manager
               --video-manager-host $(arg video_manager_host)

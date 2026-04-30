@@ -47,7 +47,9 @@ install(TARGETS ros_image_rtsp_node
   RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 
-install(FILES ros_image_rtsp.example.yaml
+install(FILES
+  bridge_control.yaml
+  ros_image_rtsp.example.yaml
   DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}
 )
 

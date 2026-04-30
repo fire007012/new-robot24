@@ -26,6 +26,7 @@ from video_manager_ipc import (
 )
 
 DEFAULT_CAMERA_CONFIG = os.path.join(os.path.dirname(__file__), "video_sources.local.yaml")
+DEFAULT_BRIDGE_CONFIG = os.path.join(os.path.dirname(__file__), "bridge_control.yaml")
 DEFAULT_FLIPPER_JOINT_NAMES = [
     "left_front_arm_joint",
     "right_front_arm_joint",
@@ -58,6 +59,29 @@ def parse_csv_list(value: str) -> List[str]:
     return [item.strip() for item in value.split(",") if item.strip()]
 
 
+def load_bridge_control_config(path: str) -> Dict[str, Any]:
+    try:
+        import yaml
+    except ImportError as exc:
+        raise RuntimeError("PyYAML is required to load bridge control config") from exc
+
+    with open(path, "r", encoding="utf-8") as f:
+        data = yaml.safe_load(f) or {}
+    if not isinstance(data, dict):
+        raise ValueError("bridge control config root must be a mapping")
+    node_config = data.get("host_bridge_node", data)
+    if not isinstance(node_config, dict):
+        raise ValueError("bridge control config host_bridge_node must be a mapping")
+    return node_config
+
+
+def resolve_float_config(args: argparse.Namespace, attr: str, config: Dict[str, Any], default: float) -> float:
+    value = getattr(args, attr)
+    if value is None:
+        value = config.get(attr, default)
+    return float(value)
+
+
 class HostBridgeServer:
     def __init__(
         self,
@@ -82,6 +106,7 @@ class HostBridgeServer:
         flipper_jog_duration: float = 0.15,
         flipper_target_profile: str = "csv_velocity",
         flipper_profile_retry_sec: float = 2.0,
+        gamepad_deadzone_percent: float = 4.0,
         cameras: Optional[List[Dict[str, Any]]] = None,
         video_gateway: Optional[VideoManagerGateway] = None,
         video_poll_sec: float = 1.0,
@@ -118,6 +143,7 @@ class HostBridgeServer:
             flipper_jog_duration,
             flipper_target_profile,
             flipper_profile_retry_sec,
+            gamepad_deadzone_percent,
             cameras,
             self.video_gateway.camera_infos if self.video_gateway else None,
             self.handle_camera_stream_request if self.video_gateway else None,
@@ -414,6 +440,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="ROS1 host bridge TCP/JSON node")
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=9090)
+    parser.add_argument(
+        "--bridge-control-config",
+        default=DEFAULT_BRIDGE_CONFIG,
+        help="YAML config for host_bridge_node control translation",
+    )
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--dry-run", action="store_true", help="run without ROS and print bridge outputs")
     mode.add_argument("--ros", action="store_true", help="publish ROS control topics with rospy; default mode")
@@ -447,6 +478,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--flipper-target-profile", default="csv_velocity")
     parser.add_argument("--flipper-profile-retry-sec", type=float, default=2.0)
     parser.add_argument("--flipper-jog-duration", type=float, default=0.15)
+    parser.add_argument(
+        "--gamepad-deadzone-percent",
+        type=float,
+        default=None,
+        help="ignore gamepad axes with absolute value below this percentage",
+    )
     parser.add_argument(
         "--flipper-joint-names",
         default=",".join(DEFAULT_FLIPPER_JOINT_NAMES),
@@ -530,6 +567,15 @@ def main() -> None:
     args = parse_node_args()
     events = RingBufferEventSink()
     service_commands = dict(args.service_command or [])
+    bridge_control_config = load_bridge_control_config(
+        os.path.expanduser(args.bridge_control_config)
+    ) if args.bridge_control_config else {}
+    gamepad_deadzone_percent = resolve_float_config(
+        args,
+        "gamepad_deadzone_percent",
+        bridge_control_config,
+        4.0,
+    )
     
     cameras = args.camera
     if args.no_camera_config:
@@ -600,6 +646,7 @@ def main() -> None:
         flipper_jog_duration=args.flipper_jog_duration,
         flipper_target_profile=args.flipper_target_profile,
         flipper_profile_retry_sec=args.flipper_profile_retry_sec,
+        gamepad_deadzone_percent=gamepad_deadzone_percent,
         cameras=cameras,
         video_gateway=video_gateway,
         video_poll_sec=args.video_poll_sec,

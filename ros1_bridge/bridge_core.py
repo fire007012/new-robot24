@@ -53,6 +53,7 @@ class BridgeCore:
         flipper_jog_duration: float = 0.15,
         flipper_target_profile: str = "csv_velocity",
         flipper_profile_retry_sec: float = 2.0,
+        gamepad_deadzone_percent: float = 4.0,
         cameras: Optional[List[Dict[str, Any]]] = None,
         camera_provider: Optional[Callable[[], List[Dict[str, Any]]]] = None,
         camera_stream_handler: Optional[Callable[[Dict[str, Any]], Tuple[bool, int, str, Optional[Dict[str, Any]]]]] = None,
@@ -89,6 +90,7 @@ class BridgeCore:
         self.flipper_target_profile = flipper_target_profile
         self.flipper_profile_retry_sec = flipper_profile_retry_sec
         self.last_flipper_profile_attempt = 0.0
+        self.gamepad_deadzone = clamp(gamepad_deadzone_percent / 100.0, 0.0, 1.0)
         self.cameras = cameras if cameras is not None else self.default_cameras()
         self.camera_provider = camera_provider
         self.camera_stream_handler = camera_stream_handler
@@ -170,6 +172,7 @@ class BridgeCore:
             ],
             "max_frame_bytes": MAX_FRAME_BYTES,
             "watchdog_ms": self.watchdog_ms,
+            "gamepad_deadzone_percent": self.gamepad_deadzone * 100.0,
             "keyboard_mapping": {
                 "mode_switch": "1",
                 "emergency": "space or gamepad l3+r3",
@@ -768,10 +771,10 @@ class BridgeCore:
         angular_axis = self.axis_value(pressed, "a", "d")
 
         if connected:
-            linear_axis += self.float_value(axes.get("left_y", 0.0))
+            linear_axis += self.axis_float_value(axes.get("left_y", 0.0))
             # Browser/gamepad horizontal axes commonly report left as -1.
             # Keep the operator-facing convention aligned with keyboard: left is positive.
-            angular_axis += -self.float_value(axes.get("right_x", 0.0))
+            angular_axis += -self.axis_float_value(axes.get("right_x", 0.0))
 
         twist = TwistCommand(
             linear_x=clamp(linear_axis, -1.0, 1.0) * self.base_linear[speed_level],
@@ -805,12 +808,12 @@ class BridgeCore:
 
         if connected:
             # Keep physical left on the stick aligned with keyboard "a" / +linear.y.
-            linear_y_axis += -self.float_value(axes.get("left_x", 0.0))
-            linear_z_axis += self.float_value(axes.get("left_y", 0.0))
-            linear_x_axis += self.float_value(axes.get("lt", 0.0)) - self.float_value(axes.get("rt", 0.0))
+            linear_y_axis += -self.axis_float_value(axes.get("left_x", 0.0))
+            linear_z_axis += self.axis_float_value(axes.get("left_y", 0.0))
+            linear_x_axis += self.axis_float_value(axes.get("lt", 0.0)) - self.axis_float_value(axes.get("rt", 0.0))
             angular_x_axis += self.bool_value(buttons.get("lb", False)) - self.bool_value(buttons.get("rb", False))
-            angular_y_axis += -self.float_value(axes.get("right_y", 0.0))
-            angular_z_axis += self.float_value(axes.get("right_x", 0.0))
+            angular_y_axis += -self.axis_float_value(axes.get("right_y", 0.0))
+            angular_z_axis += self.axis_float_value(axes.get("right_x", 0.0))
 
         twist = TwistCommand(0.0, 0.0, "operator_input.arm_base_zero")
         servo = ServoCommand(
@@ -949,6 +952,10 @@ class BridgeCore:
             return float(value or 0.0)
         except (TypeError, ValueError):
             return 0.0
+
+    def axis_float_value(self, value: Any) -> float:
+        axis = self.float_value(value)
+        return 0.0 if abs(axis) <= self.gamepad_deadzone else axis
 
     @staticmethod
     def bool_value(value: Any) -> float:
