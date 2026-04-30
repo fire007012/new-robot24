@@ -1,4 +1,5 @@
-from typing import Any, Dict, Optional, Tuple
+import sys
+from typing import Any, Dict, List, Optional, Tuple
 
 from bridge_state import FlipperCommand, GripperCommand, ServoCommand, TwistCommand
 from debug_events import EventSink, NullEventSink
@@ -34,6 +35,12 @@ class OutputAdapter:
 
     def call_command_service(self, command: str, params: Optional[Dict[str, Any]] = None) -> Tuple[bool, int, str]:
         return False, 2302, f"no ROS service configured for {command}"
+
+    def list_arm_named_targets(self) -> Tuple[bool, int, str, List[Dict[str, str]]]:
+        return False, 2302, "no MoveIt arm group configured", []
+
+    def move_arm_named_target(self, target: str) -> Tuple[bool, int, str]:
+        return False, 2302, f"no MoveIt arm group configured for target {target}"
 
 
 class DryRunOutput(OutputAdapter):
@@ -114,6 +121,20 @@ class DryRunOutput(OutputAdapter):
         })
         return True, 0, f"dry-run service {service_name} accepted"
 
+    def list_arm_named_targets(self) -> Tuple[bool, int, str, List[Dict[str, str]]]:
+        targets = [
+            {"name": "home", "description": "dry-run"},
+            {"name": "ready", "description": "dry-run"},
+            {"name": "inspect", "description": "dry-run"},
+        ]
+        self.events.emit("moveit", "dry-run named targets listed", data={"count": len(targets)})
+        return True, 0, "dry-run MoveIt named targets", targets
+
+    def move_arm_named_target(self, target: str) -> Tuple[bool, int, str]:
+        print(f"[bridge] moveit dry-run target={target}", flush=True)
+        self.events.emit("moveit", "dry-run named target accepted", data={"target": target})
+        return True, 0, f"dry-run MoveIt target {target} accepted"
+
 class RosOutput(OutputAdapter):
     def __init__(
         self,
@@ -125,6 +146,7 @@ class RosOutput(OutputAdapter):
         flipper_profile_service: str,
         hybrid_service_ns: str,
         service_commands: Optional[Dict[str, str]] = None,
+        moveit_group: str = "manipulator",
         events: Optional[EventSink] = None,
     ) -> None:
         super().__init__(events)
@@ -146,6 +168,11 @@ class RosOutput(OutputAdapter):
         self.hybrid_service_ns = hybrid_service_ns.rstrip("/") or "/hybrid_motor_hw_node"
         self.flipper_profile_service = flipper_profile_service
         self.service_commands = service_commands or {}
+        self.moveit_group_name = moveit_group
+        self._move_group = None
+        self._moveit_error = ""
+        self._moveit_commander = None
+        self._moveit_roscpp_initialized = False
         rospy.init_node(node_name, anonymous=False)
         self._cmd_vel_pub = rospy.Publisher(cmd_vel_topic, Twist, queue_size=1)
         self._servo_pub = rospy.Publisher(servo_topic, TwistStamped, queue_size=1)
@@ -160,6 +187,7 @@ class RosOutput(OutputAdapter):
         rospy.loginfo("host_bridge_node publishing JointJog to %s", flipper_jog_topic)
         rospy.loginfo("host_bridge_node using flipper profile service %s", flipper_profile_service)
         rospy.loginfo("host_bridge_node using hybrid service namespace %s", self.hybrid_service_ns)
+        self._init_moveit_group(moveit_group)
 
     def publish_twist(self, twist: TwistCommand) -> None:
         msg = self._twist_type()
@@ -280,9 +308,88 @@ class RosOutput(OutputAdapter):
         })
         return bool(response.success), 0 if response.success else 2301, str(response.message)
 
+    def _init_moveit_group(self, moveit_group: str) -> None:
+        if not moveit_group:
+            self._moveit_error = "MoveIt group is empty"
+            self.events.emit("moveit", "moveit group disabled", level="warning")
+            return
+        try:
+            if self._moveit_commander is None:
+                import moveit_commander
+                self._moveit_commander = moveit_commander
+            if not self._moveit_roscpp_initialized:
+                self._moveit_commander.roscpp_initialize(sys.argv)
+                self._moveit_roscpp_initialized = True
+            self._move_group = self._moveit_commander.MoveGroupCommander(moveit_group)
+        except Exception as exc:
+            self._move_group = None
+            self._moveit_error = str(exc)
+            self.events.emit("moveit", "moveit group unavailable", level="warning", data={
+                "group": moveit_group,
+                "error": self._moveit_error,
+            })
+            return
+
+        self.events.emit("moveit", "moveit group ready", data={"group": moveit_group})
+        self._rospy.loginfo("host_bridge_node using MoveIt group %s", moveit_group)
+
+    def _ensure_moveit_group(self) -> bool:
+        if self._move_group is not None:
+            return True
+        self._init_moveit_group(self.moveit_group_name)
+        return self._move_group is not None
+
+    def list_arm_named_targets(self) -> Tuple[bool, int, str, List[Dict[str, str]]]:
+        if not self._ensure_moveit_group():
+            return False, 2303, f"MoveIt unavailable: {self._moveit_error}", []
+        try:
+            names = list(self._move_group.get_named_targets())
+        except Exception as exc:
+            self.events.emit("moveit", "list named targets failed", level="error", data={
+                "group": self.moveit_group_name,
+                "error": str(exc),
+            })
+            return False, 2304, str(exc), []
+
+        targets = [{"name": str(name), "description": self.moveit_group_name} for name in names]
+        self.events.emit("moveit", "named targets listed", data={
+            "group": self.moveit_group_name,
+            "count": len(targets),
+        })
+        return True, 0, f"{len(targets)} MoveIt named targets", targets
+
+    def move_arm_named_target(self, target: str) -> Tuple[bool, int, str]:
+        if not self._ensure_moveit_group():
+            return False, 2303, f"MoveIt unavailable: {self._moveit_error}"
+        if not target:
+            return False, 2202, "missing MoveIt target"
+        try:
+            named_targets = set(self._move_group.get_named_targets())
+            if target not in named_targets:
+                return False, 2203, f"unknown MoveIt target: {target}"
+            self._move_group.set_named_target(target)
+            ok = bool(self._move_group.go(wait=True))
+            self._move_group.stop()
+        except Exception as exc:
+            self.events.emit("moveit", "move named target failed", level="error", data={
+                "group": self.moveit_group_name,
+                "target": target,
+                "error": str(exc),
+            })
+            return False, 2305, str(exc)
+
+        message = f"MoveIt target {target} reached" if ok else f"MoveIt target {target} failed"
+        self.events.emit("moveit", "move named target completed", data={
+            "group": self.moveit_group_name,
+            "target": target,
+            "ok": ok,
+        }, level="info" if ok else "error")
+        return ok, 0 if ok else 2306, message
+
 
 def format_service_name(template: str, command: str, params: Optional[Dict[str, Any]] = None) -> str:
     params = params or {}
     mode = str(params.get("mode", ""))
     source = str(params.get("source", ""))
-    return template.format(command=command, mode=mode, source=source)
+    target = str(params.get("target", ""))
+    return template.format(command=command, mode=mode, source=source, target=target)

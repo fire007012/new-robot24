@@ -589,8 +589,8 @@ def parse_direct_source(item: Any, index: int) -> DirectVideoSource:
         raise VideoConfigError(f"direct_sources[{index}] must be a mapping")
 
     camera_id = _positive_int(item, "camera_id")
-    if camera_id > 4:
-        raise VideoConfigError(f"direct_sources[{index}].camera_id must be between 0 and 4")
+    if camera_id > 5:
+        raise VideoConfigError(f"direct_sources[{index}].camera_id must be between 0 and 5")
 
     base_width = _positive_int(item, "width", default=1280)
     base_height = _positive_int(item, "height", default=720)

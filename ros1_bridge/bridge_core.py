@@ -169,6 +169,8 @@ class BridgeCore:
                 "joint_runtime_states",
                 "hybrid_lifecycle_services",
                 "service_call_result",
+                "arm_named_targets",
+                "move_arm_named_target",
             ],
             "max_frame_bytes": MAX_FRAME_BYTES,
             "watchdog_ms": self.watchdog_ms,
@@ -256,6 +258,21 @@ class BridgeCore:
         message["seq"] = 0
         message["timestamp_ms"] = now_ms()
         return message
+
+    def make_arm_named_targets(
+        self,
+        seq: int,
+        targets: List[Dict[str, str]],
+        message: str = "",
+    ) -> Dict[str, Any]:
+        return {
+            "type": "arm_named_targets",
+            "protocol_version": PROTOCOL_VERSION,
+            "seq": seq,
+            "timestamp_ms": now_ms(),
+            "targets": targets,
+            "message": message,
+        }
 
     def state_snapshot(self) -> Dict[str, Any]:
         with self.state_lock:
@@ -577,6 +594,39 @@ class BridgeCore:
                     msg,
                     command=command,
                     service=service,
+                    ok=ok,
+                    code=code,
+                    message=message,
+                    duration_ms=duration_ms,
+                )
+            elif command == "request_arm_named_targets":
+                ok, code, message, targets = self.output.list_arm_named_targets()
+                self.events.emit("moveit", "arm named targets requested", data={
+                    "seq": seq,
+                    "ok": ok,
+                    "code": code,
+                    "count": len(targets),
+                }, level="info" if ok else "error")
+                yield self.make_ack(msg, ok, code, message)
+                yield self.make_arm_named_targets(seq, targets, message)
+            elif command == "move_arm_named_target":
+                params = msg.get("params", {}) or {}
+                target = str(params.get("target", "")).strip()
+                started = time.monotonic()
+                ok, code, message = self.output.move_arm_named_target(target)
+                duration_ms = int((time.monotonic() - started) * 1000)
+                self.events.emit("moveit", "move arm named target handled", data={
+                    "seq": seq,
+                    "target": target,
+                    "ok": ok,
+                    "code": code,
+                    "duration_ms": duration_ms,
+                }, level="info" if ok else "error")
+                yield self.make_ack(msg, ok, code, message)
+                yield self.make_service_call_result(
+                    msg,
+                    command=command,
+                    service=f"moveit:{getattr(self.output, 'moveit_group_name', 'arm')}/{target}",
                     ok=ok,
                     code=code,
                     message=message,

@@ -42,23 +42,23 @@ direct_sources:
     rtsp_path: overheadcam
     enabled: true
 
-  # - camera_id: 2
-  #   source_id: pawcam
-  #   slot_hint: 2
-  #   name: Paw Camera
-  #   runner: ffmpeg
-  #   device: /dev/pawcam
-  #   input_format: mjpeg
-  #   input_width: 1280
-  #   input_height: 720
-  #   width: 960
-  #   height: 720
-  #   fps: 30
-  #   codec: h264
-  #   bitrate_kbps: 2500
-  #   vf: crop=960:720:160:0
-  #   rtsp_path: pawcam
-  #   enabled: true
+  - camera_id: 2
+    source_id: pawcam
+    slot_hint: 2
+    name: Paw Camera
+    runner: ffmpeg
+    device: /dev/pawcam
+    input_format: mjpeg
+    input_width: 1280
+    input_height: 720
+    width: 960
+    height: 720
+    fps: 30
+    codec: h264
+    bitrate_kbps: 2500
+    vf: crop=960:720:160:0
+    rtsp_path: pawcam
+    enabled: true
 
   - camera_id: 3
     source_id: frontcam

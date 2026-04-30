@@ -82,6 +82,13 @@ def resolve_float_config(args: argparse.Namespace, attr: str, config: Dict[str, 
     return float(value)
 
 
+def resolve_str_config(args: argparse.Namespace, attr: str, config: Dict[str, Any], default: str) -> str:
+    value = getattr(args, attr)
+    if value is None:
+        value = config.get(attr, default)
+    return str(value)
+
+
 class HostBridgeServer:
     def __init__(
         self,
@@ -452,6 +459,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--servo-topic", default="/servo_server/delta_twist_cmds")
     parser.add_argument("--servo-frame", default="catch_camera")
     parser.add_argument("--gripper-position-topic", default="/arm_control/gripper_position")
+    parser.add_argument(
+        "--moveit-group",
+        default=None,
+        help="MoveIt MoveGroup name used for named arm targets; overrides bridge_control.yaml",
+    )
     parser.add_argument("--flipper-jog-topic", default="/flipper_control/jog_cmd")
     parser.add_argument("--flipper-profile-service", default="/flipper_control/set_control_profile")
     parser.add_argument(
@@ -576,6 +588,12 @@ def main() -> None:
         bridge_control_config,
         4.0,
     )
+    moveit_group = resolve_str_config(
+        args,
+        "moveit_group",
+        bridge_control_config,
+        "arm",
+    )
     
     cameras = args.camera
     if args.no_camera_config:
@@ -597,6 +615,7 @@ def main() -> None:
             args.flipper_profile_service,
             args.hybrid_service_ns,
             service_commands,
+            moveit_group,
             events,
         )
     else:
