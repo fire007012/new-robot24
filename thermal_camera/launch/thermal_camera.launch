@@ -1,8 +1,18 @@
 <launch>
+  <arg name="device" default=""/>
+  <arg name="raw_mode" default="true"/>
+  <arg name="frame_rate" default="25"/>
+  <arg name="temp_offset" default="0.0"/>
+  <arg name="upscale" default="4"/>
+  <arg name="colormap" default="plasma"/>
+
   <node pkg="thermal_camera" type="thermal_camera_node.py" name="thermal_camera" output="screen">
-    <param name="device" value=""/>
-    <param name="raw_mode" value="true"/>
-    <param name="frame_rate" value="25"/>
-    <param name="temp_offset" value="0.0"/>
+    <param name="device" value="$(arg device)"/>
+    <param name="raw_mode" value="$(arg raw_mode)"/>
+    <param name="frame_rate" value="$(arg frame_rate)"/>
+    <param name="temp_offset" value="$(arg temp_offset)"/>
+    <param name="upscale" value="$(arg upscale)"/>
+    <param name="colormap" value="$(arg colormap)"/>
   </node>
 </launch>
+

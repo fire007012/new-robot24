@@ -23,6 +23,7 @@ find_package(OpenCV REQUIRED COMPONENTS
   highgui
   imgcodecs
   imgproc
+  objdetect
 )
 
 find_package(PkgConfig REQUIRED)
@@ -41,6 +42,11 @@ add_message_files(
   DetectedObject3D.msg
   DetectedObject3DArray.msg
   ObstacleWarning.msg
+)
+
+add_service_files(
+  FILES
+  SetDetectionEnabled.srv
 )
 
 generate_messages(
@@ -98,6 +104,8 @@ target_link_libraries(vision_panorama
 
 add_executable(vision_display_node
   src/vision_display_node.cpp
+  src/motion_detector.cpp
+  src/qr_detector.cpp
 )
 add_dependencies(vision_display_node ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 target_link_libraries(vision_display_node
