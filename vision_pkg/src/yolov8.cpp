@@ -1,5 +1,7 @@
 #include "vision_pkg/yolov8.h"
 #include <ros/ros.h>
+#include <algorithm>
+#include <cstdio>
 
 Yolov8::Yolov8() {}
 Yolov8::~Yolov8() = default;
@@ -129,6 +131,7 @@ cv::Mat Yolov8::drawPred(cv::Mat& img, const std::vector<OutputParams>& result,
 {
     cv::Mat outputImg = img.clone();
     cv::Mat mask = img.clone();
+    bool hasMask = false;
     for (size_t i = 0; i < result.size(); i++) {
         int left = 0, top = 0;
         // 绘制水平检测框
@@ -146,6 +149,7 @@ cv::Mat Yolov8::drawPred(cv::Mat& img, const std::vector<OutputParams>& result,
         // 绘制实例分割掩码
         if (result[i].boxMask.rows && result[i].boxMask.cols > 0) {
             mask(result[i].box).setTo(color[result[i].id], result[i].boxMask);
+            hasMask = true;
         }
         // 绘制类别标签和置信度
         std::string label = classNames[result[i].id] + ":" + std::to_string(result[i].confidence);
@@ -157,6 +161,64 @@ cv::Mat Yolov8::drawPred(cv::Mat& img, const std::vector<OutputParams>& result,
     }
     // 将掩码层与标注图以 50% 透明度混合
     cv::addWeighted(outputImg, 0.5, mask, 0.5, 0, outputImg);
+    if (!hasMask) {
+        outputImg = img.clone();
+    }
+
+    for (size_t i = 0; i < result.size(); i++) {
+        const int colorIndex = color.empty()
+            ? 0
+            : std::max(0, result[i].id) % static_cast<int>(color.size());
+        const cv::Scalar drawColor = color.empty()
+            ? cv::Scalar(0, 255, 255)
+            : color[colorIndex];
+
+        int left = std::max(0, result[i].box.x);
+        int top = std::max(0, result[i].box.y);
+
+        if (result[i].box.area() > 0) {
+            const cv::Rect box = result[i].box & cv::Rect(0, 0, outputImg.cols, outputImg.rows);
+            if (!box.empty()) {
+                cv::rectangle(outputImg, box, drawColor, 3, cv::LINE_AA);
+                left = box.x;
+                top = box.y;
+            }
+        }
+
+        if (result[i].rotatedBox.size.width * result[i].rotatedBox.size.height > 0) {
+            DrawRotatedBox(outputImg, result[i].rotatedBox, drawColor, 3);
+            left = cv::saturate_cast<int>(result[i].rotatedBox.center.x);
+            top = cv::saturate_cast<int>(result[i].rotatedBox.center.y);
+        }
+
+        const std::string className =
+            (result[i].id >= 0 && result[i].id < static_cast<int>(classNames.size()))
+                ? classNames[result[i].id]
+                : "OBJ";
+        char confidence[16];
+        snprintf(confidence, sizeof(confidence), "%.2f", result[i].confidence);
+        const std::string label = className + ":" + confidence;
+
+        int baseLine = 0;
+        const double fontScale = 0.6;
+        const int textThickness = 2;
+        const cv::Size labelSize = cv::getTextSize(
+            label, cv::FONT_HERSHEY_SIMPLEX, fontScale, textThickness, &baseLine);
+        const int pad = 4;
+        int textY = top - pad;
+        if (textY - labelSize.height - pad < 0) {
+            textY = std::min(outputImg.rows - pad, top + labelSize.height + pad + 2);
+        }
+        const int maxTextX = std::max(0, outputImg.cols - labelSize.width - pad * 2);
+        const int textX = std::min(left, maxTextX);
+        const cv::Point bgTl(textX, std::max(0, textY - labelSize.height - pad));
+        const cv::Point bgBr(std::min(outputImg.cols - 1, textX + labelSize.width + pad * 2),
+                             std::min(outputImg.rows - 1, textY + baseLine + pad));
+        cv::rectangle(outputImg, bgTl, bgBr, cv::Scalar(0, 0, 0), cv::FILLED);
+        cv::putText(outputImg, label, cv::Point(textX + pad, textY),
+                    cv::FONT_HERSHEY_SIMPLEX, fontScale, drawColor, textThickness, cv::LINE_AA);
+    }
+
     return outputImg;
 }
 

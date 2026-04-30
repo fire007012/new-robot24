@@ -13,7 +13,7 @@ vision_pkg 是一个运行在 **Ubuntu 20.04 + ROS1 Noetic** 上的视觉处理�
 - **RealSense D405**：paw_camera 提供彩色图、深度图和点云数据
 - **Behind Camera**：支持 Astra+ 或 RealSense D435i（可通过 launch 参数或环境变量指定；也可用外部脚本自动检测后传参）
 - **多路 USB 摄像头**：支持 forward/back/head/hand/arm 多路 USB 摄像头采集，其中前后鱼眼默认按 1920×1080@30 输入
-- **最终视频流压缩**：支持对 `/panorama/panorama_image`、`/paw_vision/vision_image`、`/behind_vision/vision_image` 按需启动 H.265 编码节点，供上位机订阅压缩码流
+- **视频流压缩**：默认对 `/panorama/panorama_image`、`/paw_vision/vision_image` 启动 H.265 编码节点；普通 USB 相机原图也可额外订阅 H.265 码流，供上位机低带宽传输使用
 - **热成像相机**：Xtherm T2S+ 热成像（独立包 `thermal_camera`，默认随 vision.launch 启动）
 
 ---
@@ -41,7 +41,8 @@ vision_pkg/
 │   ├── fisheye.cpp                         # 鱼眼展开 / 等距柱状 / 方位等距 / 透视重投影
 │   ├── panorama.cpp                        # 全景管线实现
 │   ├── panorama_node.cpp                   # 全景处理 ROS 节点
-│   ├── h265_encoder_node.cpp               # 最终图像流 H.265 编码发布节点
+│   ├── h265_encoder_node.cpp               # 图像流 H.265 编码发布节点
+│   ├── h265_decoder_node.cpp               # H.265 测试解码显示节点
 │   └── vision_display_node.cpp             # 综合视觉显示节点
 ├── scripts/
 │   └── detect_behind_camera.py             # behind_camera 类型自动检测脚本
@@ -86,18 +87,71 @@ roslaunch vision_pkg vision.launch
 
 启动前请确认 behind_camera 位置的相机类型是 RealSense 还是 Astra+。默认是 RealSense，需更改时参考下面的 `behind_camera_type` 参数。
 
+### 最终图与 H.265 话题
+
+`vision.launch` 默认保留最终处理图，并额外发布 H.265 压缩后的最终处理图。普通 USB 相机也会提供对应原图的 H.265 码流，方便上位机低带宽订阅。
+
+| 内容 | 原始最终图 | H.265 压缩图 |
+|------|------------|--------------|
+| D405 综合视觉 | `/paw_vision/vision_image` | `/paw_vision/vision_image/h265` |
+| 双鱼眼全景/拼接 | `/panorama/panorama_image` | `/panorama/panorama_image/h265` |
+| 后方综合视觉 | `/behind_vision/vision_image` | `/behind_vision/vision_image/h265`（需 `enable_behind_h265:=true`） |
+| 普通 USB 相机原图 | `/forward_camera/image_raw` 等 | `/forward_camera/image_raw/h265` 等 |
+
+```bash
+# 查看最终处理图
+rqt_image_view /paw_vision/vision_image
+rqt_image_view /panorama/panorama_image
+
+# 查看最终处理图和 H.265 码流带宽
+rostopic bw /paw_vision/vision_image
+rostopic bw /paw_vision/vision_image/h265
+rostopic bw /panorama/panorama_image
+rostopic bw /panorama/panorama_image/h265
+
+# 查看 H.265 是否有数据
+rostopic hz /paw_vision/vision_image/h265
+rostopic echo -n 1 /panorama/panorama_image/h265
+```
+
+H.265 话题类型是 `sensor_msgs/CompressedImage`，`format=h265`，不是 `image_transport/compressed` 的 JPEG/PNG，`rqt_image_view` 通常不能直接显示。需要看 H.265 解码后的画面时，启动对应测试解码节点：
+
+```bash
+# 看 D405 最终图 H.265 解码画面
+roslaunch vision_pkg vision.launch enable_paw_h265_decoder:=true
+rqt_image_view /paw_vision/vision_image/h265_decoded
+
+# 看全景 H.265 解码画面
+roslaunch vision_pkg vision.launch enable_panorama_h265_decoder:=true
+rqt_image_view /panorama/panorama_image/h265_decoded
+
+# 看 behind 最终图 H.265 解码画面
+roslaunch vision_pkg vision.launch \
+  enable_behind_h265:=true \
+  enable_behind_h265_decoder:=true
+rqt_image_view /behind_vision/vision_image/h265_decoded
+```
+
 ### launch 参数
 
 | 参数 | 默认值 | 说明 |
 |------|--------|------|
-| `enable_usb_cams` | `false` | 启用 USB 摄像头组：forward/back/head/hand/arm |
+| `enable_usb_cams` | `true` | 启用 USB 摄像头组：forward/back/head/hand/arm；只有对应 `*_cam_dev` 非空时才启动节点 |
 | `enable_paw_camera` | `true` | 启用 RealSense D405 |
 | `enable_behind_camera` | `true` | 启用 behind_camera |
 | `enable_thermal` | `true` | 启用热成像 |
+| `thermal_camera_dev` | `""` | 热成像设备路径；为空时由热成像节点自动检测，如需固定可设为 `/dev/video0` |
+| `thermal_frame_rate` | `25` | 热成像采集帧率 |
+| `thermal_raw_mode` | `true` | 热成像 RAW 模式，T2S+ V2 建议保持 true |
+| `thermal_upscale` | `4` | 热成像显示放大倍数，256×192 默认放大到 1024×768 |
+| `thermal_colormap` | `plasma` | 热成像伪彩色 colormap |
 | `behind_camera_type` | `realsense` | Behind 相机类型：`astra` 或 `realsense`（可用环境变量 `BEHIND_CAMERA_TYPE` 覆盖） |
 | `paw_serial` | `130322273001` | RealSense D405 序列号 |
 | `behind_serial` | `219323070286` | Astra+ 序列号 |
 | `behind_realsense_serial` | `112222070518` | D435i 序列号 |
+| `paw_color_width` / `paw_color_height` / `paw_color_fps` | `1280` / `720` / `30` | D405 彩色图分辨率和帧率 |
+| `paw_depth_width` / `paw_depth_height` / `paw_depth_fps` | `848` / `480` / `30` | D405 深度图分辨率和帧率 |
+| `paw_enable_pointcloud` | `false` | 是否启用 D405 点云，低延迟时建议关闭 |
 | `panorama_display_mode` | `azimuthal` | 全景输出模式：`azimuthal` 圆盘、`stacked` 去畸变透视上下拼接、`cropped_stacked` 原始鱼眼裁剪上下拼接 |
 | `panorama_fisheye_source_fov_deg` | `180.0` | 前/后鱼眼相机的源视场角（°），用于展开 map 计算 |
 | `panorama_operator_view_fov_deg` | `120.0` | `stacked` 模式下单路透视视场角 |
@@ -128,15 +182,32 @@ roslaunch vision_pkg vision.launch
 | `paw_motion_depth_min_m` / `paw_motion_depth_max_m` | `0.0` / `0.7` | D405 动态检测深度过滤范围 |
 | `paw_motion_min_area` | `80` | D405 动态检测最小轮廓面积 |
 | `paw_motion_max_foreground_ratio` | `0.12` | 相机/场景整体运动占比阈值，超过后抑制运动标记 |
-| `enable_panorama_h265` | `false` | 是否对 `/panorama/panorama_image` 额外发布 H.265 压缩码流 |
-| `enable_paw_h265` | `false` | 是否对 `/paw_vision/vision_image` 额外发布 H.265 压缩码流 |
+| `enable_panorama_h265` | `true` | 是否对 `/panorama/panorama_image` 额外发布 H.265 压缩码流 |
+| `enable_paw_h265` | `true` | 是否对 `/paw_vision/vision_image` 额外发布 H.265 压缩码流 |
 | `enable_behind_h265` | `false` | 是否对 `/behind_vision/vision_image` 额外发布 H.265 压缩码流 |
-| `*_h265_bitrate_kbps` | `1200`~`1500` | H.265 输出目标码率 |
-| `*_h265_fps` / `*_h265_max_input_fps` | `15` / `15.0` | H.265 输出帧率与输入限帧 |
+| `enable_forward_h265` / `enable_back_h265` / `enable_head_h265` / `enable_hand_h265` / `enable_arm_h265` | `true` | 是否对普通 USB 相机原图额外发布 H.265 压缩码流 |
+| `enable_panorama_h265_decoder` | `false` | 是否启动全景 H.265 测试解码节点，输出 `/panorama/panorama_image/h265_decoded` |
+| `enable_paw_h265_decoder` | `false` | 是否启动 D405 最终图 H.265 测试解码节点，输出 `/paw_vision/vision_image/h265_decoded` |
+| `enable_behind_h265_decoder` | `false` | 是否启动 behind 最终图 H.265 测试解码节点，输出 `/behind_vision/vision_image/h265_decoded` |
+| `enable_forward_h265_decoder` / `enable_back_h265_decoder` / `enable_head_h265_decoder` / `enable_hand_h265_decoder` / `enable_arm_h265_decoder` | `false` | 是否启动普通 USB 相机 H.265 测试解码节点 |
+| `*_h265_bitrate_kbps` | `1200`~`6000` | H.265 输出目标码率 |
+| `panorama_h265_fps` / `panorama_h265_max_input_fps` | `15` / `15.0` | 全景 H.265 输出帧率与输入限帧 |
+| `paw_h265_fps` / `paw_h265_max_input_fps` | `30` / `30.0` | D405 最终图 H.265 输出帧率与输入限帧 |
+| `usb_h265_fps` / `usb_h265_max_input_fps` | `30` / `30.0` | 普通 USB 相机 H.265 输出帧率与输入限帧 |
 
 ```bash
 # 示例：关闭热成像
 roslaunch vision_pkg vision.launch enable_thermal:=false
+
+# 指定 D405 设备和 720p30 彩色输入
+roslaunch vision_pkg vision.launch \
+  paw_serial:=130322273001 \
+  paw_color_width:=1280 \
+  paw_color_height:=720 \
+  paw_color_fps:=30 \
+  paw_depth_width:=848 \
+  paw_depth_height:=480 \
+  paw_depth_fps:=30
 
 # 只测试前后鱼眼裁剪上下拼接图
 roslaunch vision_pkg vision.launch \
@@ -146,15 +217,26 @@ roslaunch vision_pkg vision.launch \
   enable_thermal:=false \
   forward_cam_dev:=/dev/video0 \
   back_cam_dev:=/dev/video2 \
+  forward_cam_pixel_format:=mjpeg \
+  back_cam_pixel_format:=mjpeg \
   panorama_display_mode:=cropped_stacked
 
-# 如果要给上位机订阅 H.265 压缩后的最终全景图
+# 指定热成像设备
+roslaunch vision_pkg vision.launch \
+  enable_thermal:=true \
+  thermal_camera_dev:=/dev/video0 \
+  thermal_frame_rate:=25
+
+# 默认已发布最终图和 H.265；这里演示调整 H.265 码率/帧率
 roslaunch vision_pkg vision.launch \
   enable_usb_cams:=true \
   forward_cam_dev:=/dev/video0 \
   back_cam_dev:=/dev/video2 \
   panorama_display_mode:=cropped_stacked \
-  enable_panorama_h265:=true
+  panorama_h265_bitrate_kbps:=1500 \
+  panorama_h265_fps:=15 \
+  paw_h265_bitrate_kbps:=1500 \
+  paw_h265_fps:=30
 
 # 手动指定 behind_camera 为 Astra+
 roslaunch vision_pkg vision.launch behind_camera_type:=astra
@@ -165,6 +247,44 @@ roslaunch vision_pkg vision.launch behind_camera_type:=realsense behind_realsens
 # 用环境变量指定（适合两台工控机固定配置）
 export BEHIND_CAMERA_TYPE=astra 或 export BEHIND_CAMERA_TYPE=realsense
 roslaunch vision_pkg vision.launch
+```
+
+### 设备指定速查
+
+| 节点/相机 | 指定方式 | 备注 |
+|-----------|----------|------|
+| `forward_camera` | `forward_cam_dev:=/dev/videoX` | 需同时设置 `enable_usb_cams:=true`；建议用 `v4l2-ctl --list-devices` 确认设备号 |
+| `back_camera` | `back_cam_dev:=/dev/videoX` | 需同时设置 `enable_usb_cams:=true` |
+| `head_camera` | `head_cam_dev:=/dev/videoX` | 为空时不启动该 USB 节点 |
+| `hand_camera` | `hand_cam_dev:=/dev/videoX` | 为空时不启动该 USB 节点 |
+| `arm_camera` | `arm_cam_dev:=/dev/videoX` | 为空时不启动该 USB 节点 |
+| `paw_camera` D405 | `paw_serial:=设备序列号` | 用 `rs-enumerate-devices | grep Serial` 查看序列号 |
+| `behind_camera` RealSense | `behind_camera_type:=realsense behind_realsense_serial:=设备序列号` | 默认 behind 类型是 RealSense |
+| `behind_camera` Astra+ | `behind_camera_type:=astra` | Astra+ 由 Orbbec 驱动枚举；如果多台同类设备需在 Orbbec launch 内进一步固定 |
+| `thermal_camera` | `thermal_camera_dev:=/dev/videoX` | 为空时自动检测；固定设备时建议配合 udev 规则避免设备号变化 |
+
+USB 摄像头的格式和帧率要以设备实际支持为准：
+
+```bash
+v4l2-ctl --list-devices
+v4l2-ctl --device=/dev/video0 --list-formats-ext
+```
+
+如果 1080p 要 30fps，常见 USB 摄像头需要 `mjpeg`；`yuyv` 在 1920×1080 下可能只能到 5fps：
+
+```bash
+roslaunch vision_pkg vision.launch \
+  enable_usb_cams:=true \
+  forward_cam_dev:=/dev/video0 \
+  back_cam_dev:=/dev/video2 \
+  forward_cam_width:=1920 \
+  forward_cam_height:=1080 \
+  forward_cam_framerate:=30 \
+  forward_cam_pixel_format:=mjpeg \
+  back_cam_width:=1920 \
+  back_cam_height:=1080 \
+  back_cam_framerate:=30 \
+  back_cam_pixel_format:=mjpeg
 ```
 
 ---
@@ -219,15 +339,15 @@ rqt_image_view /behind_camera/color/image_raw
 rqt_image_view /behind_camera/depth/image_raw
 ```
 
-#### 3. USB 摄像头（默认关闭，需 `enable_usb_cams:=true`）
+#### 3. USB 摄像头（默认启用总开关，需指定对应 `*_cam_dev`）
 
 | 话题 | 消息类型 | 说明 |
 |------|---------|------|
 | `/forward_camera/image_raw` | `sensor_msgs/Image` | 前鱼眼/前方摄像头，默认 1920×1080@30 |
 | `/back_camera/image_raw` | `sensor_msgs/Image` | 后鱼眼/后方摄像头，默认 1920×1080@30 |
-| `/head_camera/image_raw` | `sensor_msgs/Image` | 头部/预留 USB 摄像头，默认 640×480@30 |
-| `/hand_camera/image_raw` | `sensor_msgs/Image` | 手部摄像头，默认 640×480 |
-| `/arm_camera/image_raw` | `sensor_msgs/Image` | 机械臂摄像头，默认 640×480 |
+| `/head_camera/image_raw` | `sensor_msgs/Image` | 头部/预留 USB 摄像头，默认 1920×1080@30 |
+| `/hand_camera/image_raw` | `sensor_msgs/Image` | 手部摄像头，默认 1920×1080@30 |
+| `/arm_camera/image_raw` | `sensor_msgs/Image` | 机械臂摄像头，默认 1920×1080@30 |
 
 ```bash
 roslaunch vision_pkg vision.launch enable_usb_cams:=true
@@ -245,7 +365,7 @@ rqt_image_view /forward_camera/image_raw
 rqt_image_view /thermal_camera/image_raw
 
 # 单独启动热成像
-roslaunch thermal_camera thermal_camera.launch
+roslaunch thermal_camera thermal_camera.launch device:=/dev/video0 frame_rate:=25
 
 # 热成像参数
 #   ~device       : 设备路径（空=自动检测）
@@ -269,6 +389,8 @@ roslaunch thermal_camera thermal_camera.launch
 | `/paw_camera/color/image_raw` | `sensor_msgs/Image` | 订阅 | 彩色图像输入 |
 | `/paw_camera/depth/image_rect_raw` | `sensor_msgs/Image` | 订阅 | 深度图像输入 |
 | `/paw_vision/vision_image` | `sensor_msgs/Image` | 发布 | YOLO标注 + 障碍物预警 + 距离显示 |
+| `/paw_vision/vision_image/h265` | `sensor_msgs/CompressedImage` | 发布 | H.265 压缩后的 D405 最终处理图，默认启用 |
+| `/paw_vision/vision_image/h265_decoded` | `sensor_msgs/Image` | 发布 | H.265 解码测试图，需 `enable_paw_h265_decoder:=true` |
 | `/paw_vision/detections` | `vision_pkg/Detection` | 发布 | 检测结果 |
 | `/paw_vision/obstacle_warning` | `vision_pkg/ObstacleWarning` | 发布 | 障碍物预警 |
 
@@ -279,6 +401,8 @@ roslaunch thermal_camera thermal_camera.launch
 | `/behind_camera/color/image_raw` | `sensor_msgs/Image` | 订阅 | 彩色图像输入 |
 | `/behind_camera/depth/image_raw` | `sensor_msgs/Image` | 订阅 | 深度图像输入 |
 | `/behind_vision/vision_image` | `sensor_msgs/Image` | 发布 | YOLO标注 + 障碍物预警 + 距离显示 |
+| `/behind_vision/vision_image/h265` | `sensor_msgs/CompressedImage` | 发布 | H.265 压缩后的 behind 最终处理图，需 `enable_behind_h265:=true` |
+| `/behind_vision/vision_image/h265_decoded` | `sensor_msgs/Image` | 发布 | H.265 解码测试图，需 `enable_behind_h265_decoder:=true` |
 | `/behind_vision/detections` | `vision_pkg/Detection` | 发布 | 检测结果 |
 | `/behind_vision/obstacle_warning` | `vision_pkg/ObstacleWarning` | 发布 | 障碍物预警 |
 
@@ -321,7 +445,8 @@ rviz   # 添加 Pose 显示，话题选 /detected_object_pose
 | `/back_camera/image_raw` | `sensor_msgs/Image` | 订阅 | 后方鱼眼图像（`cam2_topic` 参数） |
 | `/panorama/panorama_image` | `sensor_msgs/Image` | 发布 | 主输出图像，内容由 `panorama_display_mode` 决定 |
 | `/panorama/panorama_equirect` | `sensor_msgs/Image` | 发布 | 等距柱状全景（2:1 长条图，仅在有订阅者时发布） |
-| `/panorama/panorama_image/h265` | `sensor_msgs/CompressedImage` | 发布 | 可选 H.265 码流，需 `enable_panorama_h265:=true` |
+| `/panorama/panorama_image/h265` | `sensor_msgs/CompressedImage` | 发布 | H.265 码流，默认启用，可用 `enable_panorama_h265:=false` 关闭 |
+| `/panorama/panorama_image/h265_decoded` | `sensor_msgs/Image` | 发布 | 可选 H.265 解码测试图，需 `enable_panorama_h265_decoder:=true` |
 
 **主要参数：** `~cam1_topic` / `~cam2_topic` / `~display_mode` / `~fisheye_source_fov_deg` / `~input_transport` / `~front_crop_*` / `~back_crop_*`。
 
@@ -349,6 +474,9 @@ rqt_image_view /panorama/panorama_equirect
 
 # 查看 H.265 码流是否发布
 rostopic echo -n 1 /panorama/panorama_image/h265
+
+# 查看 H.265 解码后的全景测试画面，需启动 enable_panorama_h265_decoder:=true
+rqt_image_view /panorama/panorama_image/h265_decoded
 ```
 
 ---
@@ -379,9 +507,17 @@ rostopic echo -n 1 /panorama/panorama_image/h265
 /detected_object_pose                  # 物体 3D 位姿
 /panorama/panorama_image               # 全景/裁剪拼接主输出，取决于 panorama_display_mode
 /panorama/panorama_equirect            # 等距柱状 2:1 全景（按需发布）
-/panorama/panorama_image/h265          # 可选 H.265 压缩全景码流
-/paw_vision/vision_image/h265          # 可选 H.265 压缩 D405 综合视觉码流
+/panorama/panorama_image/h265          # H.265 压缩全景码流，默认启用
+/panorama/panorama_image/h265_decoded  # 可选 H.265 解码测试图
+/paw_vision/vision_image/h265          # H.265 压缩 D405 综合视觉码流，默认启用
+/paw_vision/vision_image/h265_decoded  # 可选 H.265 解码测试图
 /behind_vision/vision_image/h265       # 可选 H.265 压缩 behind 综合视觉码流
+/behind_vision/vision_image/h265_decoded # 可选 H.265 解码测试图
+/forward_camera/image_raw/h265         # H.265 压缩 USB 前方原图
+/back_camera/image_raw/h265            # H.265 压缩 USB 后方原图
+/head_camera/image_raw/h265            # H.265 压缩 USB 头部原图
+/hand_camera/image_raw/h265            # H.265 压缩 USB 手部原图
+/arm_camera/image_raw/h265             # H.265 压缩 USB 机臂原图
 ```
 
 **快速查看所有话题：**
@@ -476,6 +612,7 @@ sudo apt install -y \
     gstreamer1.0-plugins-base \
     gstreamer1.0-plugins-good \
     gstreamer1.0-plugins-bad \
+    gstreamer1.0-libav \
     libopenni2-dev \
     libuvc-dev
 
@@ -642,8 +779,8 @@ roslaunch vision_pkg vision.launch
 - YOLOv8 综合视觉显示节点（paw_vision + behind_vision）
 - 物体 3D 位姿估计节点
 - 双鱼眼显示/全景节点（输出内容由 `panorama_display_mode` 决定）
-- forward/back/head/hand/arm USB 摄像头（默认关闭，需设置 `enable_usb_cams:=true`）
-- 可选 H.265 最终图像流编码节点（默认关闭，需设置 `enable_panorama_h265` / `enable_paw_h265` / `enable_behind_h265`）
+- forward/back/head/hand/arm USB 摄像头（总开关默认开启；只有传入对应 `*_cam_dev` 才启动）
+- H.265 图像流编码节点（全景、D405 最终图、普通 USB 相机原图默认开启；behind 需设置 `enable_behind_h265:=true`）
 
 ---
 
@@ -655,7 +792,7 @@ roslaunch vision_pkg vision.launch
 - 主要图像输出队列默认是 `1`，旧帧会尽快丢弃，避免上位机看到明显滞后的画面。
 - `panorama_node` 只有在 `/panorama/panorama_image` 或 `/panorama/panorama_equirect` 有订阅者时才处理图像，减少无订阅时的计算负载。
 - `vision_display_node` 只有在最终图像、检测结果或调试图有订阅者时才执行对应计算，运动调试图默认关闭。
-- H.265 节点只编码最终输出图，不把中间处理图都发到网络上。
+- H.265 节点只编码业务输出图或 USB 相机原图，不把中间处理图都发到网络上。
 
 常用启动方式：
 
@@ -667,15 +804,16 @@ roslaunch vision_pkg vision.launch \
   back_cam_dev:=/dev/video2 \
   panorama_display_mode:=cropped_stacked
 
-# 上位机订阅最终压缩码流：开启 H.265
+# 上位机订阅压缩码流：默认开启 H.265，这里只调整码率/帧率
 roslaunch vision_pkg vision.launch \
   enable_usb_cams:=true \
   forward_cam_dev:=/dev/video0 \
   back_cam_dev:=/dev/video2 \
   panorama_display_mode:=cropped_stacked \
-  enable_panorama_h265:=true \
   panorama_h265_bitrate_kbps:=1500 \
-  panorama_h265_fps:=15
+  panorama_h265_fps:=15 \
+  usb_h265_bitrate_kbps:=6000 \
+  usb_h265_fps:=30
 
 # 如果上游 camera raw 图像跨网线传输，可尝试 compressed 输入
 roslaunch vision_pkg vision.launch \
@@ -686,6 +824,17 @@ roslaunch vision_pkg vision.launch \
 ```
 
 H.265 输出话题是 `sensor_msgs/CompressedImage`，`format` 字段为 `h265`。它保留给上位机通讯/解码使用，不能按普通 JPEG/PNG 压缩图直接用 `rqt_image_view` 查看。
+
+需要看 H.265 解码后的画面时，启动对应解码开关：D405 用 `enable_paw_h265_decoder:=true` 后查看 `/paw_vision/vision_image/h265_decoded`；全景用 `enable_panorama_h265_decoder:=true` 后查看 `/panorama/panorama_image/h265_decoded`；behind 用 `enable_behind_h265:=true enable_behind_h265_decoder:=true` 后查看 `/behind_vision/vision_image/h265_decoded`。这些节点仅用于测试显示，会额外占用 CPU，正式上位机应直接订阅 H.265 码流并自行解码。
+
+如果系统未安装 GStreamer 开发包，`catkin_make` 会跳过 `h265_encoder_node` 和 `h265_decoder_node`，其他视觉节点仍可正常编译。需要启用 H.265 时先安装：
+
+```bash
+sudo apt install -y libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
+  gstreamer1.0-tools gstreamer1.0-plugins-base \
+  gstreamer1.0-plugins-good gstreamer1.0-plugins-bad \
+  gstreamer1.0-libav
+```
 
 ---
 
@@ -783,3 +932,223 @@ rqt_image_view /paw_vision/debug/motion_fg_final
 - 画面出现二维码时，会画出二维码边框，并在框附近标出解码内容。
 - 画面中出现摆动、摇摆、来回移动的目标时，会对运动区域轮廓描边，并标注 `Moving`。
 - 如果整幅画面变化占比过大，系统会按相机/场景整体运动处理，避免把全画面误标成目标运动。
+
+## 工控机相机指定与启动
+
+`roslaunch vision_pkg vision.launch` 启动前，先把每个物理相机固定到对应节点。普通 USB 相机建议用 `/dev/v4l/by-id/...` 或 `/dev/v4l/by-path/...`，不要长期直接写 `/dev/video0`，因为拔插顺序变化后编号会变。
+
+### 1. 查看普通 USB 相机设备
+
+```bash
+v4l2-ctl --list-devices
+ls -l /dev/v4l/by-id/
+ls -l /dev/v4l/by-path/
+```
+
+确认每个 USB 相机是否支持 1080p30 MJPG：
+
+```bash
+v4l2-ctl --device=/dev/video0 --list-formats-ext
+```
+
+需要看到类似：
+
+```text
+Pixel Format: 'MJPG'
+Size: Discrete 1920x1080
+Interval: Discrete 0.033s (30.000 fps)
+```
+
+本 launch 里普通 USB 相机默认按 `1920x1080@30`、`mjpeg` 打开。注意：`mjpeg` 是 V4L2 采集格式，ROS 里的 `/image_raw` 仍然是解码后的 `sensor_msgs/Image`。
+
+普通 USB 相机原图：
+
+```text
+forward_camera -> /forward_camera/image_raw
+back_camera    -> /back_camera/image_raw
+head_camera    -> /head_camera/image_raw
+hand_camera    -> /hand_camera/image_raw
+arm_camera     -> /arm_camera/image_raw
+```
+
+普通 USB 相机 H.265：
+
+```text
+/forward_camera/image_raw/h265
+/back_camera/image_raw/h265
+/head_camera/image_raw/h265
+/hand_camera/image_raw/h265
+/arm_camera/image_raw/h265
+```
+
+### 2. 查看 RealSense 序列号
+
+```bash
+rs-enumerate-devices | grep -E "Name|Serial"
+```
+
+D405 默认作为 `paw_camera`，彩色图按 `1280x720@30` 打开，深度图按 `848x480@30` 打开：
+
+```text
+/paw_camera/color/image_raw
+/paw_camera/aligned_depth_to_color/image_raw
+/paw_vision/vision_image
+/paw_vision/vision_image/h265
+```
+
+### 3. 工控机启动示例
+
+把下面的设备路径和序列号换成工控机实际查到的值：
+
+```bash
+source ~/robot24/devel/setup.bash
+
+roslaunch vision_pkg vision.launch \
+  enable_usb_cams:=true \
+  enable_paw_camera:=true \
+  enable_behind_camera:=false \
+  enable_thermal:=false \
+  forward_cam_dev:=/dev/v4l/by-id/usb-FORWARD_CAMERA-video-index0 \
+  back_cam_dev:=/dev/v4l/by-id/usb-BACK_CAMERA-video-index0 \
+  head_cam_dev:=/dev/v4l/by-id/usb-HEAD_CAMERA-video-index0 \
+  hand_cam_dev:=/dev/v4l/by-id/usb-HAND_CAMERA-video-index0 \
+  arm_cam_dev:=/dev/v4l/by-id/usb-ARM_CAMERA-video-index0 \
+  paw_serial:=130322273001
+```
+
+如果只启动全景前后两个 USB 相机：
+
+```bash
+roslaunch vision_pkg vision.launch \
+  enable_usb_cams:=true \
+  enable_paw_camera:=false \
+  enable_behind_camera:=false \
+  enable_thermal:=false \
+  forward_cam_dev:=/dev/v4l/by-id/usb-FORWARD_CAMERA-video-index0 \
+  back_cam_dev:=/dev/v4l/by-id/usb-BACK_CAMERA-video-index0
+```
+
+### 4. 指定每个节点的设备参数
+
+| 节点 | 设备参数 | 默认采集 |
+|------|----------|----------|
+| `forward_camera` | `forward_cam_dev:=...` | `1920x1080@30 mjpeg` |
+| `back_camera` | `back_cam_dev:=...` | `1920x1080@30 mjpeg` |
+| `head_camera` | `head_cam_dev:=...` | `1920x1080@30 mjpeg` |
+| `hand_camera` | `hand_cam_dev:=...` | `1920x1080@30 mjpeg` |
+| `arm_camera` | `arm_cam_dev:=...` | `1920x1080@30 mjpeg` |
+| `paw_camera` D405 | `paw_serial:=...` | color `1280x720@30`, depth `848x480@30` |
+| `behind_camera` RealSense | `behind_camera_type:=realsense behind_realsense_serial:=...` | RealSense |
+| `thermal_camera` | `thermal_camera_dev:=...` | thermal launch 默认 |
+
+普通 USB 相机也可以单独覆盖分辨率、帧率和格式：
+
+```bash
+roslaunch vision_pkg vision.launch \
+  enable_usb_cams:=true \
+  forward_cam_dev:=/dev/video0 \
+  forward_cam_width:=1920 \
+  forward_cam_height:=1080 \
+  forward_cam_framerate:=30 \
+  forward_cam_pixel_format:=mjpeg
+```
+
+### 5. 查看画面和 H.265
+
+直接看原始 ROS 图像：
+
+```bash
+rqt_image_view /forward_camera/image_raw
+rqt_image_view /back_camera/image_raw
+rqt_image_view /panorama/panorama_image
+rqt_image_view /paw_vision/vision_image
+```
+
+查看 H.265 是否有数据：
+
+```bash
+rostopic hz /forward_camera/image_raw/h265
+rostopic hz /back_camera/image_raw/h265
+rostopic hz /panorama/panorama_image/h265
+rostopic hz /paw_vision/vision_image/h265
+```
+
+`/xxx/h265` 是 `sensor_msgs/CompressedImage`，`rqt_image_view` 不能直接显示。需要启动对应解码节点，例如：
+
+```bash
+roslaunch vision_pkg vision.launch \
+  enable_usb_cams:=true \
+  forward_cam_dev:=/dev/video0 \
+  enable_forward_h265_decoder:=true
+
+rqt_image_view /forward_camera/image_raw/h265_decoded
+```
+
+### 6. 带宽检查
+
+```bash
+rostopic bw /forward_camera/image_raw
+rostopic bw /forward_camera/image_raw/h265
+rostopic bw /paw_vision/vision_image
+rostopic bw /paw_vision/vision_image/h265
+```
+
+多路 1080p30 H.265 会占用 CPU。当前编码节点只有在 H.265 话题有订阅者时才编码，没有订阅者时不会持续压缩。
+
+---
+
+## 上位机检测开关接口
+
+`vision_display_node` 预留了运行时检测开关 service，上位机界面可以在不重启 `roslaunch` 的情况下开启或关闭检测算力。每个综合视觉节点各有一个接口：
+
+```text
+/paw_vision/set_detection_enabled
+/behind_vision/set_detection_enabled
+```
+
+关闭 D405 最终图上的所有检测，只保留原始画面转发：
+
+```bash
+rosservice call /paw_vision/set_detection_enabled "enable_all: false
+enable_yolo: false
+enable_qrcode: false
+enable_motion: false
+enable_obstacle_warning: false
+enable_center_distance: false"
+```
+
+开启全部检测：
+
+```bash
+rosservice call /paw_vision/set_detection_enabled "enable_all: true
+enable_yolo: false
+enable_qrcode: false
+enable_motion: false
+enable_obstacle_warning: false
+enable_center_distance: false"
+```
+
+只开启 YOLO 和中心距离，关闭 QR、动态和障碍预警：
+
+```bash
+rosservice call /paw_vision/set_detection_enabled "enable_all: false
+enable_yolo: true
+enable_qrcode: false
+enable_motion: false
+enable_obstacle_warning: false
+enable_center_distance: true"
+```
+
+启动时默认值仍由 launch 参数控制：
+
+| 参数 | 说明 |
+|------|------|
+| `paw_enable_yolo_detection` / `behind_enable_yolo_detection` | 默认是否启用 YOLO 检测 |
+| `paw_enable_qrcode_detection` / `behind_enable_qrcode_detection` | 默认是否启用二维码检测 |
+| `paw_enable_motion_detection` / `behind_enable_motion_detection` | 默认是否启用动态检测 |
+| `paw_enable_obstacle_warning` / `behind_enable_obstacle_warning` | 默认是否启用障碍预警 |
+| `paw_enable_center_distance` / `behind_enable_center_distance` | 默认是否启用中心距离显示 |
+
+上位机只需要把界面开关映射到上述 service。关闭后节点仍发布 `/paw_vision/vision_image`，但不再运行对应检测，也不会继续画旧检测结果。
+
+---

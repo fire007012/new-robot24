@@ -141,7 +141,7 @@ private:
             "! x265enc tune=zerolatency speed-preset=ultrafast bitrate=" + std::to_string(std::max(bitrate_kbps_, 100)) +
             " key-int-max=" + std::to_string(std::max(gop_, 1)) +
             " bframes=0 "
-            "! h265parse "
+            "! h265parse config-interval=-1 "
             "! video/x-h265,stream-format=byte-stream,alignment=au "
             "! appsink name=sink emit-signals=false sync=false max-buffers=1 drop=true";
 

@@ -7,15 +7,23 @@
 #include <image_transport/image_transport.h>
 #include <opencv2/core/version.hpp>
 #include <opencv2/imgproc.hpp>
-#include <opencv2/objdetect.hpp>
 #include <algorithm>
+#include <atomic>
+#include <cmath>
+#include <condition_variable>
 #include <cstdio>
 #include <cstdlib>
+#include <memory>
 #include <mutex>
 #include <string>
+#include <thread>
+#include <utility>
 #include <vector>
 #include "vision_pkg/Detection.h"
 #include "vision_pkg/ObstacleWarning.h"
+#include "vision_pkg/SetDetectionEnabled.h"
+#include "vision_pkg/motion_detector.h"
+#include "vision_pkg/qr_detector.h"
 #include "vision_pkg/yolov8.h"
 
 class VisionDisplayNode
@@ -34,6 +42,7 @@ public:
         int depth_queue_size;
         int info_queue_size;
         int output_queue_size;
+        bool qrcode_require_decoded_text;
 
         nh_.param<std::string>("color_topic", color_topic, "/paw_camera/color/image_raw");
         nh_.param<std::string>("depth_topic", depth_topic, "/paw_camera/depth/image_rect_raw");
@@ -46,21 +55,108 @@ public:
         nh_.param<int>("depth_queue_size", depth_queue_size, 1);
         nh_.param<int>("camera_info_queue_size", info_queue_size, 1);
         nh_.param<int>("output_queue_size", output_queue_size, 1);
+        nh_.param<double>("output_max_fps", output_max_fps_, 30.0);
+        nh_.param<double>("yolo_max_fps", yolo_max_fps_, 5.0);
+        nh_.param<double>("motion_max_fps", motion_max_fps_, 15.0);
+        nh_.param<double>("warning_max_fps", warning_max_fps_, 15.0);
+        nh_.param<double>("center_distance_max_fps", center_distance_max_fps_, 15.0);
         nh_.param<double>("warning_distance", warning_distance_, 0.5);
         nh_.param<double>("use_rows_ratio", use_rows_ratio_, 0.6);
         nh_.param<bool>("use_cuda", use_cuda_, false);
-        nh_.param<bool>("enable_qrcode_detection", enable_qrcode_detection_, false);
-        nh_.param<bool>("enable_motion_detection", enable_motion_detection_, false);
+        bool enable_yolo_detection = true;
+        bool enable_qrcode_detection = false;
+        bool enable_motion_detection = false;
+        bool enable_obstacle_warning = true;
+        bool enable_center_distance = true;
+        nh_.param<bool>("enable_yolo_detection", enable_yolo_detection, true);
+        nh_.param<bool>("enable_qrcode_detection", enable_qrcode_detection, false);
+        nh_.param<bool>("enable_obstacle_warning", enable_obstacle_warning, true);
+        nh_.param<bool>("enable_center_distance", enable_center_distance, true);
+        nh_.param<double>("qrcode_eps_x", qrcode_eps_x_, 0.35);
+        nh_.param<double>("qrcode_eps_y", qrcode_eps_y_, 0.35);
+        nh_.param<bool>("qrcode_require_decoded_text", qrcode_require_decoded_text, true);
+        nh_.param<bool>("enable_motion_detection", enable_motion_detection, false);
         nh_.param<bool>("enable_motion_debug_images", enable_motion_debug_images_, false);
         nh_.param<bool>("enable_motion_depth_filter", enable_motion_depth_filter_, false);
-        nh_.param<int>("motion_min_area", motion_min_area_, 80);
+        nh_.param<int>("motion_min_area", motion_min_area_, 30);
         nh_.param<double>("motion_canny_low_threshold", motion_canny_low_threshold_, 50.0);
         nh_.param<double>("motion_canny_high_threshold", motion_canny_high_threshold_, 150.0);
         nh_.param<double>("motion_learning_rate", motion_learning_rate_, 0.01);
-        nh_.param<double>("motion_diff_threshold", motion_diff_threshold_, 18.0);
+        nh_.param<double>("motion_diff_threshold", motion_diff_threshold_, 9.0);
         nh_.param<double>("motion_max_foreground_ratio", motion_max_foreground_ratio_, 0.12);
         nh_.param<double>("motion_depth_min_m", motion_depth_min_m_, 0.0);
         nh_.param<double>("motion_depth_max_m", motion_depth_max_m_, 0.7);
+        nh_.param<int>("motion_gaussian_k", motion_gaussian_k_, 5);
+        nh_.param<double>("motion_gaussian_sigma", motion_gaussian_sigma_, 1.0);
+        nh_.param<double>("motion_gamma", motion_gamma_, 0.75);
+        nh_.param<double>("motion_clahe_clip", motion_clahe_clip_, 2.0);
+        nh_.param<int>("motion_depth_mask_dilate_k", motion_depth_mask_dilate_k_, 5);
+        nh_.param<int>("motion_depth_mask_dilate_iter", motion_depth_mask_dilate_iter_, 1);
+        nh_.param<int>("motion_roi_dilate_k", motion_roi_dilate_k_, 9);
+        nh_.param<int>("motion_roi_dilate_iter", motion_roi_dilate_iter_, 6);
+        nh_.param<int>("motion_merge_k", motion_merge_k_, 13);
+        nh_.param<int>("motion_merge_iter", motion_merge_iter_, 3);
+        nh_.param<double>("motion_scene_motion_pct", motion_scene_motion_pct_, 18.0);
+        nh_.param<double>("motion_min_support_ratio", motion_min_support_ratio_, 0.03);
+        nh_.param<int>("motion_min_support_pixels", motion_min_support_pixels_, 60);
+        nh_.param<int>("motion_final_thick", motion_final_thick_, 2);
+        nh_.param<double>("motion_min_edge_motion_ratio", motion_min_edge_motion_ratio_, 0.12);
+        nh_.param<double>("motion_box_smoothing_alpha", motion_box_smoothing_alpha_, 0.35);
+        nh_.param<int>("motion_box_hold_frames", motion_box_hold_frames_, 3);
+        nh_.param<int>("motion_box_padding", motion_box_padding_, 6);
+
+        motion_gaussian_k_ = ensureOdd(motion_gaussian_k_, 1);
+        motion_depth_mask_dilate_k_ = ensureOdd(motion_depth_mask_dilate_k_, 1);
+        motion_roi_dilate_k_ = ensureOdd(motion_roi_dilate_k_, 1);
+        motion_merge_k_ = ensureOdd(motion_merge_k_, 3);
+        motion_final_thick_ = std::max(1, motion_final_thick_);
+        qrcode_eps_x_ = std::max(0.0, qrcode_eps_x_);
+        qrcode_eps_y_ = std::max(0.0, qrcode_eps_y_);
+        enable_yolo_detection_.store(enable_yolo_detection);
+        enable_qrcode_detection_.store(enable_qrcode_detection);
+        enable_motion_detection_.store(enable_motion_detection);
+        enable_obstacle_warning_.store(enable_obstacle_warning);
+        enable_center_distance_.store(enable_center_distance);
+        qr_detector_.reset(new vision_pkg::QrDetector(
+            true, qrcode_eps_x_, qrcode_eps_y_, qrcode_require_decoded_text));
+
+        vision_pkg::MotionDetector::Config motion_config;
+        motion_config.enabled = true;
+        motion_config.debug_images = enable_motion_debug_images_;
+        motion_config.depth_filter = enable_motion_depth_filter_;
+        motion_config.min_area = motion_min_area_;
+        motion_config.canny_low_threshold = motion_canny_low_threshold_;
+        motion_config.canny_high_threshold = motion_canny_high_threshold_;
+        motion_config.learning_rate = motion_learning_rate_;
+        motion_config.diff_threshold = motion_diff_threshold_;
+        motion_config.max_foreground_ratio = motion_max_foreground_ratio_;
+        motion_config.depth_min_m = motion_depth_min_m_;
+        motion_config.depth_max_m = motion_depth_max_m_;
+        motion_config.gaussian_k = motion_gaussian_k_;
+        motion_config.gaussian_sigma = motion_gaussian_sigma_;
+        motion_config.gamma = motion_gamma_;
+        motion_config.clahe_clip = motion_clahe_clip_;
+        motion_config.depth_mask_dilate_k = motion_depth_mask_dilate_k_;
+        motion_config.depth_mask_dilate_iter = motion_depth_mask_dilate_iter_;
+        motion_config.roi_dilate_k = motion_roi_dilate_k_;
+        motion_config.roi_dilate_iter = motion_roi_dilate_iter_;
+        motion_config.merge_k = motion_merge_k_;
+        motion_config.merge_iter = motion_merge_iter_;
+        motion_config.scene_motion_pct = motion_scene_motion_pct_;
+        motion_config.min_support_ratio = motion_min_support_ratio_;
+        motion_config.min_support_pixels = motion_min_support_pixels_;
+        motion_config.final_thick = motion_final_thick_;
+        motion_config.min_edge_motion_ratio = motion_min_edge_motion_ratio_;
+        motion_config.box_smoothing_alpha = motion_box_smoothing_alpha_;
+        motion_config.box_hold_frames = motion_box_hold_frames_;
+        motion_config.box_padding = motion_box_padding_;
+        motion_detector_.reset(new vision_pkg::MotionDetector(
+            motion_config,
+            [this](vision_pkg::MotionDetector::DebugImage kind,
+                   const std_msgs::Header& header,
+                   const cv::Mat& image) {
+                publishMotionDebugImage(kind, header, image);
+            }));
 
         has_yolo_ = false;
         if (!model_path.empty() && yolo_.ReadModel(net_, model_path, use_cuda_)) {
@@ -82,6 +178,8 @@ public:
         motion_fg_final_pub_ = it_.advertise("debug/motion_fg_final", 1);
         det_pub_ = nh_.advertise<vision_pkg::Detection>("detections", 10);
         warning_pub_ = nh_.advertise<vision_pkg::ObstacleWarning>("obstacle_warning", 10);
+        detection_control_srv_ = nh_.advertiseService(
+            "set_detection_enabled", &VisionDisplayNode::setDetectionEnabled, this);
 
         ros::TransportHints transport_hints;
         if (tcp_nodelay) {
@@ -106,13 +204,71 @@ public:
             << " tcp_nodelay=" << (tcp_nodelay ? "true" : "false")
             << " queues=(" << color_queue_size << "," << depth_queue_size << ","
             << info_queue_size << "," << output_queue_size << ")"
-            << " qrcode=" << (enable_qrcode_detection_ ? "true" : "false")
-            << " motion=" << (enable_motion_detection_ ? "true" : "false")
+            << " fps_limits=(output:" << output_max_fps_
+            << " yolo:" << yolo_max_fps_
+            << " motion:" << motion_max_fps_
+            << " warning:" << warning_max_fps_
+            << " center:" << center_distance_max_fps_ << ")"
+            << " yolo=" << (enable_yolo_detection_.load() ? "true" : "false")
+            << " qrcode=" << (enable_qrcode_detection_.load() ? "true" : "false")
+            << " qrcode_mode=opencv410_detectAndDecodeMulti_current_frame"
+            << " qrcode_eps=(" << qrcode_eps_x_ << "," << qrcode_eps_y_ << ")"
+            << " qrcode_require_decoded_text="
+            << (qrcode_require_decoded_text ? "true" : "false")
+            << " motion=" << (enable_motion_detection_.load() ? "true" : "false")
             << " motion_debug=" << (enable_motion_debug_images_ ? "true" : "false")
-            << " motion_depth_filter=" << (enable_motion_depth_filter_ ? "true" : "false"));
+            << " motion_depth_filter=" << (enable_motion_depth_filter_ ? "true" : "false")
+            << " obstacle_warning=" << (enable_obstacle_warning_.load() ? "true" : "false")
+            << " center_distance=" << (enable_center_distance_.load() ? "true" : "false"));
+
+        if (has_yolo_) {
+            yolo_worker_ = std::thread(&VisionDisplayNode::yoloWorkerLoop, this);
+        }
+        motion_worker_ = std::thread(&VisionDisplayNode::motionWorkerLoop, this);
+    }
+
+    ~VisionDisplayNode()
+    {
+        {
+            std::lock_guard<std::mutex> lock(yolo_worker_mutex_);
+            yolo_worker_stop_ = true;
+        }
+        yolo_worker_cv_.notify_one();
+        {
+            std::lock_guard<std::mutex> lock(motion_worker_mutex_);
+            motion_worker_stop_ = true;
+        }
+        motion_worker_cv_.notify_one();
+        if (yolo_worker_.joinable()) {
+            yolo_worker_.join();
+        }
+        if (motion_worker_.joinable()) {
+            motion_worker_.join();
+        }
     }
 
 private:
+    struct CachedDetection
+    {
+        OutputParams result;
+        bool has_xyz{false};
+        float x{0.0f};
+        float y{0.0f};
+        float z{0.0f};
+    };
+
+    static bool isDue(const ros::Time& now, ros::Time& last_time, double max_fps)
+    {
+        if (max_fps <= 0.0) {
+            return true;
+        }
+        if (last_time.isZero() || (now - last_time).toSec() >= (1.0 / max_fps)) {
+            last_time = now;
+            return true;
+        }
+        return false;
+    }
+
     bool hasMotionDebugSubscribers() const
     {
         return motion_gray_pub_.getNumSubscribers() > 0 ||
@@ -126,6 +282,55 @@ private:
                motion_fg_final_pub_.getNumSubscribers() > 0;
     }
 
+    bool setDetectionEnabled(vision_pkg::SetDetectionEnabled::Request& req,
+                             vision_pkg::SetDetectionEnabled::Response& res)
+    {
+        const bool yolo_enabled = req.enable_all || req.enable_yolo;
+        const bool qrcode_enabled = req.enable_all || req.enable_qrcode;
+        const bool motion_enabled = req.enable_all || req.enable_motion;
+        const bool warning_enabled = req.enable_all || req.enable_obstacle_warning;
+        const bool center_enabled = req.enable_all || req.enable_center_distance;
+
+        enable_yolo_detection_.store(yolo_enabled);
+        enable_qrcode_detection_.store(qrcode_enabled);
+        enable_motion_detection_.store(motion_enabled);
+        enable_obstacle_warning_.store(warning_enabled);
+        enable_center_distance_.store(center_enabled);
+
+        nh_.setParam("enable_yolo_detection", yolo_enabled);
+        nh_.setParam("enable_qrcode_detection", qrcode_enabled);
+        nh_.setParam("enable_motion_detection", motion_enabled);
+        nh_.setParam("enable_obstacle_warning", warning_enabled);
+        nh_.setParam("enable_center_distance", center_enabled);
+
+        if (!yolo_enabled) {
+            clearYoloCache();
+        }
+        if (!motion_enabled && motion_detector_) {
+            motion_detector_->clearCache();
+        }
+        if (!warning_enabled) {
+            last_warning_valid_ = false;
+        }
+        if (!center_enabled) {
+            last_center_distance_valid_ = false;
+        }
+
+        res.success = true;
+        res.message = "detection switches updated";
+        res.yolo_enabled = yolo_enabled;
+        res.qrcode_enabled = qrcode_enabled;
+        res.motion_enabled = motion_enabled;
+        res.obstacle_warning_enabled = warning_enabled;
+        res.center_distance_enabled = center_enabled;
+        ROS_INFO_STREAM("detection switches updated: yolo=" << (yolo_enabled ? "true" : "false")
+                        << " qrcode=" << (qrcode_enabled ? "true" : "false")
+                        << " motion=" << (motion_enabled ? "true" : "false")
+                        << " obstacle_warning=" << (warning_enabled ? "true" : "false")
+                        << " center_distance=" << (center_enabled ? "true" : "false"));
+        return true;
+    }
+
     void publishDebugMono(const image_transport::Publisher& pub,
                           const std_msgs::Header& header,
                           const cv::Mat& image) const
@@ -136,270 +341,84 @@ private:
         pub.publish(cv_bridge::CvImage(header, sensor_msgs::image_encodings::MONO8, image).toImageMsg());
     }
 
-    static std::string shortenText(const std::string& text, size_t max_len = 48)
+    void publishMotionDebugImage(vision_pkg::MotionDetector::DebugImage kind,
+                                 const std_msgs::Header& header,
+                                 const cv::Mat& image) const
     {
-        if (text.size() <= max_len) return text;
-        if (max_len <= 3) return text.substr(0, max_len);
-        return text.substr(0, max_len - 3) + "...";
-    }
-
-    static bool extractQrCorners(const cv::Mat& points, int index, std::vector<cv::Point>& corners)
-    {
-        corners.clear();
-        if (points.empty() || points.channels() != 2) return false;
-
-        if (points.type() == CV_32FC2) {
-            if (points.rows > index && points.cols >= 4) {
-                for (int i = 0; i < 4; ++i) {
-                    const cv::Vec2f p = points.at<cv::Vec2f>(index, i);
-                    corners.emplace_back(cvRound(p[0]), cvRound(p[1]));
-                }
-                return true;
-            }
-            if (index == 0 && points.rows >= 4 && points.cols == 1) {
-                for (int i = 0; i < 4; ++i) {
-                    const cv::Vec2f p = points.at<cv::Vec2f>(i, 0);
-                    corners.emplace_back(cvRound(p[0]), cvRound(p[1]));
-                }
-                return true;
-            }
-            if (index == 0 && points.rows == 1 && points.cols >= 4) {
-                for (int i = 0; i < 4; ++i) {
-                    const cv::Vec2f p = points.at<cv::Vec2f>(0, i);
-                    corners.emplace_back(cvRound(p[0]), cvRound(p[1]));
-                }
-                return true;
-            }
-        } else if (points.type() == CV_64FC2) {
-            if (points.rows > index && points.cols >= 4) {
-                for (int i = 0; i < 4; ++i) {
-                    const cv::Vec2d p = points.at<cv::Vec2d>(index, i);
-                    corners.emplace_back(cvRound(p[0]), cvRound(p[1]));
-                }
-                return true;
-            }
-            if (index == 0 && points.rows >= 4 && points.cols == 1) {
-                for (int i = 0; i < 4; ++i) {
-                    const cv::Vec2d p = points.at<cv::Vec2d>(i, 0);
-                    corners.emplace_back(cvRound(p[0]), cvRound(p[1]));
-                }
-                return true;
-            }
-            if (index == 0 && points.rows == 1 && points.cols >= 4) {
-                for (int i = 0; i < 4; ++i) {
-                    const cv::Vec2d p = points.at<cv::Vec2d>(0, i);
-                    corners.emplace_back(cvRound(p[0]), cvRound(p[1]));
-                }
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    void drawQrResult(cv::Mat& img, const std::vector<cv::Point>& corners, const std::string& decoded)
-    {
-        if (corners.size() != 4) return;
-
-        std::vector<std::vector<cv::Point>> contour(1, corners);
-        cv::polylines(img, contour, true, cv::Scalar(0, 255, 0), 2, cv::LINE_AA);
-
-        std::string text = decoded.empty() ? "QR" : "QR: " + shortenText(decoded);
-        int baseline = 0;
-        cv::Size text_size = cv::getTextSize(text, cv::FONT_HERSHEY_SIMPLEX, 0.55, 1, &baseline);
-
-        int min_x = img.cols - 1;
-        int min_y = img.rows - 1;
-        for (const auto& p : corners) {
-            min_x = std::min(min_x, p.x);
-            min_y = std::min(min_y, p.y);
-        }
-
-        int text_x = std::max(0, min_x);
-        int text_y = std::max(text_size.height + 8, min_y - 8);
-        int box_x2 = std::min(img.cols - 1, text_x + text_size.width + 8);
-        int box_y1 = std::max(0, text_y - text_size.height - 6);
-        int box_y2 = std::min(img.rows - 1, text_y + baseline + 2);
-
-        cv::rectangle(img, cv::Point(text_x, box_y1), cv::Point(box_x2, box_y2),
-                      cv::Scalar(0, 0, 0), cv::FILLED);
-        cv::putText(img, text, cv::Point(text_x + 4, text_y),
-                    cv::FONT_HERSHEY_SIMPLEX, 0.55, cv::Scalar(0, 255, 0), 1, cv::LINE_AA);
-    }
-
-    void annotateQRCodes(const cv::Mat& src, cv::Mat& dst)
-    {
-        if (!enable_qrcode_detection_ || src.empty()) return;
-
-#if CV_VERSION_MAJOR > 4 || (CV_VERSION_MAJOR == 4 && CV_VERSION_MINOR >= 3)
-        std::vector<std::string> decoded_info;
-        cv::Mat points;
-        bool multi_ok = qr_detector_.detectAndDecodeMulti(src, decoded_info, points);
-
-        if (multi_ok && !points.empty()) {
-            int count = 0;
-            if (points.rows > 0 && points.cols >= 4) {
-                count = points.rows;
-            } else if (points.rows >= 4 && points.cols == 1) {
-                count = 1;
-            }
-
-            for (int i = 0; i < count; ++i) {
-                std::vector<cv::Point> corners;
-                if (!extractQrCorners(points, i, corners)) continue;
-                const std::string decoded = (i < static_cast<int>(decoded_info.size())) ? decoded_info[i] : "";
-                drawQrResult(dst, corners, decoded);
-            }
-            return;
-        }
-#endif
-
-        cv::Mat single_points;
-        const std::string decoded = qr_detector_.detectAndDecode(src, single_points);
-        std::vector<cv::Point> corners;
-        if (!decoded.empty() && extractQrCorners(single_points, 0, corners)) {
-            drawQrResult(dst, corners, decoded);
+        switch (kind) {
+        case vision_pkg::MotionDetector::DebugImage::Gray:
+            publishDebugMono(motion_gray_pub_, header, image);
+            break;
+        case vision_pkg::MotionDetector::DebugImage::FrameDiff:
+            publishDebugMono(motion_frame_diff_pub_, header, image);
+            break;
+        case vision_pkg::MotionDetector::DebugImage::ForegroundRaw:
+            publishDebugMono(motion_fg_raw_pub_, header, image);
+            break;
+        case vision_pkg::MotionDetector::DebugImage::ForegroundAfterDiff:
+            publishDebugMono(motion_fg_after_diff_pub_, header, image);
+            break;
+        case vision_pkg::MotionDetector::DebugImage::Canny:
+            publishDebugMono(motion_fg_after_open_pub_, header, image);
+            break;
+        case vision_pkg::MotionDetector::DebugImage::MotionSupport:
+            publishDebugMono(motion_fg_after_close_pub_, header, image);
+            break;
+        case vision_pkg::MotionDetector::DebugImage::CleanedEdges:
+            publishDebugMono(motion_fg_after_dilate_pub_, header, image);
+            break;
+        case vision_pkg::MotionDetector::DebugImage::DepthMask:
+            publishDebugMono(motion_depth_mask_pub_, header, image);
+            break;
+        case vision_pkg::MotionDetector::DebugImage::FinalMask:
+            publishDebugMono(motion_fg_final_pub_, header, image);
+            break;
         }
     }
 
-    cv::Mat buildMotionDepthMask(const cv::Mat& depth, const cv::Size& output_size) const
+    std::vector<vision_pkg::QrDetector::Result> detectQRCodes(const cv::Mat& src)
     {
-        cv::Mat depth_mask(depth.rows, depth.cols, CV_8UC1, cv::Scalar(0));
-        const uint16_t min_mm = static_cast<uint16_t>(std::max(0.0, motion_depth_min_m_) * 1000.0);
-        const uint16_t max_mm = static_cast<uint16_t>(std::max(motion_depth_min_m_, motion_depth_max_m_) * 1000.0);
-
-        for (int y = 0; y < depth.rows; ++y) {
-            const uint16_t* depth_row = depth.ptr<uint16_t>(y);
-            uint8_t* mask_row = depth_mask.ptr<uint8_t>(y);
-            for (int x = 0; x < depth.cols; ++x) {
-                const uint16_t d = depth_row[x];
-                if (d >= min_mm && d <= max_mm && d <= 10000) {
-                    mask_row[x] = 255;
-                }
-            }
+        if (!qr_detector_) {
+            return {};
         }
-
-        if (depth_mask.size() != output_size) {
-            cv::Mat resized_mask;
-            cv::resize(depth_mask, resized_mask, output_size, 0.0, 0.0, cv::INTER_NEAREST);
-            return resized_mask;
-        }
-        return depth_mask;
+        return qr_detector_->detect(src);
     }
 
-    void annotateMotionObjects(const cv::Mat& src,
-                               const cv::Mat& depth,
-                               const std_msgs::Header& header,
-                               cv::Mat& dst)
+    void drawQRCodes(cv::Mat& dst, const std::vector<vision_pkg::QrDetector::Result>& results)
     {
-        if (!enable_motion_detection_ || src.empty()) return;
+        if (qr_detector_) qr_detector_->draw(dst, results);
+    }
 
-        cv::Mat depth_mask(src.size(), CV_8UC1, cv::Scalar(255));
-        const bool use_depth_mask =
-            enable_motion_depth_filter_ && !depth.empty() && motion_depth_max_m_ > 0.0;
-        if (use_depth_mask) {
-            depth_mask = buildMotionDepthMask(depth, src.size());
+    static int ensureOdd(int value, int minimum)
+    {
+        value = std::max(value, minimum);
+        if (value % 2 == 0) {
+            ++value;
         }
-        publishDebugMono(motion_depth_mask_pub_, header, depth_mask);
+        return value;
+    }
 
-        cv::Mat depth_filtered_src;
-        if (use_depth_mask) {
-            cv::bitwise_and(src, src, depth_filtered_src, depth_mask);
-        } else {
-            depth_filtered_src = src;
-        }
+    void drawCachedMotionObjects(cv::Mat& dst) const
+    {
+        if (motion_detector_) motion_detector_->drawCached(dst);
+    }
 
-        cv::Mat gray;
-        cv::cvtColor(depth_filtered_src, gray, cv::COLOR_BGR2GRAY);
-        cv::GaussianBlur(gray, gray, cv::Size(5, 5), 0.0);
-        publishDebugMono(motion_gray_pub_, header, gray);
+    bool hasCachedYoloDetections() const
+    {
+        std::lock_guard<std::mutex> lock(yolo_result_mutex_);
+        return !last_detections_.empty();
+    }
 
-        const double motion_alpha = std::max(0.0, std::min(1.0, motion_learning_rate_));
-        cv::Mat canny_mask;
-        cv::Canny(gray, canny_mask, motion_canny_low_threshold_, motion_canny_high_threshold_);
+    void clearYoloCache()
+    {
+        std::lock_guard<std::mutex> lock(yolo_result_mutex_);
+        last_detections_.clear();
+        last_detection_image_size_ = cv::Size();
+    }
 
-        if (motion_background_model_.empty() || motion_background_model_.size() != gray.size()) {
-            gray.convertTo(motion_background_model_, CV_32FC1);
-            const cv::Mat zeros = cv::Mat::zeros(gray.size(), CV_8UC1);
-            publishDebugMono(motion_frame_diff_pub_, header, zeros);
-            publishDebugMono(motion_fg_raw_pub_, header, zeros);
-            publishDebugMono(motion_fg_after_diff_pub_, header, zeros);
-            publishDebugMono(motion_fg_after_close_pub_, header, zeros);
-            publishDebugMono(motion_fg_after_dilate_pub_, header, zeros);
-            publishDebugMono(motion_fg_final_pub_, header, zeros);
-            publishDebugMono(motion_fg_after_open_pub_, header, canny_mask);
-            motion_frame_count_ = 1;
-            return;
-        }
-
-        cv::Mat background_gray;
-        motion_background_model_.convertTo(background_gray, CV_8UC1);
-        publishDebugMono(motion_fg_after_open_pub_, header, canny_mask);
-
-        cv::Mat frame_diff;
-        cv::absdiff(gray, background_gray, frame_diff);
-        publishDebugMono(motion_frame_diff_pub_, header, frame_diff);
-
-        cv::Mat fg_mask;
-        cv::threshold(frame_diff, fg_mask, motion_diff_threshold_, 255, cv::THRESH_BINARY);
-        ++motion_frame_count_;
-        publishDebugMono(motion_fg_raw_pub_, header, fg_mask);
-        publishDebugMono(motion_fg_after_diff_pub_, header, fg_mask);
-
-        cv::Mat motion_roi_mask;
-        cv::Mat roi_kernel = cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(7, 7));
-        cv::dilate(fg_mask, motion_roi_mask, roi_kernel, cv::Point(-1, -1), 2);
-        publishDebugMono(motion_fg_after_close_pub_, header, motion_roi_mask);
-
-        cv::Mat moving_edge_mask;
-        cv::bitwise_and(canny_mask, motion_roi_mask, moving_edge_mask);
-        cv::Mat connected_edge_mask;
-        cv::Mat connect_kernel = cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(7, 7));
-        cv::morphologyEx(moving_edge_mask, connected_edge_mask, cv::MORPH_CLOSE, connect_kernel);
-        cv::dilate(connected_edge_mask, connected_edge_mask, connect_kernel, cv::Point(-1, -1), 2);
-        publishDebugMono(motion_fg_after_dilate_pub_, header, connected_edge_mask);
-        publishDebugMono(motion_fg_final_pub_, header, connected_edge_mask);
-
-        const double foreground_ratio =
-            static_cast<double>(cv::countNonZero(fg_mask)) / static_cast<double>(fg_mask.total());
-        if (foreground_ratio > motion_max_foreground_ratio_) {
-            cv::accumulateWeighted(gray, motion_background_model_, std::max(0.05, motion_alpha));
-            return;
-        }
-
-        std::vector<std::vector<cv::Point>> contours;
-        cv::findContours(connected_edge_mask, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
-
-        const bool draw_output = !dst.empty();
-        for (const auto& contour : contours) {
-            const double area = cv::contourArea(contour);
-            if (area < motion_min_area_) continue;
-            if (!draw_output) continue;
-
-            const cv::Rect box = cv::boundingRect(contour);
-            cv::drawContours(dst, std::vector<std::vector<cv::Point>>(1, contour), -1,
-                             cv::Scalar(0, 255, 0), 2, cv::LINE_AA);
-            cv::rectangle(dst, box, cv::Scalar(0, 255, 0), 2, cv::LINE_AA);
-
-            const std::string label = "Moving";
-            int baseline = 0;
-            const cv::Size text_size =
-                cv::getTextSize(label, cv::FONT_HERSHEY_SIMPLEX, 0.6, 1, &baseline);
-            const int text_x = std::max(0, box.x);
-            const int text_y = std::max(text_size.height + 8, box.y - 8);
-            const cv::Point bg_tl(text_x, std::max(0, text_y - text_size.height - 6));
-            const cv::Point bg_br(
-                std::min(dst.cols - 1, text_x + text_size.width + 8),
-                std::min(dst.rows - 1, text_y + baseline + 2));
-
-            cv::rectangle(dst, bg_tl, bg_br, cv::Scalar(0, 0, 0), cv::FILLED);
-            cv::putText(dst, label, cv::Point(text_x + 4, text_y),
-                        cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(0, 255, 0), 1, cv::LINE_AA);
-        }
-
-        cv::Mat background_update_mask;
-        cv::bitwise_not(fg_mask, background_update_mask);
-        cv::accumulateWeighted(gray, motion_background_model_, motion_alpha, background_update_mask);
+    bool hasCachedMotionObjects() const
+    {
+        return motion_detector_ && motion_detector_->hasCachedResults();
     }
 
     void depthCallback(const sensor_msgs::Image::ConstPtr& msg)
@@ -496,8 +515,213 @@ private:
         return valid[idx] * 0.001;
     }
 
+    void updateYoloDetections(const cv::Mat& src, const cv::Mat& depth)
+    {
+        if (!has_yolo_) {
+            return;
+        }
+
+        std::vector<OutputParams> results;
+        cv::Mat yolo_input = src;
+        if (!yolo_.detect(yolo_input, net_, results)) {
+            return;
+        }
+
+        std::vector<CachedDetection> detections;
+        detections.reserve(results.size());
+
+        for (const auto& r : results) {
+            vision_pkg::Detection det;
+            det.id = r.id;
+            det.confidence = r.confidence;
+            det.x = r.box.x;
+            det.y = r.box.y;
+            det.width = r.box.width;
+            det.height = r.box.height;
+            if (r.id >= 0 && r.id < static_cast<int>(yolo_.className.size())) {
+                det.class_name = yolo_.className[r.id];
+            }
+            det_pub_.publish(det);
+
+            CachedDetection cached;
+            cached.result = r;
+            if (!depth.empty()) {
+                cached.has_xyz = estimateObjectXYZ(depth, r.box, cached.x, cached.y, cached.z);
+            }
+            detections.push_back(cached);
+        }
+
+        {
+            std::lock_guard<std::mutex> lock(yolo_result_mutex_);
+            last_detections_ = std::move(detections);
+            last_detection_image_size_ = src.size();
+        }
+    }
+
+    void drawCachedYoloDetections(cv::Mat& output)
+    {
+        if (!has_yolo_ || output.empty()) {
+            return;
+        }
+
+        std::vector<CachedDetection> detections;
+        cv::Size detection_image_size;
+        {
+            std::lock_guard<std::mutex> lock(yolo_result_mutex_);
+            detections = last_detections_;
+            detection_image_size = last_detection_image_size_;
+        }
+        if (detections.empty()) {
+            return;
+        }
+
+        std::vector<OutputParams> results;
+        std::vector<const CachedDetection*> visible_detections;
+        results.reserve(detections.size());
+        visible_detections.reserve(detections.size());
+        const double sx = detection_image_size.width > 0
+            ? static_cast<double>(output.cols) / detection_image_size.width
+            : 1.0;
+        const double sy = detection_image_size.height > 0
+            ? static_cast<double>(output.rows) / detection_image_size.height
+            : 1.0;
+
+        for (const auto& cached : detections) {
+            OutputParams r = cached.result;
+            r.box.x = cv::saturate_cast<int>(r.box.x * sx);
+            r.box.y = cv::saturate_cast<int>(r.box.y * sy);
+            r.box.width = cv::saturate_cast<int>(r.box.width * sx);
+            r.box.height = cv::saturate_cast<int>(r.box.height * sy);
+            r.box &= cv::Rect(0, 0, output.cols, output.rows);
+            if (!r.box.empty()) {
+                results.push_back(r);
+                visible_detections.push_back(&cached);
+            }
+        }
+
+        if (!results.empty()) {
+            output = yolo_.drawPred(output, results, yolo_.className, colors_);
+        }
+
+        for (size_t i = 0; i < visible_detections.size(); ++i) {
+            const CachedDetection* cached = visible_detections[i];
+            if (!cached || !cached->has_xyz) continue;
+            const auto& r = results[i];
+            char text[64];
+            snprintf(text, sizeof(text), "X:%.2f Y:%.2f Z:%.2fm",
+                     cached->x, cached->y, cached->z);
+            int baseLine = 0;
+            const double fontScale = 0.5;
+            const int textThickness = 1;
+            const int pad = 4;
+            const cv::Size textSize = cv::getTextSize(
+                text, cv::FONT_HERSHEY_SIMPLEX, fontScale, textThickness, &baseLine);
+
+            const int maxTx = std::max(0, output.cols - textSize.width - pad * 2);
+            const int tx = std::min(std::max(0, r.box.x), maxTx);
+            int ty = r.box.y + r.box.height + textSize.height + pad + 2;
+            if (ty + baseLine + pad >= output.rows) {
+                ty = std::max(textSize.height + pad, r.box.y + r.box.height - pad);
+            }
+
+            const cv::Point bgTl(tx, std::max(0, ty - textSize.height - pad));
+            const cv::Point bgBr(std::min(output.cols - 1, tx + textSize.width + pad * 2),
+                                 std::min(output.rows - 1, ty + baseLine + pad));
+            cv::rectangle(output, bgTl, bgBr, cv::Scalar(0, 0, 0), cv::FILLED);
+            cv::putText(output, text, cv::Point(tx + pad, ty),
+                        cv::FONT_HERSHEY_SIMPLEX, fontScale,
+                        cv::Scalar(0, 255, 255), textThickness, cv::LINE_AA);
+        }
+    }
+
+    void queueYoloDetection(const cv::Mat& src, const cv::Mat& depth)
+    {
+        if (!has_yolo_ || src.empty() || !yolo_worker_.joinable()) {
+            return;
+        }
+
+        {
+            std::lock_guard<std::mutex> lock(yolo_worker_mutex_);
+            yolo_pending_frame_ = src.clone();
+            yolo_pending_depth_ = depth.empty() ? cv::Mat() : depth.clone();
+            yolo_frame_pending_ = true;
+        }
+        yolo_worker_cv_.notify_one();
+    }
+
+    void yoloWorkerLoop()
+    {
+        while (ros::ok()) {
+            cv::Mat frame;
+            cv::Mat depth;
+            {
+                std::unique_lock<std::mutex> lock(yolo_worker_mutex_);
+                yolo_worker_cv_.wait(lock, [this]() {
+                    return yolo_worker_stop_ || yolo_frame_pending_;
+                });
+                if (yolo_worker_stop_) {
+                    break;
+                }
+                frame = yolo_pending_frame_;
+                depth = yolo_pending_depth_;
+                yolo_pending_frame_.release();
+                yolo_pending_depth_.release();
+                yolo_frame_pending_ = false;
+            }
+
+            updateYoloDetections(frame, depth);
+        }
+    }
+
+    void queueMotionDetection(const cv::Mat& src, const cv::Mat& depth, const std_msgs::Header& header)
+    {
+        if (!enable_motion_detection_.load() || src.empty() || !motion_worker_.joinable()) {
+            return;
+        }
+
+        {
+            std::lock_guard<std::mutex> lock(motion_worker_mutex_);
+            motion_pending_frame_ = src.clone();
+            motion_pending_depth_ = depth.empty() ? cv::Mat() : depth.clone();
+            motion_pending_header_ = header;
+            motion_frame_pending_ = true;
+        }
+        motion_worker_cv_.notify_one();
+    }
+
+    void motionWorkerLoop()
+    {
+        while (ros::ok()) {
+            cv::Mat frame;
+            cv::Mat depth;
+            std_msgs::Header header;
+            {
+                std::unique_lock<std::mutex> lock(motion_worker_mutex_);
+                motion_worker_cv_.wait(lock, [this]() {
+                    return motion_worker_stop_ || motion_frame_pending_;
+                });
+                if (motion_worker_stop_) {
+                    break;
+                }
+                frame = motion_pending_frame_;
+                depth = motion_pending_depth_;
+                header = motion_pending_header_;
+                motion_pending_frame_.release();
+                motion_pending_depth_.release();
+                motion_frame_pending_ = false;
+            }
+
+            if (motion_detector_) {
+                motion_detector_->process(frame, depth, header);
+            }
+        }
+    }
+
     void colorCallback(const sensor_msgs::Image::ConstPtr& msg)
     {
+        const ros::Time now = msg->header.stamp.isZero() ? ros::Time::now() : msg->header.stamp;
+        const bool output_due = isDue(now, last_output_time_, output_max_fps_);
+
         cv_bridge::CvImageConstPtr color_ptr;
         try {
             color_ptr = cv_bridge::toCvShare(msg, sensor_msgs::image_encodings::BGR8);
@@ -515,93 +739,75 @@ private:
         const cv::Mat& src = color_ptr->image;
         const cv::Mat depth = depth_ptr ? depth_ptr->image : cv::Mat();
         const bool has_depth = !depth.empty();
+        const bool yolo_enabled = enable_yolo_detection_.load();
+        const bool motion_enabled = enable_motion_detection_.load();
+        const bool qrcode_enabled = enable_qrcode_detection_.load();
+        const bool warning_enabled = enable_obstacle_warning_.load();
+        const bool center_enabled = enable_center_distance_.load();
         const bool publish_image = image_pub_.getNumSubscribers() > 0;
-        const bool need_yolo = has_yolo_ && (publish_image || det_pub_.getNumSubscribers() > 0);
-        const bool need_motion = enable_motion_detection_ && (publish_image || hasMotionDebugSubscribers());
-        const bool need_qrcode = enable_qrcode_detection_ && publish_image;
-        const bool need_warning = has_depth && (publish_image || warning_pub_.getNumSubscribers() > 0);
-        const bool need_center_distance = has_depth && publish_image;
+        const bool publish_this_frame = publish_image && output_due;
+        const bool yolo_due = yolo_enabled && isDue(now, last_yolo_time_, yolo_max_fps_);
+        const bool motion_due = motion_enabled && isDue(now, last_motion_time_, motion_max_fps_);
+        const bool warning_due = warning_enabled && isDue(now, last_warning_time_, warning_max_fps_);
+        const bool center_due = center_enabled && isDue(now, last_center_distance_time_, center_distance_max_fps_);
+        const bool need_yolo = has_yolo_ && yolo_due && (publish_image || det_pub_.getNumSubscribers() > 0);
+        const bool need_motion = motion_due &&
+                                 (publish_image || hasMotionDebugSubscribers());
+        const bool need_qrcode = qrcode_enabled && publish_this_frame;
+        const bool need_warning = has_depth && warning_due &&
+                                  (publish_image || warning_pub_.getNumSubscribers() > 0);
+        const bool need_center_distance = has_depth && center_due && publish_image;
 
-        if (!publish_image && !need_yolo && !need_motion && !need_warning) {
+        if (!publish_this_frame && !need_yolo && !need_motion && !need_warning &&
+            !need_center_distance && !need_qrcode) {
             return;
         }
 
-        if (publish_image && !need_yolo && !need_motion && !need_qrcode &&
+        if (publish_this_frame && !need_yolo && !need_motion && !need_qrcode &&
             !need_warning && !need_center_distance) {
-            image_pub_.publish(msg);
-            return;
-        }
-
-        cv::Mat output;
-        if (publish_image) {
-            output = src.clone();
-        }
-
-        if (need_yolo) {
-            std::vector<OutputParams> results;
-            cv::Mat yolo_input = src;
-            if (yolo_.detect(yolo_input, net_, results)) {
-                for (const auto& r : results) {
-                    vision_pkg::Detection det;
-                    det.id = r.id;
-                    det.confidence = r.confidence;
-                    det.x = r.box.x;
-                    det.y = r.box.y;
-                    det.width = r.box.width;
-                    det.height = r.box.height;
-                    if (r.id >= 0 && r.id < static_cast<int>(yolo_.className.size())) {
-                        det.class_name = yolo_.className[r.id];
-                    }
-                    det_pub_.publish(det);
-                }
-                if (publish_image) {
-                    output = yolo_.drawPred(output, results, yolo_.className, colors_);
-                }
-
-                if (publish_image && has_depth) {
-                    for (const auto& r : results) {
-                        float X;
-                        float Y;
-                        float Z;
-                        if (!estimateObjectXYZ(depth, r.box, X, Y, Z)) continue;
-                        char text[64];
-                        snprintf(text, sizeof(text), "X:%.2f Y:%.2f Z:%.2fm", X, Y, Z);
-                        int tx = std::max(0, r.box.x);
-                        int ty = std::max(15, r.box.y - 6);
-                        cv::putText(output, text, cv::Point(tx, ty),
-                                    cv::FONT_HERSHEY_SIMPLEX, 0.5,
-                                    cv::Scalar(0, 0, 0), 3, cv::LINE_AA);
-                        cv::putText(output, text, cv::Point(tx, ty),
-                                    cv::FONT_HERSHEY_SIMPLEX, 0.5,
-                                    cv::Scalar(0, 255, 255), 1, cv::LINE_AA);
-                    }
-                }
+            if ((!yolo_enabled || !hasCachedYoloDetections()) &&
+                (!motion_enabled || !hasCachedMotionObjects()) &&
+                (!warning_enabled || !last_warning_valid_) &&
+                (!center_enabled || !last_center_distance_valid_)) {
+                image_pub_.publish(msg);
+                return;
             }
         }
 
         if (need_motion) {
-            annotateMotionObjects(src, depth, msg->header, output);
+            queueMotionDetection(src, depth, msg->header);
         }
 
         if (need_warning) {
-            drawObstacleWarning(output, depth);
+            updateObstacleWarning(depth);
         }
 
         if (need_center_distance) {
-            drawCenterDistance(output, depth);
+            updateCenterDistance(depth);
         }
 
+        if (need_yolo) {
+            queueYoloDetection(src, depth);
+        }
+
+        std::vector<vision_pkg::QrDetector::Result> qr_results;
         if (need_qrcode) {
-            annotateQRCodes(src, output);
+            qr_results = detectQRCodes(src);
         }
 
-        if (publish_image) {
+        if (publish_this_frame) {
+            cv::Mat output = src.clone();
+            if (yolo_enabled) drawCachedYoloDetections(output);
+            if (motion_enabled) drawCachedMotionObjects(output);
+            if (warning_enabled) drawCachedObstacleWarning(output);
+            if (center_enabled) drawCachedCenterDistance(output);
+            if (need_qrcode) drawQRCodes(output, qr_results);
             image_pub_.publish(
                 cv_bridge::CvImage(msg->header, sensor_msgs::image_encodings::BGR8, output).toImageMsg());
         }
     }
 
-    void drawObstacleWarning(cv::Mat& img, const cv::Mat& depth)
+    void updateObstacleWarning(const cv::Mat& depth)
     {
         int cols = depth.cols;
         int rows = depth.rows;
@@ -623,27 +829,37 @@ private:
         warn.right_warn = (right_dist >= 0 && right_dist < warning_distance_);
         warning_pub_.publish(warn);
 
-        if (img.empty()) {
+        last_warning_valid_ = true;
+        last_warning_depth_size_ = depth.size();
+        last_left_dist_ = left_dist;
+        last_center_dist_ = center_dist;
+        last_right_dist_ = right_dist;
+        last_left_warn_ = warn.left_warn != 0;
+        last_center_warn_ = warn.center_warn != 0;
+        last_right_warn_ = warn.right_warn != 0;
+        last_warning_y0_ = y0;
+        last_warning_y1_ = y1;
+        last_warning_third_ = third;
+    }
+
+    void drawCachedObstacleWarning(cv::Mat& img) const
+    {
+        if (img.empty() || !last_warning_valid_) {
             return;
         }
 
-        double sx = static_cast<double>(img.cols) / cols;
-        double sy = static_cast<double>(img.rows) / rows;
-        int cy0 = static_cast<int>(y0 * sy);
-        int cy1 = static_cast<int>(y1 * sy);
-        int cthird = static_cast<int>(third * sx);
+        double sx = static_cast<double>(img.cols) / std::max(1, last_warning_depth_size_.width);
+        double sy = static_cast<double>(img.rows) / std::max(1, last_warning_depth_size_.height);
+        int cy0 = static_cast<int>(last_warning_y0_ * sy);
+        int cy1 = static_cast<int>(last_warning_y1_ * sy);
+        int cthird = static_cast<int>(last_warning_third_ * sx);
 
         cv::line(img, cv::Point(0, cy0), cv::Point(img.cols, cy0), cv::Scalar(255, 255, 255), 1);
         cv::line(img, cv::Point(0, cy1), cv::Point(img.cols, cy1), cv::Scalar(255, 255, 255), 1);
         cv::line(img, cv::Point(cthird, cy0), cv::Point(cthird, cy1), cv::Scalar(255, 255, 255), 1);
         cv::line(img, cv::Point(cthird * 2, cy0), cv::Point(cthird * 2, cy1), cv::Scalar(255, 255, 255), 1);
-
-        double dists[3] = {left_dist, center_dist, right_dist};
-        bool warns[3] = {
-            static_cast<bool>(warn.left_warn),
-            static_cast<bool>(warn.center_warn),
-            static_cast<bool>(warn.right_warn)
-        };
+        double dists[3] = {last_left_dist_, last_center_dist_, last_right_dist_};
+        bool warns[3] = {last_left_warn_, last_center_warn_, last_right_warn_};
         int xs[3] = {cthird / 2, cthird + cthird / 2, cthird * 2 + cthird / 2};
 
         for (int i = 0; i < 3; ++i) {
@@ -656,15 +872,8 @@ private:
         }
     }
 
-    void drawCenterDistance(cv::Mat& img, const cv::Mat& depth)
+    void updateCenterDistance(const cv::Mat& depth)
     {
-        int cx = img.cols / 2;
-        int cy = img.rows / 2;
-        cv::line(img, cv::Point(cx - 20, cy), cv::Point(cx - 5, cy), cv::Scalar(255, 255, 255), 1);
-        cv::line(img, cv::Point(cx + 5, cy), cv::Point(cx + 20, cy), cv::Scalar(255, 255, 255), 1);
-        cv::line(img, cv::Point(cx, cy - 20), cv::Point(cx, cy - 5), cv::Scalar(255, 255, 255), 1);
-        cv::line(img, cv::Point(cx, cy + 5), cv::Point(cx, cy + 20), cv::Scalar(255, 255, 255), 1);
-
         int dcx = depth.cols / 2;
         int dcy = depth.rows / 2;
         int half = 15;
@@ -680,14 +889,34 @@ private:
                 }
             }
         }
+        last_center_distance_valid_ = false;
         if (count > 0) {
             double dist = (sum / count) * 0.001;
             if (dist > 0.1) {
-                char text[32];
-                snprintf(text, sizeof(text), "%.2fm", dist);
-                cv::putText(img, text, cv::Point(cx - 30, cy - 30),
-                            cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(255, 255, 255), 1);
+                last_center_distance_ = dist;
+                last_center_distance_valid_ = true;
             }
+        }
+    }
+
+    void drawCachedCenterDistance(cv::Mat& img) const
+    {
+        if (img.empty()) {
+            return;
+        }
+
+        int cx = img.cols / 2;
+        int cy = img.rows / 2;
+        cv::line(img, cv::Point(cx - 20, cy), cv::Point(cx - 5, cy), cv::Scalar(255, 255, 255), 1);
+        cv::line(img, cv::Point(cx + 5, cy), cv::Point(cx + 20, cy), cv::Scalar(255, 255, 255), 1);
+        cv::line(img, cv::Point(cx, cy - 20), cv::Point(cx, cy - 5), cv::Scalar(255, 255, 255), 1);
+        cv::line(img, cv::Point(cx, cy + 5), cv::Point(cx, cy + 20), cv::Scalar(255, 255, 255), 1);
+
+        if (last_center_distance_valid_) {
+            char text[32];
+            snprintf(text, sizeof(text), "%.2fm", last_center_distance_);
+            cv::putText(img, text, cv::Point(cx - 30, cy - 30),
+                        cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(255, 255, 255), 1);
         }
     }
 
@@ -708,8 +937,25 @@ private:
     image_transport::Subscriber color_sub_;
     image_transport::Subscriber depth_sub_;
     ros::Subscriber info_sub_;
+    ros::ServiceServer detection_control_srv_;
 
     mutable std::mutex state_mutex_;
+    mutable std::mutex yolo_result_mutex_;
+    std::thread yolo_worker_;
+    std::mutex yolo_worker_mutex_;
+    std::condition_variable yolo_worker_cv_;
+    bool yolo_worker_stop_{false};
+    bool yolo_frame_pending_{false};
+    cv::Mat yolo_pending_frame_;
+    cv::Mat yolo_pending_depth_;
+    std::thread motion_worker_;
+    std::mutex motion_worker_mutex_;
+    std::condition_variable motion_worker_cv_;
+    bool motion_worker_stop_{false};
+    bool motion_frame_pending_{false};
+    cv::Mat motion_pending_frame_;
+    cv::Mat motion_pending_depth_;
+    std_msgs::Header motion_pending_header_;
     cv_bridge::CvImageConstPtr depth_ptr_;
     bool has_yolo_{false};
     bool use_cuda_{false};
@@ -722,24 +968,71 @@ private:
     int color_h_{0};
     double warning_distance_{0.5};
     double use_rows_ratio_{0.6};
+    double output_max_fps_{30.0};
+    double yolo_max_fps_{10.0};
+    double motion_max_fps_{20.0};
+    double warning_max_fps_{15.0};
+    double center_distance_max_fps_{15.0};
+    double qrcode_eps_x_{0.35};
+    double qrcode_eps_y_{0.35};
+    ros::Time last_output_time_;
+    ros::Time last_yolo_time_;
+    ros::Time last_motion_time_;
+    ros::Time last_warning_time_;
+    ros::Time last_center_distance_time_;
     Yolov8 yolo_;
     cv::dnn::Net net_;
     std::vector<cv::Scalar> colors_;
-    cv::QRCodeDetector qr_detector_;
-    bool enable_qrcode_detection_{false};
-    cv::Mat motion_background_model_;
-    bool enable_motion_detection_{false};
+    std::vector<CachedDetection> last_detections_;
+    cv::Size last_detection_image_size_;
+    std::atomic<bool> enable_yolo_detection_{true};
+    std::atomic<bool> enable_qrcode_detection_{false};
+    std::unique_ptr<vision_pkg::QrDetector> qr_detector_;
+    std::unique_ptr<vision_pkg::MotionDetector> motion_detector_;
+    std::atomic<bool> enable_motion_detection_{false};
     bool enable_motion_debug_images_{false};
     bool enable_motion_depth_filter_{false};
-    int motion_min_area_{80};
-    int motion_frame_count_{0};
+    std::atomic<bool> enable_obstacle_warning_{true};
+    std::atomic<bool> enable_center_distance_{true};
+    int motion_min_area_{30};
     double motion_canny_low_threshold_{50.0};
     double motion_canny_high_threshold_{150.0};
     double motion_learning_rate_{0.01};
-    double motion_diff_threshold_{18.0};
+    double motion_diff_threshold_{9.0};
     double motion_max_foreground_ratio_{0.12};
     double motion_depth_min_m_{0.0};
     double motion_depth_max_m_{0.7};
+    int motion_gaussian_k_{5};
+    double motion_gaussian_sigma_{1.0};
+    double motion_gamma_{0.75};
+    double motion_clahe_clip_{2.0};
+    int motion_depth_mask_dilate_k_{5};
+    int motion_depth_mask_dilate_iter_{1};
+    int motion_roi_dilate_k_{9};
+    int motion_roi_dilate_iter_{6};
+    int motion_merge_k_{13};
+    int motion_merge_iter_{3};
+    double motion_scene_motion_pct_{18.0};
+    double motion_min_support_ratio_{0.03};
+    int motion_min_support_pixels_{60};
+    int motion_final_thick_{2};
+    double motion_min_edge_motion_ratio_{0.12};
+    double motion_box_smoothing_alpha_{0.35};
+    int motion_box_hold_frames_{3};
+    int motion_box_padding_{6};
+    bool last_warning_valid_{false};
+    cv::Size last_warning_depth_size_;
+    double last_left_dist_{-1.0};
+    double last_center_dist_{-1.0};
+    double last_right_dist_{-1.0};
+    bool last_left_warn_{false};
+    bool last_center_warn_{false};
+    bool last_right_warn_{false};
+    int last_warning_y0_{0};
+    int last_warning_y1_{0};
+    int last_warning_third_{0};
+    bool last_center_distance_valid_{false};
+    double last_center_distance_{0.0};
 };
 
 int main(int argc, char** argv)
