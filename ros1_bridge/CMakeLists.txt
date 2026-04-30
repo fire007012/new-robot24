@@ -35,6 +35,8 @@ target_link_libraries(ros_image_rtsp_node
 )
 
 catkin_install_python(PROGRAMS
+  bridge_control_signal_monitor.py
+  bridge_control_signal_monitor_gui.py
   host_bridge_node.py
   mediamtx_launcher.sh
   video_manager_node.py

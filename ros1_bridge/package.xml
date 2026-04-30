@@ -11,6 +11,8 @@
 
   <depend>roscpp</depend>
   <depend>rospy</depend>
+  <depend>control_msgs</depend>
+  <depend>flipper_control</depend>
   <depend>geometry_msgs</depend>
   <depend>sensor_msgs</depend>
   <depend>std_msgs</depend>

@@ -53,6 +53,22 @@ class GripperCommand:
 
 
 @dataclass
+class FlipperCommand:
+    joint_names: List[str] = field(default_factory=list)
+    velocities: List[float] = field(default_factory=list)
+    duration: float = 0.15
+    source: str = "idle"
+
+    def to_dict(self) -> Dict[str, object]:
+        return {
+            "joint_names": list(self.joint_names),
+            "velocities": list(self.velocities),
+            "duration": self.duration,
+            "source": self.source,
+        }
+
+
+@dataclass
 class BridgeState:
     emergency_active: bool = False
     emergency_source: str = ""
@@ -71,6 +87,10 @@ class BridgeState:
     last_servo: ServoCommand = field(default_factory=ServoCommand)
     gripper_target: float = 0.022
     last_gripper: Optional[GripperCommand] = None
+    last_flipper: FlipperCommand = field(default_factory=FlipperCommand)
+    flipper_profile_target: str = "csv_velocity"
+    flipper_profile_result: str = "pending"
+    flipper_profile_message: str = ""
 
     def to_dict(self) -> Dict[str, object]:
         return {
@@ -91,4 +111,8 @@ class BridgeState:
             "last_servo": self.last_servo.to_dict(),
             "gripper_target": self.gripper_target,
             "last_gripper": self.last_gripper.to_dict() if self.last_gripper else None,
+            "last_flipper": self.last_flipper.to_dict(),
+            "flipper_profile_target": self.flipper_profile_target,
+            "flipper_profile_result": self.flipper_profile_result,
+            "flipper_profile_message": self.flipper_profile_message,
         }

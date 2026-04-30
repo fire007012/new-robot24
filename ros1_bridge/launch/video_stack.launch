@@ -33,6 +33,8 @@
   <arg name="servo_topic" default="/servo_server/delta_twist_cmds" />
   <arg name="servo_frame" default="catch_camera" />
   <arg name="gripper_position_topic" default="/arm_control/gripper_position" />
+  <arg name="flipper_jog_topic" default="/flipper_control/jog_cmd" />
+  <arg name="flipper_profile_service" default="/flipper_control/set_control_profile" />
   <arg name="hybrid_service_ns" default="/hybrid_motor_hw_node" />
   <arg name="joint_runtime_topic" default="/hybrid_motor_hw_node/joint_runtime_states" />
   <arg name="watchdog_ms" default="300" />
@@ -41,6 +43,41 @@
   <arg name="gripper_min_position" default="0.0" />
   <arg name="gripper_max_position" default="0.044" />
   <arg name="gripper_initial_position" default="0.022" />
+  <arg name="default_speed_level" default="2" />
+  <arg name="flipper_target_profile" default="csv_velocity" />
+  <arg name="flipper_profile_retry_sec" default="2.0" />
+  <arg name="flipper_joint_names" default="left_front_arm_joint,right_front_arm_joint,left_rear_arm_joint,right_rear_arm_joint" />
+  <arg name="flipper_jog_duration" default="0.15" />
+  <arg name="base_linear_level_1" default="0.2" />
+  <arg name="base_linear_level_2" default="0.4" />
+  <arg name="base_linear_level_3" default="0.55" />
+  <arg name="base_linear_level_4" default="0.7" />
+  <arg name="base_linear_level_5" default="0.8" />
+  <arg name="base_angular_level_1" default="0.4" />
+  <arg name="base_angular_level_2" default="0.8" />
+  <arg name="base_angular_level_3" default="1.0" />
+  <arg name="base_angular_level_4" default="1.25" />
+  <arg name="base_angular_level_5" default="1.5" />
+  <arg name="arm_linear_level_1" default="0.04" />
+  <arg name="arm_linear_level_2" default="0.08" />
+  <arg name="arm_linear_level_3" default="0.10" />
+  <arg name="arm_linear_level_4" default="0.125" />
+  <arg name="arm_linear_level_5" default="0.15" />
+  <arg name="arm_angular_level_1" default="0.2" />
+  <arg name="arm_angular_level_2" default="0.4" />
+  <arg name="arm_angular_level_3" default="0.55" />
+  <arg name="arm_angular_level_4" default="0.7" />
+  <arg name="arm_angular_level_5" default="0.8" />
+  <arg name="gripper_rate_level_1" default="0.015" />
+  <arg name="gripper_rate_level_2" default="0.03" />
+  <arg name="gripper_rate_level_3" default="0.04" />
+  <arg name="gripper_rate_level_4" default="0.05" />
+  <arg name="gripper_rate_level_5" default="0.06" />
+  <arg name="flipper_velocity_level_1" default="0.2" />
+  <arg name="flipper_velocity_level_2" default="0.4" />
+  <arg name="flipper_velocity_level_3" default="0.55" />
+  <arg name="flipper_velocity_level_4" default="0.7" />
+  <arg name="flipper_velocity_level_5" default="0.8" />
   <arg name="bridge_extra_args" default="" />
 
   <arg name="respawn" default="true" />
@@ -96,6 +133,8 @@
               --servo-topic $(arg servo_topic)
               --servo-frame $(arg servo_frame)
               --gripper-position-topic $(arg gripper_position_topic)
+              --flipper-jog-topic $(arg flipper_jog_topic)
+              --flipper-profile-service $(arg flipper_profile_service)
               --hybrid-service-ns $(arg hybrid_service_ns)
               --joint-runtime-topic $(arg joint_runtime_topic)
               --watchdog-ms $(arg watchdog_ms)
@@ -104,5 +143,40 @@
               --gripper-min-position $(arg gripper_min_position)
               --gripper-max-position $(arg gripper_max_position)
               --gripper-initial-position $(arg gripper_initial_position)
+              --default-speed-level $(arg default_speed_level)
+              --flipper-target-profile $(arg flipper_target_profile)
+              --flipper-profile-retry-sec $(arg flipper_profile_retry_sec)
+              --flipper-joint-names $(arg flipper_joint_names)
+              --flipper-jog-duration $(arg flipper_jog_duration)
+              --base-linear-level-1 $(arg base_linear_level_1)
+              --base-linear-level-2 $(arg base_linear_level_2)
+              --base-linear-level-3 $(arg base_linear_level_3)
+              --base-linear-level-4 $(arg base_linear_level_4)
+              --base-linear-level-5 $(arg base_linear_level_5)
+              --base-angular-level-1 $(arg base_angular_level_1)
+              --base-angular-level-2 $(arg base_angular_level_2)
+              --base-angular-level-3 $(arg base_angular_level_3)
+              --base-angular-level-4 $(arg base_angular_level_4)
+              --base-angular-level-5 $(arg base_angular_level_5)
+              --arm-linear-level-1 $(arg arm_linear_level_1)
+              --arm-linear-level-2 $(arg arm_linear_level_2)
+              --arm-linear-level-3 $(arg arm_linear_level_3)
+              --arm-linear-level-4 $(arg arm_linear_level_4)
+              --arm-linear-level-5 $(arg arm_linear_level_5)
+              --arm-angular-level-1 $(arg arm_angular_level_1)
+              --arm-angular-level-2 $(arg arm_angular_level_2)
+              --arm-angular-level-3 $(arg arm_angular_level_3)
+              --arm-angular-level-4 $(arg arm_angular_level_4)
+              --arm-angular-level-5 $(arg arm_angular_level_5)
+              --gripper-rate-level-1 $(arg gripper_rate_level_1)
+              --gripper-rate-level-2 $(arg gripper_rate_level_2)
+              --gripper-rate-level-3 $(arg gripper_rate_level_3)
+              --gripper-rate-level-4 $(arg gripper_rate_level_4)
+              --gripper-rate-level-5 $(arg gripper_rate_level_5)
+              --flipper-velocity-level-1 $(arg flipper_velocity_level_1)
+              --flipper-velocity-level-2 $(arg flipper_velocity_level_2)
+              --flipper-velocity-level-3 $(arg flipper_velocity_level_3)
+              --flipper-velocity-level-4 $(arg flipper_velocity_level_4)
+              --flipper-velocity-level-5 $(arg flipper_velocity_level_5)
               $(arg bridge_extra_args)" />
 </launch>

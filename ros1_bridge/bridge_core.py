@@ -4,7 +4,7 @@ from typing import Any, Callable, Dict, Iterable, List, Optional, Set, Tuple
 
 from debug_events import EventSink, NullEventSink
 from bridge_protocol import MAX_FRAME_BYTES, PROTOCOL_VERSION, clamp, now_ms
-from bridge_state import BridgeState, GripperCommand, ServoCommand, TwistCommand
+from bridge_state import BridgeState, FlipperCommand, GripperCommand, ServoCommand, TwistCommand
 from output_adapters import OutputAdapter
 
 
@@ -42,6 +42,17 @@ class BridgeCore:
         gripper_min_position: float = 0.0,
         gripper_max_position: float = 0.044,
         gripper_initial_position: float = 0.022,
+        default_speed_level: int = 2,
+        base_linear_levels: Optional[Dict[int, float]] = None,
+        base_angular_levels: Optional[Dict[int, float]] = None,
+        arm_linear_levels: Optional[Dict[int, float]] = None,
+        arm_angular_levels: Optional[Dict[int, float]] = None,
+        gripper_rate_levels: Optional[Dict[int, float]] = None,
+        flipper_velocity_levels: Optional[Dict[int, float]] = None,
+        flipper_joint_names: Optional[List[str]] = None,
+        flipper_jog_duration: float = 0.15,
+        flipper_target_profile: str = "csv_velocity",
+        flipper_profile_retry_sec: float = 2.0,
         cameras: Optional[List[Dict[str, Any]]] = None,
         camera_provider: Optional[Callable[[], List[Dict[str, Any]]]] = None,
         camera_stream_handler: Optional[Callable[[Dict[str, Any]], Tuple[bool, int, str, Optional[Dict[str, Any]]]]] = None,
@@ -50,25 +61,44 @@ class BridgeCore:
         self.output = output
         self.events = events or NullEventSink()
         self.watchdog_ms = watchdog_ms
-        self.base_linear = self.scaled_levels(
-            self.BASE_LINEAR_LEVELS, linear_speed, self.BASE_LINEAR_LEVELS[5]
+        self.base_linear = self.normalized_levels(
+            base_linear_levels,
+            self.scaled_levels(self.BASE_LINEAR_LEVELS, linear_speed, self.BASE_LINEAR_LEVELS[5]),
         )
-        self.base_angular = self.scaled_levels(
-            self.BASE_ANGULAR_LEVELS, angular_speed, self.BASE_ANGULAR_LEVELS[5]
+        self.base_angular = self.normalized_levels(
+            base_angular_levels,
+            self.scaled_levels(self.BASE_ANGULAR_LEVELS, angular_speed, self.BASE_ANGULAR_LEVELS[5]),
         )
-        self.arm_linear = dict(self.ARM_LINEAR_LEVELS)
-        self.arm_angular = dict(self.ARM_ANGULAR_LEVELS)
-        self.gripper_rates = dict(self.GRIPPER_RATE_LEVELS)
+        self.arm_linear = self.normalized_levels(arm_linear_levels, self.ARM_LINEAR_LEVELS)
+        self.arm_angular = self.normalized_levels(arm_angular_levels, self.ARM_ANGULAR_LEVELS)
+        self.gripper_rates = self.normalized_levels(gripper_rate_levels, self.GRIPPER_RATE_LEVELS)
+        self.flipper_velocities = self.normalized_levels(
+            flipper_velocity_levels,
+            {1: 0.2, 2: 0.4, 3: 0.55, 4: 0.7, 5: 0.8},
+        )
         self.servo_frame = servo_frame
         self.gripper_min_position = gripper_min_position
         self.gripper_max_position = gripper_max_position
+        self.flipper_joint_names = flipper_joint_names or [
+            "left_front_arm_joint",
+            "right_front_arm_joint",
+            "left_rear_arm_joint",
+            "right_rear_arm_joint",
+        ]
+        self.flipper_jog_duration = flipper_jog_duration
+        self.flipper_target_profile = flipper_target_profile
+        self.flipper_profile_retry_sec = flipper_profile_retry_sec
+        self.last_flipper_profile_attempt = 0.0
         self.cameras = cameras if cameras is not None else self.default_cameras()
         self.camera_provider = camera_provider
         self.camera_stream_handler = camera_stream_handler
         self.state = BridgeState(
             control_mode=self.MODE_VEHICLE,
+            speed_level=self.clamp_speed_level(default_speed_level),
             gripper_target=self.clamp_gripper(gripper_initial_position),
             last_servo=ServoCommand(frame_id=servo_frame),
+            last_flipper=self.zero_flipper_command("startup"),
+            flipper_profile_target=flipper_target_profile,
         )
         self.state_lock = threading.Lock()
 
@@ -78,6 +108,13 @@ class BridgeCore:
             return dict(levels)
         scale = configured_max / default_max
         return {level: value * scale for level, value in levels.items()}
+
+    @staticmethod
+    def normalized_levels(configured: Optional[Dict[int, float]], defaults: Dict[int, float]) -> Dict[int, float]:
+        values = dict(defaults)
+        if configured:
+            values.update({int(level): float(value) for level, value in configured.items()})
+        return values
 
     @staticmethod
     def default_cameras() -> List[Dict[str, Any]]:
@@ -126,6 +163,7 @@ class BridgeCore:
                 "keyboard_base_arm_mapping",
                 "arm_servo_output",
                 "gripper_position_output",
+                "flipper_jog_output",
                 "joint_runtime_states",
                 "hybrid_lifecycle_services",
                 "service_call_result",
@@ -139,6 +177,12 @@ class BridgeCore:
                 "vehicle": {
                     "linear_x": {"positive": "w", "negative": "s"},
                     "angular_z": {"positive": "a", "negative": "d"},
+                    "flippers": {
+                        "left_front_arm_joint": {"positive": "y", "negative": "h"},
+                        "right_front_arm_joint": {"positive": "u", "negative": "j"},
+                        "left_rear_arm_joint": {"positive": "i", "negative": "k"},
+                        "right_rear_arm_joint": {"positive": "o", "negative": "l"},
+                    },
                 },
                 "arm": {
                     "linear_x": {"positive": "u", "negative": "o"},
@@ -184,7 +228,13 @@ class BridgeCore:
                 "speed_level": self.state.speed_level,
                 "last_twist": self.state.last_twist.to_dict(),
                 "last_servo": self.state.last_servo.to_dict(),
+                "last_flipper": self.state.last_flipper.to_dict(),
                 "gripper_target": self.state.gripper_target,
+                "flipper_profile": {
+                    "target": self.state.flipper_profile_target,
+                    "result": self.state.flipper_profile_result,
+                    "message": self.state.flipper_profile_message,
+                },
             }
 
     def make_camera_list_response(self, seq: int) -> Dict[str, Any]:
@@ -298,6 +348,7 @@ class BridgeCore:
     def publish_zero(self, source: str) -> None:
         self.publish_twist(TwistCommand(0.0, 0.0, source))
         self.publish_servo(ServoCommand(frame_id=self.servo_frame, source=source))
+        self.publish_flipper(self.zero_flipper_command(source))
 
     def reset_operator_input_session(self, source: str) -> None:
         with self.state_lock:
@@ -326,6 +377,47 @@ class BridgeCore:
             self.state.gripper_target = gripper.position
             self.state.last_gripper = gripper
         self.output.publish_gripper(gripper)
+
+    def publish_flipper(self, flipper: FlipperCommand) -> None:
+        with self.state_lock:
+            self.state.last_flipper = flipper
+        self.output.publish_flipper(flipper)
+
+    def zero_flipper_command(self, source: str) -> FlipperCommand:
+        return FlipperCommand(
+            joint_names=list(self.flipper_joint_names),
+            velocities=[0.0] * len(self.flipper_joint_names),
+            duration=self.flipper_jog_duration,
+            source=source,
+        )
+
+    def ensure_flipper_profile(self, force: bool = False) -> None:
+        if not self.flipper_joint_names or not self.flipper_target_profile:
+            return
+
+        with self.state_lock:
+            if not force and self.state.flipper_profile_result == "ok":
+                return
+
+        now = time.monotonic()
+        if not force and now - self.last_flipper_profile_attempt < self.flipper_profile_retry_sec:
+            return
+        self.last_flipper_profile_attempt = now
+
+        ok, _code, message, detail = self.output.call_flipper_profile(self.flipper_target_profile)
+        result = "ok" if ok else "unavailable" if detail.get("service_unavailable") else "rejected"
+        with self.state_lock:
+            self.state.flipper_profile_result = result
+            self.state.flipper_profile_message = message
+            self.state.flipper_profile_target = self.flipper_target_profile
+
+        event_level = "info" if ok else "warning"
+        self.events.emit("flipper", "flipper profile checked", level=event_level, data={
+            "target_profile": self.flipper_target_profile,
+            "result": result,
+            "message": message,
+            **detail,
+        })
 
     def handle_message(self, msg: Dict[str, Any]) -> Iterable[Dict[str, Any]]:
         msg_type = str(msg.get("type", ""))
@@ -442,6 +534,8 @@ class BridgeCore:
                             self.state.last_pressed_keys = []
                         self.publish_zero("set_control_mode")
                         self.events.emit("mode", "control mode set", data={"seq": seq, "mode": mode})
+                        if mode == self.MODE_VEHICLE:
+                            self.ensure_flipper_profile(force=True)
                     yield self.make_ack(msg, ok, code, message)
                     yield self.make_service_call_result(
                         msg,
@@ -458,6 +552,8 @@ class BridgeCore:
                     self.state.last_pressed_keys = []
                 self.publish_zero("set_control_mode")
                 self.events.emit("mode", "control mode set", data={"seq": seq, "mode": mode})
+                if mode == self.MODE_VEHICLE:
+                    self.ensure_flipper_profile(force=True)
                 yield self.make_ack(msg, True, 0, f"control mode set to {mode}")
             elif command in self.LIFECYCLE_COMMANDS:
                 service = self.output.lifecycle_service_name(command)
@@ -567,11 +663,14 @@ class BridgeCore:
             ]
 
         self.apply_mode_and_speed_edges(key_edges, button_edges, seq)
-        twist, servo, gripper = self.operator_input_to_outputs(pressed, gamepad, current_ms)
+        twist, servo, gripper, flipper = self.operator_input_to_outputs(pressed, gamepad, current_ms)
         self.publish_twist(twist)
         self.publish_servo(servo)
         if gripper is not None:
             self.publish_gripper(gripper)
+        self.publish_flipper(flipper)
+        if flipper.source == "operator_input.vehicle":
+            self.ensure_flipper_profile(force=False)
 
         with self.state_lock:
             self.state.last_valid_input_ms = current_ms
@@ -589,6 +688,7 @@ class BridgeCore:
             },
             "servo": servo.to_dict(),
             "gripper": gripper.to_dict() if gripper else None,
+            "flipper": flipper.to_dict(),
             "pressed_keys": pressed_snapshot,
         })
         return [self.input_status(seq, "accepted")]
@@ -597,11 +697,15 @@ class BridgeCore:
         with self.state_lock:
             twist = self.state.last_twist
             servo = self.state.last_servo
+            flipper = self.state.last_flipper
             gripper_target = self.state.gripper_target
             watchdog_active = self.state.watchdog_active
             emergency_active = self.state.emergency_active
             control_mode = self.state.control_mode
             speed_level = self.state.speed_level
+            flipper_profile_target = self.state.flipper_profile_target
+            flipper_profile_result = self.state.flipper_profile_result
+            flipper_profile_message = self.state.flipper_profile_message
         return {
             "type": "system_status",
             "protocol_version": PROTOCOL_VERSION,
@@ -622,6 +726,12 @@ class BridgeCore:
             "gripper": {
                 "target": gripper_target,
             },
+            "flipper": flipper.to_dict(),
+            "flipper_profile": {
+                "target": flipper_profile_target,
+                "result": flipper_profile_result,
+                "message": flipper_profile_message,
+            },
         }
 
     def operator_input_to_outputs(
@@ -629,7 +739,7 @@ class BridgeCore:
         pressed: Set[str],
         gamepad: Dict[str, Any],
         current_ms: int,
-    ) -> Tuple[TwistCommand, ServoCommand, Optional[GripperCommand]]:
+    ) -> Tuple[TwistCommand, ServoCommand, Optional[GripperCommand], FlipperCommand]:
         axes = gamepad.get("axes", {}) if isinstance(gamepad.get("axes", {}), dict) else {}
         buttons = gamepad.get("buttons", {}) if isinstance(gamepad.get("buttons", {}), dict) else {}
         connected = bool(gamepad.get("connected", False))
@@ -653,7 +763,7 @@ class BridgeCore:
         axes: Dict[str, Any],
         connected: bool,
         speed_level: int,
-    ) -> Tuple[TwistCommand, ServoCommand, Optional[GripperCommand]]:
+    ) -> Tuple[TwistCommand, ServoCommand, Optional[GripperCommand], FlipperCommand]:
         linear_axis = self.axis_value(pressed, "w", "s")
         angular_axis = self.axis_value(pressed, "a", "d")
 
@@ -667,7 +777,8 @@ class BridgeCore:
             source="operator_input.vehicle",
         )
         servo = ServoCommand(frame_id=self.servo_frame, source="operator_input.vehicle_zero")
-        return twist, servo, None
+        flipper = self.operator_input_to_flipper_outputs(pressed, speed_level)
+        return twist, servo, None, flipper
 
     def operator_input_to_arm_outputs(
         self,
@@ -679,7 +790,7 @@ class BridgeCore:
         previous_input_ms: int,
         current_ms: int,
         gripper_target: float,
-    ) -> Tuple[TwistCommand, ServoCommand, Optional[GripperCommand]]:
+    ) -> Tuple[TwistCommand, ServoCommand, Optional[GripperCommand], FlipperCommand]:
         linear = self.arm_linear[speed_level]
         angular = self.arm_angular[speed_level]
 
@@ -721,7 +832,28 @@ class BridgeCore:
             )
             gripper = GripperCommand(position=target, source="operator_input.arm")
 
-        return twist, servo, gripper
+        return twist, servo, gripper, self.zero_flipper_command("operator_input.arm_zero")
+
+    def operator_input_to_flipper_outputs(self, pressed: Set[str], speed_level: int) -> FlipperCommand:
+        flipper_speed = self.flipper_velocities[speed_level]
+        key_pairs = [
+            ("y", "h"),
+            ("u", "j"),
+            ("i", "k"),
+            ("o", "l"),
+        ]
+        velocities = [
+            self.axis_value(pressed, pos_key, neg_key) * flipper_speed
+            for pos_key, neg_key in key_pairs
+        ]
+        velocities = (velocities + [0.0] * len(self.flipper_joint_names))[: len(self.flipper_joint_names)]
+
+        return FlipperCommand(
+            joint_names=list(self.flipper_joint_names),
+            velocities=velocities,
+            duration=self.flipper_jog_duration,
+            source="operator_input.vehicle",
+        )
 
     def normalized_pressed_keys(self, msg: Dict[str, Any]) -> Set[str]:
         keyboard = msg.get("keyboard", {}) if isinstance(msg.get("keyboard", {}), dict) else {}
@@ -784,6 +916,8 @@ class BridgeCore:
         if mode_changed:
             self.publish_zero("mode_switch")
             self.events.emit("mode", "control mode switched", data={"seq": seq, "mode": mode})
+            if mode == self.MODE_VEHICLE:
+                self.ensure_flipper_profile(force=True)
         if speed_changed:
             self.events.emit("speed", "speed level set", data={"seq": seq, "speed_level": speed_level})
 
@@ -794,6 +928,9 @@ class BridgeCore:
         if normalized == "arm":
             return self.MODE_ARM
         return ""
+
+    def clamp_speed_level(self, level: int) -> int:
+        return max(1, min(5, int(level)))
 
     def axis_value(self, pressed: Set[str], positive_key: str, negative_key: str) -> float:
         value = 0.0

@@ -26,6 +26,36 @@ from video_manager_ipc import (
 )
 
 DEFAULT_CAMERA_CONFIG = os.path.join(os.path.dirname(__file__), "video_sources.local.yaml")
+DEFAULT_FLIPPER_JOINT_NAMES = [
+    "left_front_arm_joint",
+    "right_front_arm_joint",
+    "left_rear_arm_joint",
+    "right_rear_arm_joint",
+]
+
+
+def add_level_args(parser: argparse.ArgumentParser, prefix: str, help_name: str) -> None:
+    for level in range(1, 6):
+        parser.add_argument(
+            f"--{prefix}-level-{level}",
+            type=float,
+            default=None,
+            help=f"{help_name} speed/rate for level {level}",
+        )
+
+
+def collect_level_args(args: argparse.Namespace, prefix: str) -> Optional[Dict[int, float]]:
+    values: Dict[int, float] = {}
+    attr_prefix = prefix.replace("-", "_")
+    for level in range(1, 6):
+        value = getattr(args, f"{attr_prefix}_level_{level}", None)
+        if value is not None:
+            values[level] = float(value)
+    return values or None
+
+
+def parse_csv_list(value: str) -> List[str]:
+    return [item.strip() for item in value.split(",") if item.strip()]
 
 
 class HostBridgeServer:
@@ -41,6 +71,17 @@ class HostBridgeServer:
         gripper_min_position: float = 0.0,
         gripper_max_position: float = 0.044,
         gripper_initial_position: float = 0.022,
+        default_speed_level: int = 2,
+        base_linear_levels: Optional[Dict[int, float]] = None,
+        base_angular_levels: Optional[Dict[int, float]] = None,
+        arm_linear_levels: Optional[Dict[int, float]] = None,
+        arm_angular_levels: Optional[Dict[int, float]] = None,
+        gripper_rate_levels: Optional[Dict[int, float]] = None,
+        flipper_velocity_levels: Optional[Dict[int, float]] = None,
+        flipper_joint_names: Optional[List[str]] = None,
+        flipper_jog_duration: float = 0.15,
+        flipper_target_profile: str = "csv_velocity",
+        flipper_profile_retry_sec: float = 2.0,
         cameras: Optional[List[Dict[str, Any]]] = None,
         video_gateway: Optional[VideoManagerGateway] = None,
         video_poll_sec: float = 1.0,
@@ -66,6 +107,17 @@ class HostBridgeServer:
             gripper_min_position,
             gripper_max_position,
             gripper_initial_position,
+            default_speed_level,
+            base_linear_levels,
+            base_angular_levels,
+            arm_linear_levels,
+            arm_angular_levels,
+            gripper_rate_levels,
+            flipper_velocity_levels,
+            flipper_joint_names,
+            flipper_jog_duration,
+            flipper_target_profile,
+            flipper_profile_retry_sec,
             cameras,
             self.video_gateway.camera_infos if self.video_gateway else None,
             self.handle_camera_stream_request if self.video_gateway else None,
@@ -369,6 +421,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--servo-topic", default="/servo_server/delta_twist_cmds")
     parser.add_argument("--servo-frame", default="catch_camera")
     parser.add_argument("--gripper-position-topic", default="/arm_control/gripper_position")
+    parser.add_argument("--flipper-jog-topic", default="/flipper_control/jog_cmd")
+    parser.add_argument("--flipper-profile-service", default="/flipper_control/set_control_profile")
     parser.add_argument(
         "--hybrid-service-ns",
         default="/hybrid_motor_hw_node",
@@ -389,9 +443,24 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--gripper-min-position", type=float, default=0.0)
     parser.add_argument("--gripper-max-position", type=float, default=0.044)
     parser.add_argument("--gripper-initial-position", type=float, default=0.022)
+    parser.add_argument("--default-speed-level", type=int, default=2)
+    parser.add_argument("--flipper-target-profile", default="csv_velocity")
+    parser.add_argument("--flipper-profile-retry-sec", type=float, default=2.0)
+    parser.add_argument("--flipper-jog-duration", type=float, default=0.15)
+    parser.add_argument(
+        "--flipper-joint-names",
+        default=",".join(DEFAULT_FLIPPER_JOINT_NAMES),
+        help="comma-separated flipper joint names in command order",
+    )
     parser.add_argument("--watchdog-ms", type=int, default=DEFAULT_WATCHDOG_MS)
     parser.add_argument("--linear-speed", type=float, default=0.8, help="vehicle level-5 linear speed")
     parser.add_argument("--angular-speed", type=float, default=1.5, help="vehicle level-5 angular speed")
+    add_level_args(parser, "base-linear", "base linear")
+    add_level_args(parser, "base-angular", "base angular")
+    add_level_args(parser, "arm-linear", "arm linear")
+    add_level_args(parser, "arm-angular", "arm angular")
+    add_level_args(parser, "gripper-rate", "gripper")
+    add_level_args(parser, "flipper-velocity", "flipper")
     parser.add_argument("--debug-ui", dest="debug_ui", action="store_true", default=True,
                         help="start read-only debug HTTP UI; enabled by default")
     parser.add_argument("--no-debug-ui", dest="debug_ui", action="store_false",
@@ -478,6 +547,8 @@ def main() -> None:
             args.cmd_vel_topic,
             args.servo_topic,
             args.gripper_position_topic,
+            args.flipper_jog_topic,
+            args.flipper_profile_service,
             args.hybrid_service_ns,
             service_commands,
             events,
@@ -518,6 +589,17 @@ def main() -> None:
         gripper_min_position=args.gripper_min_position,
         gripper_max_position=args.gripper_max_position,
         gripper_initial_position=args.gripper_initial_position,
+        default_speed_level=args.default_speed_level,
+        base_linear_levels=collect_level_args(args, "base-linear"),
+        base_angular_levels=collect_level_args(args, "base-angular"),
+        arm_linear_levels=collect_level_args(args, "arm-linear"),
+        arm_angular_levels=collect_level_args(args, "arm-angular"),
+        gripper_rate_levels=collect_level_args(args, "gripper-rate"),
+        flipper_velocity_levels=collect_level_args(args, "flipper-velocity"),
+        flipper_joint_names=parse_csv_list(args.flipper_joint_names),
+        flipper_jog_duration=args.flipper_jog_duration,
+        flipper_target_profile=args.flipper_target_profile,
+        flipper_profile_retry_sec=args.flipper_profile_retry_sec,
         cameras=cameras,
         video_gateway=video_gateway,
         video_poll_sec=args.video_poll_sec,

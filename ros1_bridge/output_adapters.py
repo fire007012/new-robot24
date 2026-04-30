@@ -1,6 +1,6 @@
 from typing import Any, Dict, Optional, Tuple
 
-from bridge_state import GripperCommand, ServoCommand, TwistCommand
+from bridge_state import FlipperCommand, GripperCommand, ServoCommand, TwistCommand
 from debug_events import EventSink, NullEventSink
 
 
@@ -16,6 +16,12 @@ class OutputAdapter:
 
     def publish_gripper(self, gripper: GripperCommand) -> None:
         raise NotImplementedError
+
+    def publish_flipper(self, flipper: FlipperCommand) -> None:
+        raise NotImplementedError
+
+    def call_flipper_profile(self, profile: str) -> Tuple[bool, int, str, Dict[str, Any]]:
+        return False, 2302, "no flipper profile service configured", {}
 
     def call_lifecycle(self, command: str) -> Tuple[bool, int, str]:
         raise NotImplementedError
@@ -67,6 +73,23 @@ class DryRunOutput(OutputAdapter):
         )
         self.events.emit("output", "dry-run gripper", data=gripper.to_dict())
 
+    def publish_flipper(self, flipper: FlipperCommand) -> None:
+        pairs = ", ".join(
+            f"{name}={velocity:+.3f}"
+            for name, velocity in zip(flipper.joint_names, flipper.velocities)
+        )
+        print(
+            f"[bridge] flipper source={flipper.source} duration={flipper.duration:.3f} {pairs}",
+            flush=True,
+        )
+        self.events.emit("output", "dry-run flipper", data=flipper.to_dict())
+
+    def call_flipper_profile(self, profile: str) -> Tuple[bool, int, str, Dict[str, Any]]:
+        print(f"[bridge] flipper profile dry-run profile={profile}", flush=True)
+        detail = {"active_profile": profile, "active_controller": "dry-run"}
+        self.events.emit("flipper", "dry-run flipper profile service", data=detail)
+        return True, 0, f"dry-run flipper profile {profile} accepted", detail
+
     def call_lifecycle(self, command: str) -> Tuple[bool, int, str]:
         print(f"[bridge] lifecycle dry-run command={command}", flush=True)
         self.events.emit("lifecycle", "dry-run lifecycle service", data={"command": command})
@@ -98,12 +121,16 @@ class RosOutput(OutputAdapter):
         cmd_vel_topic: str,
         servo_topic: str,
         gripper_position_topic: str,
+        flipper_jog_topic: str,
+        flipper_profile_service: str,
         hybrid_service_ns: str,
         service_commands: Optional[Dict[str, str]] = None,
         events: Optional[EventSink] = None,
     ) -> None:
         super().__init__(events)
         import rospy
+        from control_msgs.msg import JointJog
+        from flipper_control.srv import SetControlProfile, SetControlProfileRequest
         from geometry_msgs.msg import Twist, TwistStamped
         from std_msgs.msg import Float64
         from std_srvs.srv import Trigger
@@ -111,17 +138,27 @@ class RosOutput(OutputAdapter):
         self._twist_type = Twist
         self._twist_stamped_type = TwistStamped
         self._float64_type = Float64
+        self._joint_jog_type = JointJog
+        self._set_control_profile_type = SetControlProfile
+        self._set_control_profile_request_type = SetControlProfileRequest
         self._trigger_type = Trigger
         self._rospy = rospy
         self.hybrid_service_ns = hybrid_service_ns.rstrip("/") or "/hybrid_motor_hw_node"
+        self.flipper_profile_service = flipper_profile_service
         self.service_commands = service_commands or {}
         rospy.init_node(node_name, anonymous=False)
         self._cmd_vel_pub = rospy.Publisher(cmd_vel_topic, Twist, queue_size=1)
         self._servo_pub = rospy.Publisher(servo_topic, TwistStamped, queue_size=1)
         self._gripper_pub = rospy.Publisher(gripper_position_topic, Float64, queue_size=1)
+        self._flipper_pub = rospy.Publisher(flipper_jog_topic, JointJog, queue_size=1)
+        self._flipper_profile_client = rospy.ServiceProxy(
+            flipper_profile_service, SetControlProfile
+        )
         rospy.loginfo("host_bridge_node publishing Twist to %s", cmd_vel_topic)
         rospy.loginfo("host_bridge_node publishing TwistStamped to %s", servo_topic)
         rospy.loginfo("host_bridge_node publishing Float64 to %s", gripper_position_topic)
+        rospy.loginfo("host_bridge_node publishing JointJog to %s", flipper_jog_topic)
+        rospy.loginfo("host_bridge_node using flipper profile service %s", flipper_profile_service)
         rospy.loginfo("host_bridge_node using hybrid service namespace %s", self.hybrid_service_ns)
 
     def publish_twist(self, twist: TwistCommand) -> None:
@@ -152,6 +189,43 @@ class RosOutput(OutputAdapter):
         msg = self._float64_type(data=gripper.position)
         self._gripper_pub.publish(msg)
         self.events.emit("output", "ros gripper published", data=gripper.to_dict())
+
+    def publish_flipper(self, flipper: FlipperCommand) -> None:
+        msg = self._joint_jog_type()
+        msg.header.stamp = self._rospy.Time.now()
+        msg.joint_names = list(flipper.joint_names)
+        msg.velocities = list(flipper.velocities)
+        msg.duration = flipper.duration
+        self._flipper_pub.publish(msg)
+        self.events.emit("output", "ros flipper published", data=flipper.to_dict())
+
+    def call_flipper_profile(self, profile: str) -> Tuple[bool, int, str, Dict[str, Any]]:
+        try:
+            self._rospy.wait_for_service(self.flipper_profile_service, timeout=0.1)
+            request = self._set_control_profile_request_type(profile=profile)
+            response = self._flipper_profile_client(request)
+        except Exception as exc:
+            self.events.emit("flipper", "flipper profile service failed", level="warning", data={
+                "profile": profile,
+                "service": self.flipper_profile_service,
+                "error": str(exc),
+            })
+            return False, 2301, str(exc), {"service_unavailable": True}
+
+        detail = {
+            "profile": profile,
+            "service": self.flipper_profile_service,
+            "active_profile": getattr(response, "active_profile", ""),
+            "active_controller": getattr(response, "active_controller", ""),
+        }
+        ok = bool(response.success)
+        message = str(response.message)
+        self.events.emit("flipper", "flipper profile service completed", data={
+            **detail,
+            "success": ok,
+            "message": message,
+        })
+        return ok, 0 if ok else 2301, message, detail
 
     def call_lifecycle(self, command: str) -> Tuple[bool, int, str]:
         service_name = f"{self.hybrid_service_ns}/{command}"
