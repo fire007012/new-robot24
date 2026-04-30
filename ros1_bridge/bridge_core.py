@@ -769,7 +769,9 @@ class BridgeCore:
 
         if connected:
             linear_axis += self.float_value(axes.get("left_y", 0.0))
-            angular_axis += self.float_value(axes.get("right_x", 0.0))
+            # Browser/gamepad horizontal axes commonly report left as -1.
+            # Keep the operator-facing convention aligned with keyboard: left is positive.
+            angular_axis += -self.float_value(axes.get("right_x", 0.0))
 
         twist = TwistCommand(
             linear_x=clamp(linear_axis, -1.0, 1.0) * self.base_linear[speed_level],
@@ -802,7 +804,8 @@ class BridgeCore:
         angular_z_axis = self.axis_value(pressed, "j", "l")
 
         if connected:
-            linear_y_axis += self.float_value(axes.get("left_x", 0.0))
+            # Keep physical left on the stick aligned with keyboard "a" / +linear.y.
+            linear_y_axis += -self.float_value(axes.get("left_x", 0.0))
             linear_z_axis += self.float_value(axes.get("left_y", 0.0))
             linear_x_axis += self.float_value(axes.get("lt", 0.0)) - self.float_value(axes.get("rt", 0.0))
             angular_x_axis += self.bool_value(buttons.get("lb", False)) - self.bool_value(buttons.get("rb", False))
