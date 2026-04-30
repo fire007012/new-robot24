@@ -148,10 +148,10 @@ class KeyboardTeleopGui(object):
                 [
                     ("w / s", "forward / backward"),
                     ("a / d", "rotate left / right"),
-                    ("u / j", "left front flipper + / -"),
-                    ("i / k", "right front flipper + / -"),
-                    ("o / l", "left rear flipper + / -"),
-                    ("p / ;", "right rear flipper + / -"),
+                    ("y / h", "left front flipper + / -"),
+                    ("u / j", "right front flipper + / -"),
+                    ("i / k", "left rear flipper + / -"),
+                    ("o / l", "right rear flipper + / -"),
                 ],
             ),
             (

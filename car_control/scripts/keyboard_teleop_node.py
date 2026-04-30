@@ -393,10 +393,10 @@ class KeyboardTeleopNode(object):
 
         flipper_speed = self.flipper_velocities[speed_level]
         key_pairs = [
+            ("y", "h"),
             ("u", "j"),
             ("i", "k"),
             ("o", "l"),
-            ("p", "semicolon"),
         ]
         velocities = [
             self.axis_value(pos_key, neg_key) * flipper_speed
