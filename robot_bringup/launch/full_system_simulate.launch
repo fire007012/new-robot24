@@ -11,6 +11,7 @@
 
   <arg name="pipeline" default="ompl"/>
   <arg name="servo_config" default="$(find car_control)/config/moveit_servo.yaml"/>
+  <arg name="base_cmd_angular_direction_correction" default="-1.0"/>
 
   <arg name="gazebo_gui" default="true"/>
   <arg name="paused" default="false"/>
@@ -29,7 +30,9 @@
   </include>
 
   <!-- Northbound chassis and flipper control -->
-  <include if="$(arg enable_mobility_control)" file="$(find mobility_control)/launch/base_cmd.launch"/>
+  <include if="$(arg enable_mobility_control)" file="$(find mobility_control)/launch/base_cmd.launch">
+    <arg name="cmd_angular_direction_correction" value="$(arg base_cmd_angular_direction_correction)"/>
+  </include>
   <include if="$(arg enable_flipper_control)" file="$(find flipper_control)/launch/flipper_control.launch">
     <arg name="require_backend_feedback" value="false"/>
     <arg name="initial_profile" value="csv_velocity"/>

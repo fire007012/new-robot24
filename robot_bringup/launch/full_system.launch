@@ -8,6 +8,7 @@
 
   <arg name="pipeline" default="ompl"/>
   <arg name="servo_config" default="$(find car_control)/config/moveit_servo.yaml"/>
+  <arg name="base_cmd_angular_direction_correction" default="1.0"/>
 
   <arg name="canopen_dcf_path" default="$(find Eyou_Canopen_Master)/config/master.dcf"/>
   <arg name="canopen_joints_path" default="$(find Eyou_Canopen_Master)/config/joints.yaml"/>
@@ -32,7 +33,9 @@
   </include>
 
   <!-- Northbound control nodes kept aligned with simulation -->
-  <include if="$(arg enable_mobility_control)" file="$(find mobility_control)/launch/base_cmd.launch"/>
+  <include if="$(arg enable_mobility_control)" file="$(find mobility_control)/launch/base_cmd.launch">
+    <arg name="cmd_angular_direction_correction" value="$(arg base_cmd_angular_direction_correction)"/>
+  </include>
   <include if="$(arg enable_flipper_control)" file="$(find flipper_control)/launch/flipper_control.launch"/>
   <include if="$(arg enable_gripper_cmd)" file="$(find arm_control)/launch/gripper_cmd.launch"/>
 
