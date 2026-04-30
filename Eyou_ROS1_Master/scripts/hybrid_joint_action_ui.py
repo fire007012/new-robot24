@@ -188,6 +188,7 @@ def make_hybrid_ui_class(upstream_module):
             self.temp_yaml_path = temp_yaml_path
             self.keep_temp = keep_temp
             self.zero_joint_var = None
+            self.action_joint_names = []
             self.runtime_state_by_joint = {}
             self.runtime_tree = None
             super().__init__(*args, **kwargs)
@@ -398,6 +399,99 @@ def make_hybrid_ui_class(upstream_module):
             finally:
                 if not self.keep_temp and self.temp_yaml_path and os.path.exists(self.temp_yaml_path):
                     os.unlink(self.temp_yaml_path)
+
+        def reconnect_action_client(self, action_ns: str) -> None:
+            super().reconnect_action_client(action_ns)
+            self.refresh_action_joint_filter()
+
+        def apply_action_ns(self) -> None:
+            super().apply_action_ns()
+            self.refresh_action_joint_filter()
+
+        def refresh_action_joint_filter(self) -> None:
+            action_ns = upstream_module.normalize_action_ns(self.action_ns)
+            suffix = "/follow_joint_trajectory"
+            controller_ns = action_ns[:-len(suffix)] if action_ns.endswith(suffix) else action_ns
+            controller_ns = controller_ns.rstrip("/") or "/"
+            param_name = f"{controller_ns}/joints"
+
+            configured = []
+            try:
+                value = rospy.get_param(param_name)
+                if isinstance(value, list):
+                    configured = [str(name) for name in value]
+            except Exception:
+                configured = []
+
+            if not configured:
+                self.action_joint_names = list(self.joint_names)
+                self.set_service_status(
+                    f"action joints: using all UI joints; missing param {param_name}"
+                )
+                return
+
+            known = [name for name in configured if name in self.joint_set]
+            unknown = [name for name in configured if name not in self.joint_set]
+            self.action_joint_names = known
+            detail = f"action joints: {len(known)}/{len(configured)} from {param_name}"
+            if unknown:
+                detail += f"; unknown={','.join(unknown)}"
+            self.set_service_status(detail)
+
+        def send_goal(self) -> None:
+            try:
+                duration = float(self.duration_var.get())
+            except ValueError:
+                messagebox.showerror("invalid duration", "duration must be a number")
+                return
+            if duration <= 0.0:
+                messagebox.showerror("invalid duration", "duration must be > 0")
+                return
+
+            if self.client is None:
+                messagebox.showwarning("action server", "action client is not initialized")
+                return
+            if not self.server_connected:
+                messagebox.showwarning("action server", f"action server not connected: {self.action_ns}")
+                return
+
+            self.refresh_action_joint_filter()
+            action_joint_names = list(self.action_joint_names)
+            if not action_joint_names:
+                messagebox.showerror(
+                    "action joints",
+                    f"no UI joints match controller joints for {self.action_ns}",
+                )
+                return
+            not_running = [
+                name
+                for name in action_joint_names
+                if self.runtime_state_by_joint.get(name) is None
+                or self.runtime_state_by_joint[name].lifecycle_state != "Running"
+            ]
+            if not_running:
+                messagebox.showwarning(
+                    "lifecycle",
+                    "action requires Running lifecycle; call resume before sending goals: "
+                    + ", ".join(not_running[:4])
+                    + (" ..." if len(not_running) > 4 else ""),
+                )
+                return
+
+            goal = upstream_module.FollowJointTrajectoryGoal()
+            goal.trajectory.joint_names = action_joint_names
+            point = upstream_module.JointTrajectoryPoint()
+            point.positions = [self.slider_vars[name].get() for name in action_joint_names]
+            point.time_from_start = rospy.Duration.from_sec(duration)
+            goal.trajectory.points = [point]
+            goal.trajectory.header.stamp = rospy.Time.now()
+
+            with self.lock:
+                for i, name in enumerate(action_joint_names):
+                    self.target[name] = point.positions[i]
+                self.goal_state_text = "PENDING"
+
+            self.client.send_goal(goal, done_cb=self.on_goal_done, active_cb=self.on_goal_active)
 
     return HybridJointActionUi
 

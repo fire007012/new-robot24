@@ -10,6 +10,7 @@
 
   <!-- can_driver 侧配置由 can_driver 包维护 -->
   <arg name="can_driver_config"   default="$(find can_driver)/config/can_driver.yaml"/>
+  <arg name="pp_local_zero_offset_file" default="$(find can_driver)/config/can_driver_pp_zero_offsets.txt"/>
   <arg name="joint_mode_mappings_file" default="$(find Eyou_ROS1_Master)/config/joint_mode_mappings.yaml"/>
 
   <!-- ros_controllers（摆臂默认走 CSV forward，机械臂仍走 JTC） -->
@@ -29,6 +30,8 @@
   <!-- 加载 can_driver 关节参数到节点私有命名空间 -->
   <rosparam file="$(arg can_driver_config)" command="load"
             ns="hybrid_motor_hw_node"/>
+  <param name="hybrid_motor_hw_node/can_driver_node/pp_local_zero_offset_file"
+         value="$(arg pp_local_zero_offset_file)"/>
   <rosparam file="$(arg joint_mode_mappings_file)" command="load"
             ns="hybrid_motor_hw_node"/>
 
