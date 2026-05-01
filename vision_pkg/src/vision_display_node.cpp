@@ -78,18 +78,19 @@ public:
         nh_.param<bool>("enable_motion_detection", enable_motion_detection, false);
         nh_.param<bool>("enable_motion_debug_images", enable_motion_debug_images_, false);
         nh_.param<bool>("enable_motion_depth_filter", enable_motion_depth_filter_, false);
-        nh_.param<int>("motion_min_area", motion_min_area_, 30);
+        nh_.param<int>("motion_min_area", motion_min_area_, 50);
         nh_.param<double>("motion_canny_low_threshold", motion_canny_low_threshold_, 50.0);
         nh_.param<double>("motion_canny_high_threshold", motion_canny_high_threshold_, 150.0);
         nh_.param<double>("motion_learning_rate", motion_learning_rate_, 0.01);
-        nh_.param<double>("motion_diff_threshold", motion_diff_threshold_, 9.0);
+        nh_.param<double>("motion_diff_threshold", motion_diff_threshold_, 12.0);
         nh_.param<double>("motion_max_foreground_ratio", motion_max_foreground_ratio_, 0.12);
         nh_.param<double>("motion_depth_min_m", motion_depth_min_m_, 0.0);
         nh_.param<double>("motion_depth_max_m", motion_depth_max_m_, 0.7);
-        nh_.param<int>("motion_gaussian_k", motion_gaussian_k_, 5);
-        nh_.param<double>("motion_gaussian_sigma", motion_gaussian_sigma_, 1.0);
-        nh_.param<double>("motion_gamma", motion_gamma_, 0.75);
-        nh_.param<double>("motion_clahe_clip", motion_clahe_clip_, 2.0);
+        nh_.param<int>("motion_gaussian_k", motion_gaussian_k_, 7);
+        nh_.param<double>("motion_gaussian_sigma", motion_gaussian_sigma_, 1.4);
+        nh_.param<int>("motion_median_k", motion_median_k_, 5);
+        nh_.param<double>("motion_gamma", motion_gamma_, 1.0);
+        nh_.param<double>("motion_clahe_clip", motion_clahe_clip_, 1.2);
         nh_.param<int>("motion_depth_mask_dilate_k", motion_depth_mask_dilate_k_, 5);
         nh_.param<int>("motion_depth_mask_dilate_iter", motion_depth_mask_dilate_iter_, 1);
         nh_.param<int>("motion_roi_dilate_k", motion_roi_dilate_k_, 9);
@@ -97,8 +98,8 @@ public:
         nh_.param<int>("motion_merge_k", motion_merge_k_, 13);
         nh_.param<int>("motion_merge_iter", motion_merge_iter_, 3);
         nh_.param<double>("motion_scene_motion_pct", motion_scene_motion_pct_, 18.0);
-        nh_.param<double>("motion_min_support_ratio", motion_min_support_ratio_, 0.03);
-        nh_.param<int>("motion_min_support_pixels", motion_min_support_pixels_, 60);
+        nh_.param<double>("motion_min_support_ratio", motion_min_support_ratio_, 0.05);
+        nh_.param<int>("motion_min_support_pixels", motion_min_support_pixels_, 90);
         nh_.param<int>("motion_final_thick", motion_final_thick_, 2);
         nh_.param<double>("motion_min_edge_motion_ratio", motion_min_edge_motion_ratio_, 0.12);
         nh_.param<double>("motion_box_smoothing_alpha", motion_box_smoothing_alpha_, 0.35);
@@ -106,6 +107,7 @@ public:
         nh_.param<int>("motion_box_padding", motion_box_padding_, 6);
 
         motion_gaussian_k_ = ensureOdd(motion_gaussian_k_, 1);
+        motion_median_k_ = ensureOdd(motion_median_k_, 1);
         motion_depth_mask_dilate_k_ = ensureOdd(motion_depth_mask_dilate_k_, 1);
         motion_roi_dilate_k_ = ensureOdd(motion_roi_dilate_k_, 1);
         motion_merge_k_ = ensureOdd(motion_merge_k_, 3);
@@ -134,6 +136,7 @@ public:
         motion_config.depth_max_m = motion_depth_max_m_;
         motion_config.gaussian_k = motion_gaussian_k_;
         motion_config.gaussian_sigma = motion_gaussian_sigma_;
+        motion_config.median_k = motion_median_k_;
         motion_config.gamma = motion_gamma_;
         motion_config.clahe_clip = motion_clahe_clip_;
         motion_config.depth_mask_dilate_k = motion_depth_mask_dilate_k_;
@@ -1004,6 +1007,7 @@ private:
     double motion_depth_max_m_{0.7};
     int motion_gaussian_k_{5};
     double motion_gaussian_sigma_{1.0};
+    int motion_median_k_{5};
     double motion_gamma_{0.75};
     double motion_clahe_clip_{2.0};
     int motion_depth_mask_dilate_k_{5};

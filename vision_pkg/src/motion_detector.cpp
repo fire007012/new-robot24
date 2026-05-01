@@ -13,6 +13,7 @@ MotionDetector::MotionDetector(const Config& config, DebugPublisher debug_publis
     : config_(config), debug_publisher_(std::move(debug_publisher))
 {
     config_.gaussian_k = ensureOdd(config_.gaussian_k, 1);
+    config_.median_k = ensureOdd(config_.median_k, 1);
     config_.depth_mask_dilate_k = ensureOdd(config_.depth_mask_dilate_k, 1);
     config_.roi_dilate_k = ensureOdd(config_.roi_dilate_k, 1);
     config_.merge_k = ensureOdd(config_.merge_k, 3);
@@ -627,14 +628,18 @@ void MotionDetector::process(const cv::Mat& src,
     cv::Mat gray_original;
     cv::cvtColor(gaussian_original, gray_original, cv::COLOR_BGR2GRAY);
     cv::Mat gray_enhanced = enhanceGray(gray_original, config_.gamma, config_.clahe_clip);
+    cv::Mat stable_gray = gray_enhanced;
+    if (config_.median_k > 1) {
+        cv::medianBlur(gray_enhanced, stable_gray, config_.median_k);
+    }
 
     cv::Mat masked_enhanced_gray;
-    cv::bitwise_and(gray_enhanced, gray_enhanced, masked_enhanced_gray, depth_mask);
+    cv::bitwise_and(stable_gray, stable_gray, masked_enhanced_gray, depth_mask);
     publishDebug(DebugImage::Gray, header, masked_enhanced_gray);
 
     cv::Mat canny_mask = buildColorCanny(
         gaussian_original,
-        gray_enhanced,
+        stable_gray,
         config_.canny_low_threshold,
         config_.canny_high_threshold);
 
@@ -658,7 +663,7 @@ void MotionDetector::process(const cv::Mat& src,
     if (prev_motion_gray_frame_.empty() ||
         prev_motion_gray_frame_.size() != masked_enhanced_gray.size()) {
         prev_motion_gray_frame_ = masked_enhanced_gray.clone();
-        prev_scene_gray_frame_ = gray_enhanced.clone();
+        prev_scene_gray_frame_ = stable_gray.clone();
         prev_foreground_mask_ = zeros.clone();
         tracked_boxes_.clear();
         {
@@ -705,9 +710,9 @@ void MotionDetector::process(const cv::Mat& src,
     publishDebug(DebugImage::ForegroundAfterDiff, header, temporal_motion_mask);
 
     if (!prev_scene_gray_frame_.empty() &&
-        prev_scene_gray_frame_.size() == gray_enhanced.size()) {
+        prev_scene_gray_frame_.size() == stable_gray.size()) {
         cv::Mat scene_diff_image;
-        cv::absdiff(prev_scene_gray_frame_, gray_enhanced, scene_diff_image);
+        cv::absdiff(prev_scene_gray_frame_, stable_gray, scene_diff_image);
         cv::threshold(scene_diff_image, scene_foreground_mask,
                       config_.diff_threshold, 255, cv::THRESH_BINARY);
         cv::morphologyEx(scene_foreground_mask, scene_foreground_mask,
@@ -749,7 +754,7 @@ void MotionDetector::process(const cv::Mat& src,
     }
 
     prev_motion_gray_frame_ = masked_enhanced_gray.clone();
-    prev_scene_gray_frame_ = gray_enhanced.clone();
+    prev_scene_gray_frame_ = stable_gray.clone();
     prev_foreground_mask_ = foreground_mask.clone();
 }
 

@@ -41,6 +41,7 @@ public:
         double depth_max_m{0.7};
         int gaussian_k{5};
         double gaussian_sigma{1.0};
+        int median_k{5};
         double gamma{0.75};
         double clahe_clip{2.0};
         int depth_mask_dilate_k{5};

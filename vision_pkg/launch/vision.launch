@@ -135,7 +135,7 @@
   <arg name="usb_h265_max_input_fps" default="30.0"/>
 
   <!-- Motion parameters -->
-  <arg name="paw_motion_min_area" default="30"/>
+  <arg name="paw_motion_min_area" default="50"/>
   <arg name="behind_motion_min_area" default="45"/>
   <arg name="paw_motion_canny_low_threshold" default="50.0"/>
   <arg name="paw_motion_canny_high_threshold" default="150.0"/>
@@ -147,17 +147,19 @@
   <arg name="behind_motion_depth_max_m" default="0.7"/>
   <arg name="paw_motion_learning_rate" default="0.01"/>
   <arg name="behind_motion_learning_rate" default="0.01"/>
-  <arg name="paw_motion_diff_threshold" default="9.0"/>
+  <arg name="paw_motion_diff_threshold" default="12.0"/>
   <arg name="behind_motion_diff_threshold" default="16.0"/>
   <arg name="paw_motion_max_foreground_ratio" default="0.12"/>
   <arg name="behind_motion_max_foreground_ratio" default="0.12"/>
-  <arg name="paw_motion_gaussian_k" default="5"/>
+  <arg name="paw_motion_gaussian_k" default="7"/>
   <arg name="behind_motion_gaussian_k" default="5"/>
-  <arg name="paw_motion_gaussian_sigma" default="1.0"/>
+  <arg name="paw_motion_gaussian_sigma" default="1.4"/>
   <arg name="behind_motion_gaussian_sigma" default="1.0"/>
-  <arg name="paw_motion_gamma" default="0.75"/>
+  <arg name="paw_motion_median_k" default="5"/>
+  <arg name="behind_motion_median_k" default="3"/>
+  <arg name="paw_motion_gamma" default="1.0"/>
   <arg name="behind_motion_gamma" default="0.8"/>
-  <arg name="paw_motion_clahe_clip" default="2.0"/>
+  <arg name="paw_motion_clahe_clip" default="1.2"/>
   <arg name="behind_motion_clahe_clip" default="2.0"/>
   <arg name="paw_motion_depth_mask_dilate_k" default="5"/>
   <arg name="behind_motion_depth_mask_dilate_k" default="3"/>
@@ -173,9 +175,9 @@
   <arg name="behind_motion_merge_iter" default="1"/>
   <arg name="paw_motion_scene_motion_pct" default="18.0"/>
   <arg name="behind_motion_scene_motion_pct" default="18.0"/>
-  <arg name="paw_motion_min_support_ratio" default="0.03"/>
+  <arg name="paw_motion_min_support_ratio" default="0.05"/>
   <arg name="behind_motion_min_support_ratio" default="0.05"/>
-  <arg name="paw_motion_min_support_pixels" default="60"/>
+  <arg name="paw_motion_min_support_pixels" default="90"/>
   <arg name="behind_motion_min_support_pixels" default="80"/>
   <arg name="paw_motion_min_edge_motion_ratio" default="0.12"/>
   <arg name="behind_motion_min_edge_motion_ratio" default="0.18"/>
@@ -216,7 +218,7 @@
   <arg name="arm_cam_pixel_format" default="mjpeg"/>
 
   <!-- Camera serial numbers -->
-  <arg name="paw_serial" default="130322273001"/>
+  <arg name="paw_serial" default="260322273334"/>
   <arg name="behind_serial" default="219323070286"/>
   <arg name="behind_realsense_serial" default="112222070518"/>
   <arg name="paw_color_width" default="1280"/>
@@ -436,6 +438,7 @@
       <param name="motion_max_foreground_ratio" value="$(arg paw_motion_max_foreground_ratio)"/>
       <param name="motion_gaussian_k" value="$(arg paw_motion_gaussian_k)"/>
       <param name="motion_gaussian_sigma" value="$(arg paw_motion_gaussian_sigma)"/>
+      <param name="motion_median_k" value="$(arg paw_motion_median_k)"/>
       <param name="motion_gamma" value="$(arg paw_motion_gamma)"/>
       <param name="motion_clahe_clip" value="$(arg paw_motion_clahe_clip)"/>
       <param name="motion_depth_mask_dilate_k" value="$(arg paw_motion_depth_mask_dilate_k)"/>
@@ -519,6 +522,7 @@
       <param name="motion_max_foreground_ratio" value="$(arg behind_motion_max_foreground_ratio)"/>
       <param name="motion_gaussian_k" value="$(arg behind_motion_gaussian_k)"/>
       <param name="motion_gaussian_sigma" value="$(arg behind_motion_gaussian_sigma)"/>
+      <param name="motion_median_k" value="$(arg behind_motion_median_k)"/>
       <param name="motion_gamma" value="$(arg behind_motion_gamma)"/>
       <param name="motion_clahe_clip" value="$(arg behind_motion_clahe_clip)"/>
       <param name="motion_depth_mask_dilate_k" value="$(arg behind_motion_depth_mask_dilate_k)"/>
