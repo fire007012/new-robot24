@@ -860,7 +860,8 @@ class BridgeCore:
             # Keep physical left on the stick aligned with keyboard "a" / +linear.y.
             linear_y_axis += -self.axis_float_value(axes.get("left_x", 0.0))
             linear_z_axis += self.axis_float_value(axes.get("left_y", 0.0))
-            linear_x_axis += self.axis_float_value(axes.get("lt", 0.0)) - self.axis_float_value(axes.get("rt", 0.0))
+            # Use right trigger for forward and left trigger for backward motion.
+            linear_x_axis += self.axis_float_value(axes.get("rt", 0.0)) - self.axis_float_value(axes.get("lt", 0.0))
             angular_x_axis += self.bool_value(buttons.get("lb", False)) - self.bool_value(buttons.get("rb", False))
             angular_y_axis += -self.axis_float_value(axes.get("right_y", 0.0))
             angular_z_axis += self.axis_float_value(axes.get("right_x", 0.0))
@@ -881,6 +882,12 @@ class BridgeCore:
         if previous_input_ms > 0:
             dt = clamp((current_ms - previous_input_ms) / 1000.0, 0.0, 0.2)
         gripper_axis = self.axis_value(pressed, "f", "h")
+        if connected:
+            gripper_axis += self.button_axis_value(
+                buttons,
+                positive_names=("x", "square"),
+                negative_names=("b", "circle"),
+            )
         gripper = None
         if abs(gripper_axis) > 0.0 and dt > 0.0:
             target = self.clamp_gripper(
@@ -1010,6 +1017,19 @@ class BridgeCore:
     @staticmethod
     def bool_value(value: Any) -> float:
         return 1.0 if bool(value) else 0.0
+
+    def button_axis_value(
+        self,
+        buttons: Dict[str, Any],
+        positive_names: Tuple[str, ...],
+        negative_names: Tuple[str, ...],
+    ) -> float:
+        value = 0.0
+        if any(bool(buttons.get(name, False)) for name in positive_names):
+            value += 1.0
+        if any(bool(buttons.get(name, False)) for name in negative_names):
+            value -= 1.0
+        return value
 
     def clamp_gripper(self, value: float) -> float:
         return clamp(value, self.gripper_min_position, self.gripper_max_position)
