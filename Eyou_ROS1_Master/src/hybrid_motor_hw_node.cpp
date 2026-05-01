@@ -113,6 +113,12 @@ int main(int argc, char** argv) {
     std::mutex loop_mtx;
     canopen_hw::OperationalCoordinator canopen_coord(
         lifecycle.master(), lifecycle.shared_state(), master_cfg.joints.size());
+    std::vector<std::string> canopen_safety_groups;
+    canopen_safety_groups.reserve(master_cfg.joints.size());
+    for (const auto& joint : master_cfg.joints) {
+        canopen_safety_groups.push_back(joint.safety_group);
+    }
+    canopen_coord.SetSafetyGroups(canopen_safety_groups);
     canopen_coord.SetConfigured();
 
     eyou_ros1_master::HybridOperationalCoordinator hybrid_coord(
