@@ -62,6 +62,9 @@
   <exec_depend>robot_state_publisher</exec_depend>
   <exec_depend>rviz</exec_depend>
   <exec_depend>tf</exec_depend>
+  <exec_depend>thermal_camera</exec_depend>
+  <exec_depend>usb_cam</exec_depend>
+  <exec_depend>vision_pkg</exec_depend>
 
 
   <!-- The export tag contains other, unspecified, tags -->

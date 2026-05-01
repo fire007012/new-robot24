@@ -1,0 +1,5 @@
+<launch>
+  <arg name="enable_paw_vision" default="true"/>
+
+  <include if="$(arg enable_paw_vision)" file="$(find vision_pkg)/launch/paw_v4l2_vision.launch"/>
+</launch>

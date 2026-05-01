@@ -1,0 +1,9 @@
+<launch>
+  <arg name="enable_flipper_control" default="true"/>
+  <arg name="enable_mobility_control" default="true"/>
+  <arg name="enable_gripper_cmd" default="true"/>
+
+  <include if="$(arg enable_mobility_control)" file="$(find mobility_control)/launch/base_cmd.launch"/>
+  <include if="$(arg enable_flipper_control)" file="$(find flipper_control)/launch/flipper_control.launch"/>
+  <include if="$(arg enable_gripper_cmd)" file="$(find arm_control)/launch/gripper_cmd.launch"/>
+</launch>

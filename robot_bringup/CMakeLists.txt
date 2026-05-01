@@ -126,6 +126,7 @@ install(PROGRAMS
   scripts/bringup_canable1.sh
   scripts/wait_for_graph.sh
   scripts/keyboard_moveit_server.py
+  scripts/start_full_system_split.sh
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 

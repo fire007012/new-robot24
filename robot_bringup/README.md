@@ -15,13 +15,18 @@ robot_bringup/
 |-- launch/
 |   |-- acceptance_smoke.launch
 |   |-- full_system.launch
+|   |-- full_system_control.launch
+|   |-- full_system_hardware.launch
+|   |-- full_system_moveit.launch
 |   |-- full_system_simulate.launch
+|   |-- full_system_vision.launch
 |   `-- keyboard_moveit_server.launch
 `-- scripts/
     |-- bringup_can_interfaces.sh
     |-- bringup_canable0.sh
     |-- bringup_canable1.sh
     |-- keyboard_moveit_server.py
+    |-- start_full_system_split.sh
     `-- wait_for_graph.sh
 ```
 
@@ -40,6 +45,21 @@ roslaunch robot_bringup full_system_simulate.launch
 
 ```bash
 roslaunch robot_bringup full_system.launch
+```
+
+四终端分组启动：
+
+```bash
+rosrun robot_bringup start_full_system_split.sh
+```
+
+按组传参数时，使用环境变量：
+
+```bash
+HARDWARE_ARGS="auto_init:=true auto_enable:=true" \
+MOVEIT_ARGS="enable_rviz:=false" \
+VISION_ARGS="enable_paw_vision:=true" \
+rosrun robot_bringup start_full_system_split.sh
 ```
 
 分组启动入口已经下放到各自包内维护：
@@ -72,6 +92,9 @@ roslaunch robot_bringup full_system_simulate.launch enable_rviz:=false
 # 实机入口，关闭 RViz
 roslaunch robot_bringup full_system.launch enable_rviz:=false
 
+# 四终端分组启动
+rosrun robot_bringup start_full_system_split.sh
+
 # 同时启动 canable0 和 canable1
 rosrun robot_bringup bringup_can_interfaces.sh
 
@@ -88,6 +111,14 @@ rosrun robot_bringup bringup_canable1.sh
   - 启动 Gazebo、底盘控制、摆臂控制、夹爪命令、MoveIt、RViz。
 - `full_system.launch`
   - 以 `Eyou_ROS1_Master` 为硬件统一门面，再接入同一套上层控制节点。
+- `full_system_hardware.launch`
+  - 电机硬件与控制器管理。
+- `full_system_control.launch`
+  - 底盘、翻转臂、夹爪控制节点。
+- `full_system_moveit.launch`
+  - MoveIt、MoveIt Servo、RViz。
+- `full_system_vision.launch`
+  - 爪端视觉与可选热成像。
 - 分组启动入口
   - `Eyou_ROS1_Master/arm_only.launch`
   - `Eyou_Canopen_Master/flipper_only.launch`
