@@ -188,14 +188,26 @@ class VideoManagerNode:
             return _error_response(request, 2401, "camera_id must be an integer")
         action = str(request.get("action", "")).strip().lower()
         with self._manager_lock:
+            if action not in ("start", "stop", "restart"):
+                return _error_response(request, 2402, f"unsupported stream action: {action}")
+            if not self.manager.supports_stream_control(camera_id):
+                if not self.manager.has_camera(camera_id):
+                    return _error_response(request, 2403, f"unknown camera_id: {camera_id}")
+                camera = self.manager.camera_info(camera_id)
+                response = _error_response(
+                    request,
+                    2404,
+                    f"camera_id {camera_id} is an external stream and does not support {action}",
+                )
+                response["type"] = "stream_response"
+                response["camera"] = camera
+                return response
             if action == "start":
                 camera = self.manager.start(camera_id)
             elif action == "stop":
                 camera = self.manager.stop(camera_id)
             elif action == "restart":
                 camera = self.manager.restart(camera_id)
-            else:
-                return _error_response(request, 2402, f"unsupported stream action: {action}")
         ok = action == "stop" or bool(camera.get("online", False))
         message = f"camera stream {action} accepted" if ok else str(camera.get("last_error", "stream failed"))
         response = _ok_response(seq, message) if ok else _error_response(request, 2501, message)

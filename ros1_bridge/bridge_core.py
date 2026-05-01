@@ -172,6 +172,7 @@ class BridgeCore:
                 "gripper_position_output",
                 "flipper_jog_output",
                 "joint_runtime_states",
+                "co2_data",
                 "hybrid_lifecycle_services",
                 "service_call_result",
                 "arm_named_targets",
@@ -263,6 +264,12 @@ class BridgeCore:
         message["seq"] = 0
         message["timestamp_ms"] = now_ms()
         return message
+
+    def make_co2_data(self, ppm: int) -> Dict[str, Any]:
+        return {
+            "type": "co2_data",
+            "ppm": int(ppm),
+        }
 
     def make_arm_named_targets(
         self,
@@ -638,7 +645,31 @@ class BridgeCore:
                     duration_ms=duration_ms,
                 )
             else:
-                yield self.make_ack(msg, True, 0, f"system command {command} accepted")
+                params = msg.get("params", {}) or {}
+                service_result = self.call_configured_service_result(msg, command, params)
+                if service_result is not None:
+                    ok, code, message, service, duration_ms = service_result
+                    self.events.emit("service", "system command service handled", data={
+                        "seq": seq,
+                        "command": command,
+                        "service": service,
+                        "ok": ok,
+                        "code": code,
+                        "message": message,
+                        "duration_ms": duration_ms,
+                    }, level="info" if ok else "error")
+                    yield self.make_ack(msg, ok, code, message)
+                    yield self.make_service_call_result(
+                        msg,
+                        command=command,
+                        service=service,
+                        ok=ok,
+                        code=code,
+                        message=message,
+                        duration_ms=duration_ms,
+                    )
+                else:
+                    yield self.make_ack(msg, True, 0, f"system command {command} accepted")
             return
 
         self.events.emit("protocol", "unsupported message type", level="warning", data={

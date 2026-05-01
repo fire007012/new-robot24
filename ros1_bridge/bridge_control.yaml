@@ -5,6 +5,13 @@ host_bridge_node:
   # MoveIt named target 使用的规划组
   moveit_group: arm
 
+  # 上位机 thermal_monitor / dynamic_monitor / danger_sign / qr_code_detect / reset_monitor
+  # 会路由到这个视觉开关服务
+  vision_detection_service: /paw_vision/set_detection_enabled
+
+  # CO2 ppm 上送 topic，std_msgs/Int32；置空可禁用
+  co2_topic: /co2_ppm
+
   # 底盘最高档速度。若未单独覆盖各档位，1~5 档会按这个 level-5 值同比缩放。
   linear_speed: 0.8
   angular_speed: 1.5

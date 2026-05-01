@@ -27,6 +27,7 @@
   <arg name="bridge_control_config" default="$(find ros1_bridge)/bridge_control.yaml" />
   <arg name="debug_host" default="0.0.0.0" />
   <arg name="debug_port" default="18080" />
+  <arg name="start_ros_image_rtsp" default="true" />
   <arg name="video_manager_timeout" default="5.0" />
   <arg name="video_poll_sec" default="1.0" />
 
@@ -93,6 +94,15 @@
         args="--bin $(arg mediamtx_bin)
               --port $(arg rtsp_port)
               $(arg mediamtx_extra_args)" />
+
+  <node pkg="ros1_bridge"
+        if="$(arg start_ros_image_rtsp)"
+        type="ros_image_rtsp_node"
+        name="ros_image_rtsp_node"
+        output="screen"
+        respawn="$(arg respawn)"
+        respawn_delay="$(arg respawn_delay)"
+        args="$(arg video_config)" />
 
   <node pkg="ros1_bridge"
         type="video_manager_node.py"

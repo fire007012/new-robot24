@@ -18,6 +18,7 @@ from bridge_protocol import json_line
 from debug_ui import DebugHttpServer
 from debug_events import EventSink, RingBufferEventSink
 from output_adapters import DryRunOutput, OutputAdapter, RosOutput
+from video_manager import load_video_config
 from video_manager_ipc import (
     DEFAULT_VIDEO_MANAGER_HOST,
     DEFAULT_VIDEO_MANAGER_PORT,
@@ -223,6 +224,7 @@ class HostBridgeServer:
         video_gateway: Optional[VideoManagerGateway] = None,
         video_poll_sec: float = 1.0,
         joint_runtime_topic: str = "",
+        co2_topic: str = "",
         events: Optional[EventSink] = None,
     ) -> None:
         self.host = host
@@ -234,7 +236,9 @@ class HostBridgeServer:
         self.video_gateway = video_gateway
         self.video_poll_sec = max(video_poll_sec, 0.1)
         self.joint_runtime_topic = joint_runtime_topic
+        self.co2_topic = co2_topic
         self.joint_runtime_subscriber = None
+        self.co2_subscriber = None
         self.core = BridgeCore(
             output,
             watchdog_ms,
@@ -267,6 +271,7 @@ class HostBridgeServer:
     def serve_forever(self) -> None:
         self.start_video_manager()
         self.start_joint_runtime_forwarder()
+        self.start_co2_forwarder()
         self.runtime.start_watchdog()
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server:
@@ -344,6 +349,25 @@ class HostBridgeServer:
             topic, JointRuntimeStateArray, callback, queue_size=1
         )
         self.events.emit("joint_runtime", "joint runtime forwarder started", data={"topic": topic})
+
+    def start_co2_forwarder(self) -> None:
+        topic = self.co2_topic.strip()
+        if not topic:
+            return
+        try:
+            import rospy
+            from std_msgs.msg import Int32
+        except Exception as exc:
+            self.events.emit("co2", "co2 forwarder unavailable",
+                             level="warning", data={"error": str(exc)})
+            return
+
+        def callback(msg: Any) -> None:
+            ppm = int(getattr(msg, "data", 0) or 0)
+            self.broadcast(self.core.make_co2_data(ppm))
+
+        self.co2_subscriber = rospy.Subscriber(topic, Int32, callback, queue_size=1)
+        self.events.emit("co2", "co2 forwarder started", data={"topic": topic})
 
     def _video_monitor_loop(self) -> None:
         if not self.video_gateway:
@@ -484,60 +508,25 @@ def parse_service_command(value: str) -> Tuple[str, str]:
 
 
 def load_cameras_from_yaml(path: str, publish_host_override: str = "") -> List[Dict[str, Any]]:
-    try:
-        import yaml
-    except ImportError as exc:
-        raise RuntimeError("PyYAML is required for --camera-config") from exc
+    config = load_video_config(path)
+    if publish_host_override:
+        config.rtsp.host = publish_host_override
 
-    with open(path, "r", encoding="utf-8") as f:
-        data = yaml.safe_load(f) or {}
-
-    rtsp = data.get("rtsp", {}) if isinstance(data.get("rtsp", {}), dict) else {}
-    publish_host = (
-        publish_host_override
-        or rtsp.get("public_host")
-        or rtsp.get("host")
-        or rtsp.get("publish_host")
-        or "127.0.0.1"
+    cameras = [
+        source.camera_info(config.rtsp, online=True)
+        for source in config.direct_sources
+    ]
+    cameras.extend(
+        source.camera_info(config.rtsp, online=True)
+        for source in config.stream_sources
     )
-    port = int(rtsp.get("port", 8554))
-
-    sources = data.get("direct_sources", [])
-    if not isinstance(sources, list):
-        raise ValueError("camera config field direct_sources must be a list")
-
-    cameras: List[Dict[str, Any]] = []
-    for source in sources:
-        if not isinstance(source, dict):
-            continue
-        if not bool(source.get("enabled", True)):
-            continue
-
-        rtsp_path = str(source.get("rtsp_path") or source.get("source_id") or "").strip("/")
-        if not rtsp_path:
-            raise ValueError("enabled camera source is missing rtsp_path/source_id")
-
-        camera_id = int(source.get("camera_id", len(cameras)))
-        name = str(source.get("name") or source.get("source_id") or rtsp_path)
-        codec = str(source.get("codec", "h264"))
-        width = int(source.get("width", 1280))
-        height = int(source.get("height", 720))
-        fps = int(source.get("fps", 25))
-        bitrate_kbps = int(source.get("bitrate_kbps", 0))
-
-        cameras.append({
-            "camera_id": camera_id,
-            "name": name,
-            "online": True,
-            "rtsp_url": f"rtsp://{publish_host}:{port}/{rtsp_path}",
-            "codec": codec,
-            "width": width,
-            "height": height,
-            "fps": fps,
-            "bitrate_kbps": bitrate_kbps,
-        })
-
-    return cameras
+    deduped: Dict[int, Dict[str, Any]] = {}
+    for camera in cameras:
+        deduped[int(camera.get("camera_id", 1_000_000))] = camera
+    return [
+        deduped[camera_id]
+        for camera_id in sorted(deduped.keys())
+    ]
 
 
 def detect_publish_host() -> str:
@@ -572,6 +561,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--flipper-jog-topic", default="/flipper_control/jog_cmd")
     parser.add_argument("--flipper-profile-service", default="/flipper_control/set_control_profile")
+    parser.add_argument(
+        "--vision-detection-service",
+        default="/paw_vision/set_detection_enabled",
+        help="ROS service used for monitor-mode system_command routing",
+    )
     parser.add_argument(
         "--hybrid-service-ns",
         default="/hybrid_motor_hw_node",
@@ -677,6 +671,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default="/hybrid_motor_hw_node/joint_runtime_states",
         help="ROS topic to forward as TCP joint_runtime_states when --ros is used; empty disables it",
     )
+    parser.add_argument(
+        "--co2-topic",
+        default="/co2_ppm",
+        help="ROS std_msgs/Int32 topic to forward as TCP co2_data; empty disables it",
+    )
     return parser
 
 
@@ -708,6 +707,20 @@ def main() -> None:
         "moveit_group",
         bridge_control_config,
         "arm",
+    )
+    vision_detection_service = resolve_str_config(
+        args,
+        parser,
+        "vision_detection_service",
+        bridge_control_config,
+        "/paw_vision/set_detection_enabled",
+    )
+    co2_topic = resolve_str_config(
+        args,
+        parser,
+        "co2_topic",
+        bridge_control_config,
+        "/co2_ppm",
     )
     linear_speed = resolve_float_config(args, parser, "linear_speed", bridge_control_config, 0.8)
     angular_speed = resolve_float_config(args, parser, "angular_speed", bridge_control_config, 1.5)
@@ -780,6 +793,7 @@ def main() -> None:
             args.flipper_profile_service,
             args.hybrid_service_ns,
             service_commands,
+            vision_detection_service,
             moveit_group,
             events,
         )
@@ -836,6 +850,7 @@ def main() -> None:
         video_gateway=video_gateway,
         video_poll_sec=args.video_poll_sec,
         joint_runtime_topic=args.joint_runtime_topic if not args.dry_run else "",
+        co2_topic=co2_topic if not args.dry_run else "",
         events=events,
     )
     if args.debug_ui:

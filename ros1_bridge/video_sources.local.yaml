@@ -29,7 +29,7 @@ direct_sources:
     slot_hint: 1
     name: Overhead Camera
     runner: ffmpeg
-    device: /dev/overheadcam
+    device: /dev/video10
     input_format: mjpeg
     input_width: 1280
     input_height: 720
@@ -101,7 +101,7 @@ direct_sources:
     slot_hint: 5
     name: Back Camera
     runner: ffmpeg
-    device: /dev/backcam
+    device: /dev/video10
     input_format: mjpeg
     input_width: 1280
     input_height: 720
@@ -113,3 +113,28 @@ direct_sources:
     vf: crop=960:720:160:0
     rtsp_path: backcam
     enabled: false
+
+streams:
+  - camera_id: 0
+    source_id: paw_camera
+    slot_hint: 0
+    name: paw_camera
+    image_topic: /paw_camera/image_raw/compressed
+    rtsp_path: paw_camera_ros
+    fps: 30
+    bitrate_kbps: 2500
+    codec: h264
+    frame_timeout_sec: 3.0
+    enabled: true
+
+  - camera_id: 2
+    source_id: paw_vision
+    slot_hint: 2
+    name: paw_vision
+    image_topic: /paw_vision/vision_image/compressed
+    rtsp_path: paw_vision_ros
+    fps: 30
+    bitrate_kbps: 2500
+    codec: h264
+    frame_timeout_sec: 3.0
+    enabled: true

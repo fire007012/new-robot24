@@ -8,6 +8,7 @@
 #include <cstring>
 #include <fstream>
 #include <memory>
+#include <set>
 #include <stdexcept>
 #include <string>
 #include <sys/types.h>
@@ -18,19 +19,40 @@
 
 namespace {
 
+struct RtspConfig {
+  std::string host = "127.0.0.1";
+  std::string publish_host = "127.0.0.1";
+  int port = 8554;
+  std::string transport = "tcp";
+
+  std::string publicUrl(const std::string& path) const {
+    return "rtsp://" + host + ":" + std::to_string(port) + "/" + path;
+  }
+
+  std::string publishUrl(const std::string& path) const {
+    return "rtsp://" + publish_host + ":" + std::to_string(port) + "/" + path;
+  }
+};
+
 struct StreamConfig {
+  int camera_id = -1;
+  int slot_hint = -1;
   std::string name;
+  std::string source_id;
   std::string image_topic;
   std::string rtsp_url;
+  std::string rtsp_path;
   std::string ffmpeg_path = "ffmpeg";
-  std::string output_codec = "h264";
-  std::string rtsp_transport = "tcp";
+  std::string codec = "h264";
+  std::string rtsp_transport;
   int fps = 30;
   int bitrate_kbps = 2500;
   double frame_timeout_sec = 3.0;
+  bool enabled = true;
 };
 
 struct Config {
+  RtspConfig rtsp;
   std::vector<StreamConfig> streams;
 };
 
@@ -94,6 +116,18 @@ int parsePositiveInt(const std::string& key, const std::string& value) {
   }
 }
 
+int parseNonNegativeInt(const std::string& key, const std::string& value) {
+  try {
+    const int parsed = std::stoi(value);
+    if (parsed < 0) {
+      throw std::invalid_argument("must be non-negative");
+    }
+    return parsed;
+  } catch (const std::exception&) {
+    throw std::runtime_error(key + " must be a non-negative integer");
+  }
+}
+
 double parsePositiveDouble(const std::string& key, const std::string& value) {
   try {
     const double parsed = std::stod(value);
@@ -106,17 +140,52 @@ double parsePositiveDouble(const std::string& key, const std::string& value) {
   }
 }
 
+bool parseBool(const std::string& key, std::string value) {
+  value = toLower(trim(value));
+  if (value == "true" || value == "yes" || value == "on" || value == "1") {
+    return true;
+  }
+  if (value == "false" || value == "no" || value == "off" || value == "0") {
+    return false;
+  }
+  throw std::runtime_error(key + " must be a boolean");
+}
+
+void applyRtspField(RtspConfig& rtsp, const std::string& key, const std::string& value) {
+  if (key == "public_host" || key == "host") {
+    rtsp.host = value;
+  } else if (key == "publish_host") {
+    rtsp.publish_host = value;
+  } else if (key == "port") {
+    rtsp.port = parsePositiveInt(key, value);
+  } else if (key == "transport") {
+    const std::string transport = toLower(value);
+    if (transport != "tcp" && transport != "udp") {
+      throw std::runtime_error("rtsp.transport must be tcp or udp");
+    }
+    rtsp.transport = transport;
+  }
+}
+
 void applyStreamField(StreamConfig& stream, const std::string& key, const std::string& value) {
-  if (key == "name") {
+  if (key == "camera_id") {
+    stream.camera_id = parseNonNegativeInt(key, value);
+  } else if (key == "slot_hint") {
+    stream.slot_hint = parseNonNegativeInt(key, value);
+  } else if (key == "name") {
     stream.name = value;
+  } else if (key == "source_id") {
+    stream.source_id = value;
   } else if (key == "image_topic") {
     stream.image_topic = value;
   } else if (key == "rtsp_url") {
     stream.rtsp_url = value;
+  } else if (key == "rtsp_path") {
+    stream.rtsp_path = value;
   } else if (key == "ffmpeg_path") {
     stream.ffmpeg_path = value.empty() ? stream.ffmpeg_path : value;
-  } else if (key == "output_codec") {
-    stream.output_codec = value.empty() ? stream.output_codec : value;
+  } else if (key == "codec" || key == "output_codec") {
+    stream.codec = value.empty() ? stream.codec : value;
   } else if (key == "rtsp_transport") {
     stream.rtsp_transport = value;
   } else if (key == "fps") {
@@ -125,18 +194,44 @@ void applyStreamField(StreamConfig& stream, const std::string& key, const std::s
     stream.bitrate_kbps = parsePositiveInt(key, value);
   } else if (key == "frame_timeout_sec") {
     stream.frame_timeout_sec = parsePositiveDouble(key, value);
+  } else if (key == "enabled") {
+    stream.enabled = parseBool(key, value);
   } else {
     ROS_WARN("ignoring unknown stream config key: %s", key.c_str());
   }
 }
 
-void validateStream(const StreamConfig& stream, size_t index) {
+void validateStream(StreamConfig& stream, const RtspConfig& rtsp, size_t index) {
   const std::string prefix = "streams[" + std::to_string(index) + "]";
+  if (stream.camera_id < 0) {
+    throw std::runtime_error(prefix + ".camera_id is required");
+  }
+  if (stream.camera_id > 5) {
+    throw std::runtime_error(prefix + ".camera_id must be between 0 and 5");
+  }
   if (stream.image_topic.empty()) {
     throw std::runtime_error(prefix + ".image_topic is required");
   }
+  if (stream.rtsp_url.empty() && stream.rtsp_path.empty()) {
+    throw std::runtime_error(prefix + ".rtsp_url or .rtsp_path is required");
+  }
+  if (!stream.rtsp_path.empty() && stream.rtsp_path.find('/') != std::string::npos) {
+    throw std::runtime_error(prefix + ".rtsp_path must be a single path segment");
+  }
+  if (stream.source_id.empty()) {
+    stream.source_id = "camera_" + std::to_string(stream.camera_id);
+  }
+  if (stream.slot_hint < 0) {
+    stream.slot_hint = stream.camera_id;
+  }
+  if (stream.name.empty()) {
+    stream.name = stream.source_id;
+  }
+  if (stream.rtsp_transport.empty()) {
+    stream.rtsp_transport = rtsp.transport;
+  }
   if (stream.rtsp_url.empty()) {
-    throw std::runtime_error(prefix + ".rtsp_url is required");
+    stream.rtsp_url = rtsp.publishUrl(stream.rtsp_path);
   }
 }
 
@@ -148,7 +243,13 @@ Config loadConfig(const std::string& path) {
 
   Config config;
   StreamConfig* current = nullptr;
-  bool in_streams = false;
+  enum class Section {
+    kNone,
+    kRtsp,
+    kStreams,
+    kIgnore,
+  };
+  Section section = Section::kNone;
   std::string line;
   int line_number = 0;
 
@@ -158,12 +259,32 @@ Config loadConfig(const std::string& path) {
     if (line.empty()) {
       continue;
     }
-    if (line == "streams:") {
-      in_streams = true;
+    if (line == "rtsp:") {
+      section = Section::kRtsp;
+      current = nullptr;
       continue;
     }
-    if (!in_streams) {
-      ROS_WARN("ignoring top-level config line %d: %s", line_number, line.c_str());
+    if (line == "streams:") {
+      section = Section::kStreams;
+      current = nullptr;
+      continue;
+    }
+    if (line == "direct_sources:") {
+      section = Section::kIgnore;
+      current = nullptr;
+      continue;
+    }
+    if (section == Section::kRtsp) {
+      const size_t colon = line.find(':');
+      if (colon == std::string::npos) {
+        throw std::runtime_error("invalid YAML line " + std::to_string(line_number) + ": " + line);
+      }
+      const std::string key = trim(line.substr(0, colon));
+      const std::string value = unquote(line.substr(colon + 1));
+      applyRtspField(config.rtsp, key, value);
+      continue;
+    }
+    if (section != Section::kStreams) {
       continue;
     }
 
@@ -188,15 +309,20 @@ Config loadConfig(const std::string& path) {
     applyStreamField(*current, key, value);
   }
 
-  if (config.streams.empty()) {
-    throw std::runtime_error("streams must contain at least one stream");
-  }
+  std::vector<StreamConfig> enabled_streams;
+  std::set<int> camera_ids;
   for (size_t i = 0; i < config.streams.size(); ++i) {
-    validateStream(config.streams[i], i);
-    if (config.streams[i].name.empty()) {
-      config.streams[i].name = "stream_" + std::to_string(i);
+    if (!config.streams[i].enabled) {
+      continue;
     }
+    validateStream(config.streams[i], config.rtsp, i);
+    if (!camera_ids.insert(config.streams[i].camera_id).second) {
+      throw std::runtime_error("duplicate camera_id in streams: " +
+                               std::to_string(config.streams[i].camera_id));
+    }
+    enabled_streams.push_back(config.streams[i]);
   }
+  config.streams.swap(enabled_streams);
   return config;
 }
 
@@ -242,7 +368,7 @@ std::vector<std::string> buildFfmpegCommand(const StreamConfig& stream) {
       "-an",
   };
 
-  const std::string codec = toLower(stream.output_codec);
+  const std::string codec = toLower(stream.codec);
   if (codec == "copy" || codec == "passthrough") {
     command.insert(command.end(), {"-c:v", "copy"});
   } else if (codec == "h264" || codec == "libx264") {
@@ -271,7 +397,7 @@ std::vector<std::string> buildFfmpegCommand(const StreamConfig& stream) {
   } else {
     command.insert(command.end(), {
         "-c:v",
-        stream.output_codec,
+        stream.codec,
         "-b:v",
         std::to_string(std::max(stream.bitrate_kbps, 1)) + "k",
     });

@@ -199,6 +199,11 @@ start_stack() {
 
   ensure_ros_master
 
+  if [[ "${START_ROS_IMAGE_RTSP:-1}" == "1" ]]; then
+    start_process ros_image_rtsp_node \
+      rosrun ros1_bridge ros_image_rtsp_node "$VIDEO_SOURCES_CONFIG"
+  fi
+
   start_process host_bridge_node \
     python3 "$SCRIPT_DIR/host_bridge_node.py" \
       "$BRIDGE_MODE" \
@@ -218,6 +223,7 @@ start_stack() {
 }
 
 stop_stack() {
+  stop_process ros_image_rtsp_node
   stop_process host_bridge_node
   stop_process video_manager_node
 
@@ -228,6 +234,7 @@ stop_stack() {
 
 status_stack() {
   echo "== processes =="
+  show_pid ros_image_rtsp_node
   show_pid video_manager_node
   show_pid host_bridge_node
 

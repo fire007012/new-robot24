@@ -1,16 +1,30 @@
-streams:
-  # - name: arm
-  #   image_topic: /arm_camera/image/compressed
-  #   rtsp_url: rtsp://127.0.0.1:8554/arm_ros
-  #   fps: 30
-  #   bitrate_kbps: 2500
-  #   output_codec: h264
-  #   frame_timeout_sec: 3.0
+rtsp:
+  public_host: 127.0.0.1
+  publish_host: 127.0.0.1
+  port: 8554
+  transport: tcp
 
-  # - name: front
-  #   image_topic: /front_camera/image/compressed
-  #   rtsp_url: rtsp://127.0.0.1:8554/front_ros
+streams:
+  # - camera_id: 0
+  #   source_id: arm_ros
+  #   slot_hint: 0
+  #   name: arm
+  #   image_topic: /arm_camera/image/compressed
+  #   rtsp_path: arm_ros
   #   fps: 30
   #   bitrate_kbps: 2500
-  #   output_codec: h264
+  #   codec: h264
   #   frame_timeout_sec: 3.0
+  #   enabled: true
+
+  # - camera_id: 1
+  #   source_id: front_ros
+  #   slot_hint: 1
+  #   name: front
+  #   image_topic: /front_camera/image/compressed
+  #   rtsp_path: front_ros
+  #   fps: 30
+  #   bitrate_kbps: 2500
+  #   codec: h264
+  #   frame_timeout_sec: 3.0
+  #   enabled: true

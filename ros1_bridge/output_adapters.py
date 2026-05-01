@@ -5,6 +5,50 @@ from bridge_state import FlipperCommand, GripperCommand, ServoCommand, TwistComm
 from debug_events import EventSink, NullEventSink
 
 
+VISION_MONITOR_COMMANDS = {
+    "thermal_monitor": {
+        "enable_all": False,
+        "enable_yolo": True,
+        "enable_qrcode": False,
+        "enable_motion": False,
+        "enable_obstacle_warning": False,
+        "enable_center_distance": False,
+    },
+    "danger_sign": {
+        "enable_all": False,
+        "enable_yolo": True,
+        "enable_qrcode": False,
+        "enable_motion": False,
+        "enable_obstacle_warning": False,
+        "enable_center_distance": False,
+    },
+    "qr_code_detect": {
+        "enable_all": False,
+        "enable_yolo": False,
+        "enable_qrcode": True,
+        "enable_motion": False,
+        "enable_obstacle_warning": False,
+        "enable_center_distance": False,
+    },
+    "dynamic_monitor": {
+        "enable_all": False,
+        "enable_yolo": False,
+        "enable_qrcode": False,
+        "enable_motion": True,
+        "enable_obstacle_warning": False,
+        "enable_center_distance": False,
+    },
+    "reset_monitor": {
+        "enable_all": False,
+        "enable_yolo": False,
+        "enable_qrcode": False,
+        "enable_motion": False,
+        "enable_obstacle_warning": False,
+        "enable_center_distance": False,
+    },
+}
+
+
 class OutputAdapter:
     def __init__(self, events: Optional[EventSink] = None) -> None:
         self.events = events or NullEventSink()
@@ -106,6 +150,8 @@ class DryRunOutput(OutputAdapter):
         return f"dry-run:lifecycle/{command}"
 
     def command_service_name(self, command: str, params: Optional[Dict[str, Any]] = None) -> str:
+        if command in VISION_MONITOR_COMMANDS:
+            return "/paw_vision/set_detection_enabled"
         template = self.service_commands.get(command, "")
         if not template:
             return ""
@@ -146,6 +192,7 @@ class RosOutput(OutputAdapter):
         flipper_profile_service: str,
         hybrid_service_ns: str,
         service_commands: Optional[Dict[str, str]] = None,
+        vision_detection_service: str = "/paw_vision/set_detection_enabled",
         moveit_group: str = "manipulator",
         events: Optional[EventSink] = None,
     ) -> None:
@@ -156,6 +203,7 @@ class RosOutput(OutputAdapter):
         from geometry_msgs.msg import Twist, TwistStamped
         from std_msgs.msg import Float64
         from std_srvs.srv import Trigger
+        from vision_pkg.srv import SetDetectionEnabled, SetDetectionEnabledRequest
 
         self._twist_type = Twist
         self._twist_stamped_type = TwistStamped
@@ -164,10 +212,13 @@ class RosOutput(OutputAdapter):
         self._set_control_profile_type = SetControlProfile
         self._set_control_profile_request_type = SetControlProfileRequest
         self._trigger_type = Trigger
+        self._set_detection_enabled_type = SetDetectionEnabled
+        self._set_detection_enabled_request_type = SetDetectionEnabledRequest
         self._rospy = rospy
         self.hybrid_service_ns = hybrid_service_ns.rstrip("/") or "/hybrid_motor_hw_node"
         self.flipper_profile_service = flipper_profile_service
         self.service_commands = service_commands or {}
+        self.vision_detection_service = vision_detection_service.strip() or "/paw_vision/set_detection_enabled"
         self.moveit_group_name = moveit_group
         self._move_group = None
         self._moveit_error = ""
@@ -187,6 +238,7 @@ class RosOutput(OutputAdapter):
         rospy.loginfo("host_bridge_node publishing JointJog to %s", flipper_jog_topic)
         rospy.loginfo("host_bridge_node using flipper profile service %s", flipper_profile_service)
         rospy.loginfo("host_bridge_node using hybrid service namespace %s", self.hybrid_service_ns)
+        rospy.loginfo("host_bridge_node using vision detection service %s", self.vision_detection_service)
         self._init_moveit_group(moveit_group)
 
     def publish_twist(self, twist: TwistCommand) -> None:
@@ -280,6 +332,8 @@ class RosOutput(OutputAdapter):
         return f"{self.hybrid_service_ns}/{command}"
 
     def command_service_name(self, command: str, params: Optional[Dict[str, Any]] = None) -> str:
+        if command in VISION_MONITOR_COMMANDS:
+            return self.vision_detection_service
         template = self.service_commands.get(command, "")
         if not template:
             return ""
@@ -287,6 +341,8 @@ class RosOutput(OutputAdapter):
 
     def call_command_service(self, command: str, params: Optional[Dict[str, Any]] = None) -> Tuple[bool, int, str]:
         service_name = self.command_service_name(command, params)
+        if command in VISION_MONITOR_COMMANDS:
+            return self._call_vision_detection_service(command, service_name)
         try:
             self._rospy.wait_for_service(service_name, timeout=2.0)
             response = self._rospy.ServiceProxy(service_name, self._trigger_type)()
@@ -306,6 +362,43 @@ class RosOutput(OutputAdapter):
             "success": bool(response.success),
             "message": str(response.message),
         })
+        return bool(response.success), 0 if response.success else 2301, str(response.message)
+
+    def _call_vision_detection_service(self, command: str, service_name: str) -> Tuple[bool, int, str]:
+        switches = dict(VISION_MONITOR_COMMANDS[command])
+        try:
+            self._rospy.wait_for_service(service_name, timeout=2.0)
+            request = self._set_detection_enabled_request_type(**switches)
+            response = self._rospy.ServiceProxy(
+                service_name, self._set_detection_enabled_type
+            )(request)
+        except Exception as exc:
+            self.events.emit("service", "vision detection service failed", level="error", data={
+                "command": command,
+                "service": service_name,
+                "switches": switches,
+                "error": str(exc),
+            })
+            return False, 2301, f"{service_name} failed: {exc}"
+
+        result_data = {
+            "command": command,
+            "service": service_name,
+            "switches": switches,
+            "success": bool(response.success),
+            "message": str(response.message),
+            "yolo_enabled": bool(getattr(response, "yolo_enabled", False)),
+            "qrcode_enabled": bool(getattr(response, "qrcode_enabled", False)),
+            "motion_enabled": bool(getattr(response, "motion_enabled", False)),
+            "obstacle_warning_enabled": bool(getattr(response, "obstacle_warning_enabled", False)),
+            "center_distance_enabled": bool(getattr(response, "center_distance_enabled", False)),
+        }
+        self.events.emit(
+            "service",
+            "vision detection service completed",
+            data=result_data,
+            level="info" if response.success else "error",
+        )
         return bool(response.success), 0 if response.success else 2301, str(response.message)
 
     def _init_moveit_group(self, moveit_group: str) -> None:
