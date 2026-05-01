@@ -125,6 +125,7 @@ int main(int argc, char** argv) {
         &can_hw.operationalCoordinator(), &canopen_coord);
 
     ros::NodeHandle can_driver_pnh(pnh, "can_driver_node");
+    ros::NodeHandle canopen_pnh(pnh, "canopen_node");
     eyou_ros1_master::HybridServiceGateway service_gateway(
         pnh, can_driver_pnh, &hybrid_coord, &loop_mtx);
     MotorMaintenanceService can_driver_maintenance_service;
@@ -132,13 +133,13 @@ int main(int argc, char** argv) {
     MotorMaintenanceService::AdvertiseOptions can_driver_service_options;
     can_driver_service_options.motorCommand = false;
     can_driver_service_options.setZeroLimit = true;
-    can_driver_maintenance_service.initialize(pnh, can_driver_service_options);
+    can_driver_maintenance_service.initialize(can_driver_pnh, can_driver_service_options);
 
     // ======================================================================
     // 5. CANopen 辅助服务（set_mode、set_zero、软限位）
     // ======================================================================
     canopen_hw::CanopenAuxServices canopen_aux(
-        &pnh, &canopen_robot_hw, &canopen_coord, &master_cfg,
+        &canopen_pnh, &canopen_robot_hw, &canopen_coord, &master_cfg,
         lifecycle.master(), &loop_mtx);
     std::unique_ptr<eyou_ros1_master::HybridModeRouter> hybrid_mode_router;
     try {

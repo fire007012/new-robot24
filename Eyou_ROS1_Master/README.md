@@ -96,6 +96,15 @@ rostopic echo /hybrid_motor_hw_node/joint_runtime_states
 rosservice list | grep hybrid_motor_hw_node
 ```
 
+后端原生维护服务：
+
+```bash
+rosservice call /hybrid_motor_hw_node/can_driver_node/set_zero "{motor_id: 1, zero_offset_rad: 0.0, use_current_position_as_zero: true, apply_to_motor: false}"
+rosservice call /hybrid_motor_hw_node/can_driver_node/apply_limits "{motor_id: 1, min_position_rad: -1.0, max_position_rad: 1.0, use_urdf_limits: false, apply_to_motor: false, require_current_inside_limits: true}"
+rosservice call /hybrid_motor_hw_node/canopen_node/set_zero "{axis_index: 0, zero_offset_rad: 0.0, use_current_position_as_zero: true}"
+rosservice call /hybrid_motor_hw_node/canopen_node/apply_limits "{axis_index: 0, use_urdf_limits: false, min_position: -1.0, max_position: 1.0, require_current_inside_limits: true}"
+```
+
 启动混合关节调试 UI：
 
 ```bash
@@ -127,6 +136,15 @@ rosrun Eyou_ROS1_Master hybrid_joint_action_ui.py \
 - `~set_joint_zero`
 - `~apply_joint_limits`
 
+后端原生维护服务：
+
+- `~can_driver_node/set_zero`
+- `~can_driver_node/apply_limits`
+- `~can_driver_node/set_zero_limit`
+- `~canopen_node/set_mode`
+- `~canopen_node/set_zero`
+- `~canopen_node/apply_limits`
+
 关键配置：
 
 - `config/controllers_jtc.yaml`
@@ -151,6 +169,7 @@ rosrun Eyou_ROS1_Master hybrid_joint_action_ui.py \
 - 当前正式生命周期 authority 在这个包，不要在 `arm_control` / `mobility_control` / `flipper_control` 再重复维护一套状态机。
 - 该包依赖 `can_driver` 与 `Eyou_Canopen_Master` 的底层配置正确，自己不重复维护它们的原生 YAML 语义。
 - 上层控制包应依赖这里暴露的统一控制器和服务，而不是直接跨过 facade 调底层后端。
+- `~set_zero` / `~apply_limits` 不再直接暴露在 `hybrid_motor_hw_node` 根下，避免与两套后端原生服务重名冲突。
 
 ## 文档入口
 
