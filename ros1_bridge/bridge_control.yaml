@@ -14,8 +14,8 @@ host_bridge_node:
 
   # 夹爪位置边界与初始目标值
   gripper_min_position: 0.0
-  gripper_max_position: 0.044
-  gripper_initial_position: 0.022
+  gripper_max_position: 0.071
+  gripper_initial_position: 0.0355
 
   # 翻转臂 jog 持续时间与 profile 重试周期
   flipper_jog_duration: 0.15

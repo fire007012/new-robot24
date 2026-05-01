@@ -18,8 +18,8 @@ class GripperCmdNode(object):
         )
         self.joint_name = rospy.get_param("~joint_name", "left_gripper_finger_joint")
         self.min_pos = float(rospy.get_param("~min_position", 0.0))
-        self.max_pos = float(rospy.get_param("~max_position", 0.044))
-        self.open_pos = float(rospy.get_param("~open_position", 0.044))
+        self.max_pos = float(rospy.get_param("~max_position", 0.071))
+        self.open_pos = float(rospy.get_param("~open_position", 0.071))
         self.close_pos = float(rospy.get_param("~close_position", 0.0))
         self.duration = float(rospy.get_param("~move_duration", 0.8))
 

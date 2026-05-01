@@ -42,8 +42,8 @@
   <arg name="linear_speed" default="0.8" />
   <arg name="angular_speed" default="1.5" />
   <arg name="gripper_min_position" default="0.0" />
-  <arg name="gripper_max_position" default="0.044" />
-  <arg name="gripper_initial_position" default="0.022" />
+  <arg name="gripper_max_position" default="0.071" />
+  <arg name="gripper_initial_position" default="0.0355" />
   <arg name="default_speed_level" default="2" />
   <arg name="flipper_target_profile" default="csv_velocity" />
   <arg name="flipper_profile_retry_sec" default="2.0" />

@@ -24,10 +24,10 @@ gripper_cmd_node:
   min_position: 0.0
 
   # 关节位置上限，用于 clamp 限幅，防止超程
-  max_position: 0.044
+  max_position: 0.071
 
   # 收到 Bool=true 时发送的目标位置，即完全张开
-  open_position: 0.044
+  open_position: 0.071
 
   # 收到 Bool=false 时发送的目标位置，即完全闭合
   close_position: 0.0

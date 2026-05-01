@@ -42,7 +42,7 @@ class ServoCommand:
 
 @dataclass
 class GripperCommand:
-    position: float = 0.022
+    position: float = 0.0355
     source: str = "idle"
 
     def to_dict(self) -> Dict[str, object]:
@@ -85,7 +85,7 @@ class BridgeState:
     last_gamepad_buttons: List[str] = field(default_factory=list)
     last_twist: TwistCommand = field(default_factory=TwistCommand)
     last_servo: ServoCommand = field(default_factory=ServoCommand)
-    gripper_target: float = 0.022
+    gripper_target: float = 0.0355
     last_gripper: Optional[GripperCommand] = None
     last_flipper: FlipperCommand = field(default_factory=FlipperCommand)
     flipper_profile_target: str = "csv_velocity"

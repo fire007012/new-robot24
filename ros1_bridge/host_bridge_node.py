@@ -204,8 +204,8 @@ class HostBridgeServer:
         angular_speed: float = 1.5,
         servo_frame: str = "catch_camera",
         gripper_min_position: float = 0.0,
-        gripper_max_position: float = 0.044,
-        gripper_initial_position: float = 0.022,
+        gripper_max_position: float = 0.071,
+        gripper_initial_position: float = 0.0355,
         default_speed_level: int = 2,
         base_linear_levels: Optional[Dict[int, float]] = None,
         base_angular_levels: Optional[Dict[int, float]] = None,
@@ -590,8 +590,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument("--gripper-min-position", type=float, default=0.0)
-    parser.add_argument("--gripper-max-position", type=float, default=0.044)
-    parser.add_argument("--gripper-initial-position", type=float, default=0.022)
+    parser.add_argument("--gripper-max-position", type=float, default=0.071)
+    parser.add_argument("--gripper-initial-position", type=float, default=0.0355)
     parser.add_argument("--default-speed-level", type=int, default=2)
     parser.add_argument("--flipper-target-profile", default="csv_velocity")
     parser.add_argument("--flipper-profile-retry-sec", type=float, default=2.0)
@@ -715,10 +715,10 @@ def main() -> None:
         args, parser, "gripper_min_position", bridge_control_config, 0.0
     )
     gripper_max_position = resolve_float_config(
-        args, parser, "gripper_max_position", bridge_control_config, 0.044
+        args, parser, "gripper_max_position", bridge_control_config, 0.071
     )
     gripper_initial_position = resolve_float_config(
-        args, parser, "gripper_initial_position", bridge_control_config, 0.022
+        args, parser, "gripper_initial_position", bridge_control_config, 0.0355
     )
     default_speed_level = resolve_int_config(
         args, parser, "default_speed_level", bridge_control_config, 2
