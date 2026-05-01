@@ -13,6 +13,7 @@ class BridgeCore:
     MODE_ARM = "arm"
     LIFECYCLE_COMMANDS = {"init", "enable", "disable", "halt", "resume", "recover", "shutdown"}
     MODE_SWITCH_KEYS = {"1", "num_1"}
+    MODE_SWITCH_GAMEPAD_BUTTONS = {"menu", "options", "start"}
     EMERGENCY_KEYS = {"space"}
     SPEED_KEY_LEVELS = {
         "6": 1,
@@ -50,6 +51,7 @@ class BridgeCore:
         gripper_rate_levels: Optional[Dict[int, float]] = None,
         flipper_velocity_levels: Optional[Dict[int, float]] = None,
         flipper_joint_names: Optional[List[str]] = None,
+        flipper_direction_corrections: Optional[List[float]] = None,
         flipper_jog_duration: float = 0.15,
         flipper_target_profile: str = "csv_velocity",
         flipper_profile_retry_sec: float = 2.0,
@@ -86,6 +88,9 @@ class BridgeCore:
             "left_rear_arm_joint",
             "right_rear_arm_joint",
         ]
+        self.flipper_direction_corrections = self.normalized_flipper_direction_corrections(
+            flipper_direction_corrections
+        )
         self.flipper_jog_duration = flipper_jog_duration
         self.flipper_target_profile = flipper_target_profile
         self.flipper_profile_retry_sec = flipper_profile_retry_sec
@@ -176,7 +181,7 @@ class BridgeCore:
             "watchdog_ms": self.watchdog_ms,
             "gamepad_deadzone_percent": self.gamepad_deadzone * 100.0,
             "keyboard_mapping": {
-                "mode_switch": "1",
+                "mode_switch": "1 or gamepad menu/options/start",
                 "emergency": "space or gamepad l3+r3",
                 "speed_levels": {"6": 1, "7": 2, "8": 3, "9": 4, "0": 5},
                 "vehicle": {
@@ -793,8 +798,8 @@ class BridgeCore:
         gamepad: Dict[str, Any],
         current_ms: int,
     ) -> Tuple[TwistCommand, ServoCommand, Optional[GripperCommand], FlipperCommand]:
-        axes = gamepad.get("axes", {}) if isinstance(gamepad.get("axes", {}), dict) else {}
-        buttons = gamepad.get("buttons", {}) if isinstance(gamepad.get("buttons", {}), dict) else {}
+        axes = self.normalized_gamepad_mapping(gamepad.get("axes", {}))
+        buttons = self.normalized_gamepad_mapping(gamepad.get("buttons", {}))
         connected = bool(gamepad.get("connected", False))
 
         with self.state_lock:
@@ -808,12 +813,13 @@ class BridgeCore:
                 pressed, axes, buttons, connected, speed_level, previous_input_ms, current_ms, gripper_target
             )
 
-        return self.operator_input_to_vehicle_outputs(pressed, axes, connected, speed_level)
+        return self.operator_input_to_vehicle_outputs(pressed, axes, buttons, connected, speed_level)
 
     def operator_input_to_vehicle_outputs(
         self,
         pressed: Set[str],
         axes: Dict[str, Any],
+        buttons: Dict[str, Any],
         connected: bool,
         speed_level: int,
     ) -> Tuple[TwistCommand, ServoCommand, Optional[GripperCommand], FlipperCommand]:
@@ -822,9 +828,10 @@ class BridgeCore:
 
         if connected:
             linear_axis += self.axis_float_value(axes.get("left_y", 0.0))
-            # Browser/gamepad horizontal axes commonly report left as -1.
-            # Keep the operator-facing convention aligned with keyboard: left is positive.
-            angular_axis += -self.axis_float_value(axes.get("right_x", 0.0))
+            # Keep physical left aligned with keyboard "a": positive angular velocity.
+            left_rotation_axis = -self.axis_float_value(axes.get("left_x", 0.0))
+            right_rotation_axis = -self.axis_float_value(axes.get("right_x", 0.0))
+            angular_axis += self.strongest_axis_value(left_rotation_axis, right_rotation_axis)
 
         twist = TwistCommand(
             linear_x=clamp(linear_axis, -1.0, 1.0) * self.base_linear[speed_level],
@@ -832,7 +839,7 @@ class BridgeCore:
             source="operator_input.vehicle",
         )
         servo = ServoCommand(frame_id=self.servo_frame, source="operator_input.vehicle_zero")
-        flipper = self.operator_input_to_flipper_outputs(pressed, speed_level)
+        flipper = self.operator_input_to_flipper_outputs(pressed, buttons, axes, connected, speed_level)
         return twist, servo, None, flipper
 
     def operator_input_to_arm_outputs(
@@ -897,17 +904,52 @@ class BridgeCore:
 
         return twist, servo, gripper, self.zero_flipper_command("operator_input.arm_zero")
 
-    def operator_input_to_flipper_outputs(self, pressed: Set[str], speed_level: int) -> FlipperCommand:
+    def operator_input_to_flipper_outputs(
+        self,
+        pressed: Set[str],
+        buttons: Dict[str, Any],
+        axes: Dict[str, Any],
+        connected: bool,
+        speed_level: int,
+    ) -> FlipperCommand:
         flipper_speed = self.flipper_velocities[speed_level]
-        key_pairs = [
-            ("y", "h"),
-            ("u", "j"),
-            ("i", "k"),
-            ("o", "l"),
-        ]
+        logical_axes = {
+            "left_front_arm_joint": self.axis_value(pressed, "y", "h"),
+            "right_front_arm_joint": self.axis_value(pressed, "u", "j"),
+            "left_rear_arm_joint": self.axis_value(pressed, "i", "k"),
+            "right_rear_arm_joint": self.axis_value(pressed, "o", "l"),
+        }
+        if connected:
+            logical_axes["left_front_arm_joint"] += self.gamepad_button_axis_value(
+                buttons,
+                axes,
+                positive_button_names=("l1", "lb"),
+                negative_button_names=("l2", "lt"),
+                negative_axis_names=("lt",),
+            )
+            logical_axes["right_front_arm_joint"] += self.gamepad_button_axis_value(
+                buttons,
+                axes,
+                positive_button_names=("r1", "rb"),
+                negative_button_names=("r2", "rt"),
+                negative_axis_names=("rt",),
+            )
+            logical_axes["left_rear_arm_joint"] += self.gamepad_button_axis_value(
+                buttons,
+                axes,
+                positive_button_names=("dpad_up",),
+                negative_button_names=("dpad_down",),
+            )
+            logical_axes["right_rear_arm_joint"] += self.gamepad_button_axis_value(
+                buttons,
+                axes,
+                positive_button_names=("triangle", "y"),
+                negative_button_names=("cross", "a"),
+            )
+
         velocities = [
-            self.axis_value(pressed, pos_key, neg_key) * flipper_speed
-            for pos_key, neg_key in key_pairs
+            clamp(logical_axes.get(joint_name, 0.0), -1.0, 1.0) * flipper_speed * correction
+            for joint_name, correction in zip(self.flipper_joint_names, self.flipper_direction_corrections)
         ]
         velocities = (velocities + [0.0] * len(self.flipper_joint_names))[: len(self.flipper_joint_names)]
 
@@ -935,7 +977,7 @@ class BridgeCore:
         return pressed
 
     def active_gamepad_buttons(self, gamepad: Dict[str, Any]) -> Set[str]:
-        buttons = gamepad.get("buttons", {}) if isinstance(gamepad.get("buttons", {}), dict) else {}
+        buttons = self.normalized_gamepad_mapping(gamepad.get("buttons", {}))
         return {name for name, value in buttons.items() if bool(value)}
 
     def emergency_input_source(
@@ -961,11 +1003,10 @@ class BridgeCore:
                 )
                 mode_changed = True
 
-            if "dpad_up" in button_edges:
-                self.state.control_mode = self.MODE_VEHICLE
-                mode_changed = True
-            elif "dpad_down" in button_edges:
-                self.state.control_mode = self.MODE_ARM
+            if self.MODE_SWITCH_GAMEPAD_BUTTONS & button_edges:
+                self.state.control_mode = (
+                    self.MODE_ARM if self.state.control_mode == self.MODE_VEHICLE else self.MODE_VEHICLE
+                )
                 mode_changed = True
 
             for key in sorted(key_edges):
@@ -1003,6 +1044,33 @@ class BridgeCore:
             value -= 1.0
         return value
 
+    def normalized_flipper_direction_corrections(self, configured: Optional[List[float]]) -> List[float]:
+        defaults = [1.0] * len(self.flipper_joint_names)
+        if not configured:
+            return defaults
+        values = [float(value) for value in configured]
+        return (values + defaults)[0: len(self.flipper_joint_names)]
+
+    @staticmethod
+    def normalized_gamepad_mapping(raw: Any) -> Dict[str, Any]:
+        if not isinstance(raw, dict):
+            return {}
+        normalized: Dict[str, Any] = {}
+        for name, value in raw.items():
+            key = str(name).strip().lower()
+            if not key:
+                continue
+            normalized[key] = value
+        return normalized
+
+    @staticmethod
+    def strongest_axis_value(*values: float) -> float:
+        strongest = 0.0
+        for value in values:
+            if abs(value) > abs(strongest):
+                strongest = value
+        return strongest
+
     @staticmethod
     def float_value(value: Any) -> float:
         try:
@@ -1030,6 +1098,34 @@ class BridgeCore:
         if any(bool(buttons.get(name, False)) for name in negative_names):
             value -= 1.0
         return value
+
+    def gamepad_button_axis_value(
+        self,
+        buttons: Dict[str, Any],
+        axes: Dict[str, Any],
+        *,
+        positive_button_names: Tuple[str, ...] = (),
+        negative_button_names: Tuple[str, ...] = (),
+        positive_axis_names: Tuple[str, ...] = (),
+        negative_axis_names: Tuple[str, ...] = (),
+    ) -> float:
+        value = 0.0
+        if self.gamepad_inputs_active(buttons, axes, positive_button_names, positive_axis_names):
+            value += 1.0
+        if self.gamepad_inputs_active(buttons, axes, negative_button_names, negative_axis_names):
+            value -= 1.0
+        return value
+
+    def gamepad_inputs_active(
+        self,
+        buttons: Dict[str, Any],
+        axes: Dict[str, Any],
+        button_names: Tuple[str, ...],
+        axis_names: Tuple[str, ...],
+    ) -> bool:
+        if any(bool(buttons.get(name, False)) for name in button_names):
+            return True
+        return any(abs(self.axis_float_value(axes.get(name, 0.0))) > 0.0 for name in axis_names)
 
     def clamp_gripper(self, value: float) -> float:
         return clamp(value, self.gripper_min_position, self.gripper_max_position)

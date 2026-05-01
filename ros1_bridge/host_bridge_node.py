@@ -103,6 +103,10 @@ def parse_csv_list(value: str) -> List[str]:
     return [item.strip() for item in value.split(",") if item.strip()]
 
 
+def parse_float_csv_list(value: str) -> List[float]:
+    return [float(item.strip()) for item in value.split(",") if item.strip()]
+
+
 def load_bridge_control_config(path: str) -> Dict[str, Any]:
     try:
         import yaml
@@ -165,6 +169,30 @@ def resolve_str_config(
     return str(resolve_config_value(args, parser, attr, config, default))
 
 
+def resolve_flipper_direction_corrections(
+    args: argparse.Namespace,
+    parser: argparse.ArgumentParser,
+    config: Dict[str, Any],
+    joint_names: List[str],
+) -> Optional[List[float]]:
+    raw_value = resolve_config_value(
+        args,
+        parser,
+        "flipper_direction_corrections",
+        config,
+        None,
+    )
+    if raw_value in (None, ""):
+        return None
+    if isinstance(raw_value, str):
+        return parse_float_csv_list(raw_value)
+    if isinstance(raw_value, list):
+        return [float(value) for value in raw_value]
+    if isinstance(raw_value, dict):
+        return [float(raw_value.get(name, 1.0)) for name in joint_names]
+    raise ValueError("flipper_direction_corrections must be a comma-separated string, list, or mapping")
+
+
 class HostBridgeServer:
     def __init__(
         self,
@@ -186,6 +214,7 @@ class HostBridgeServer:
         gripper_rate_levels: Optional[Dict[int, float]] = None,
         flipper_velocity_levels: Optional[Dict[int, float]] = None,
         flipper_joint_names: Optional[List[str]] = None,
+        flipper_direction_corrections: Optional[List[float]] = None,
         flipper_jog_duration: float = 0.15,
         flipper_target_profile: str = "csv_velocity",
         flipper_profile_retry_sec: float = 2.0,
@@ -223,6 +252,7 @@ class HostBridgeServer:
             gripper_rate_levels,
             flipper_velocity_levels,
             flipper_joint_names,
+            flipper_direction_corrections,
             flipper_jog_duration,
             flipper_target_profile,
             flipper_profile_retry_sec,
@@ -577,6 +607,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default=",".join(DEFAULT_FLIPPER_JOINT_NAMES),
         help="comma-separated flipper joint names in command order",
     )
+    parser.add_argument(
+        "--flipper-direction-corrections",
+        default=None,
+        help="comma-separated flipper direction corrections aligned with --flipper-joint-names",
+    )
     parser.add_argument("--watchdog-ms", type=int, default=DEFAULT_WATCHDOG_MS)
     parser.add_argument("--linear-speed", type=float, default=0.8, help="vehicle level-5 linear speed")
     parser.add_argument("--angular-speed", type=float, default=1.5, help="vehicle level-5 angular speed")
@@ -702,7 +737,29 @@ def main() -> None:
     flipper_velocity_levels = collect_level_args(
         args, parser, "flipper-velocity", bridge_control_config
     )
-    
+    flipper_joint_names = parse_csv_list(
+        resolve_str_config(
+            args,
+            parser,
+            "flipper_joint_names",
+            bridge_control_config,
+            ",".join(DEFAULT_FLIPPER_JOINT_NAMES),
+        )
+    )
+    flipper_direction_corrections = resolve_flipper_direction_corrections(
+        args,
+        parser,
+        bridge_control_config,
+        flipper_joint_names,
+    )
+    flipper_target_profile = resolve_str_config(
+        args,
+        parser,
+        "flipper_target_profile",
+        bridge_control_config,
+        "csv_velocity",
+    )
+
     cameras = args.camera
     if args.no_camera_config:
         cameras = cameras or []
@@ -769,9 +826,10 @@ def main() -> None:
         arm_angular_levels=arm_angular_levels,
         gripper_rate_levels=gripper_rate_levels,
         flipper_velocity_levels=flipper_velocity_levels,
-        flipper_joint_names=parse_csv_list(args.flipper_joint_names),
+        flipper_joint_names=flipper_joint_names,
+        flipper_direction_corrections=flipper_direction_corrections,
         flipper_jog_duration=flipper_jog_duration,
-        flipper_target_profile=args.flipper_target_profile,
+        flipper_target_profile=flipper_target_profile,
         flipper_profile_retry_sec=flipper_profile_retry_sec,
         gamepad_deadzone_percent=gamepad_deadzone_percent,
         cameras=cameras,

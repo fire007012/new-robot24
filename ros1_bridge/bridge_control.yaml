@@ -21,6 +21,14 @@ host_bridge_node:
   flipper_jog_duration: 0.15
   flipper_profile_retry_sec: 2.0
 
+  # 摆臂方向修正系数，按 flipper_joint_names 顺序或关节名映射生效。
+  # 收起/展开的逻辑方向会先生成，再乘上这里的系数修正到实机正反方向。
+  flipper_direction_corrections:
+    left_front_arm_joint: 1.0
+    right_front_arm_joint: 1.0
+    left_rear_arm_joint: 1.0
+    right_rear_arm_joint: 1.0
+
   # 底盘速度档位，单位分别为 m/s 与 rad/s
   base_linear_levels:
     1: 0.1
