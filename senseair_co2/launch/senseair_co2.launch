@@ -1,0 +1,6 @@
+<launch>
+  <node name="senseair_co2_publisher"
+        pkg="senseair_co2"
+        type="co2_publisher.py"
+        output="screen"/>
+</launch>
