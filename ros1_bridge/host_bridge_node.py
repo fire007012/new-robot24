@@ -33,25 +33,69 @@ DEFAULT_FLIPPER_JOINT_NAMES = [
     "left_rear_arm_joint",
     "right_rear_arm_joint",
 ]
+DEFAULT_BASE_LINEAR_LEVELS = {1: 0.2, 2: 0.4, 3: 0.55, 4: 0.7, 5: 0.8}
+DEFAULT_BASE_ANGULAR_LEVELS = {1: 0.4, 2: 0.8, 3: 1.0, 4: 1.25, 5: 1.5}
+DEFAULT_ARM_LINEAR_LEVELS = {1: 0.04, 2: 0.08, 3: 0.10, 4: 0.125, 5: 0.15}
+DEFAULT_ARM_ANGULAR_LEVELS = {1: 0.2, 2: 0.4, 3: 0.55, 4: 0.7, 5: 0.8}
+DEFAULT_GRIPPER_RATE_LEVELS = {1: 0.015, 2: 0.03, 3: 0.04, 4: 0.05, 5: 0.06}
+DEFAULT_FLIPPER_VELOCITY_LEVELS = {1: 0.2, 2: 0.4, 3: 0.55, 4: 0.7, 5: 0.8}
+LEVEL_CONFIG_KEYS = {
+    "base-linear": "base_linear_levels",
+    "base-angular": "base_angular_levels",
+    "arm-linear": "arm_linear_levels",
+    "arm-angular": "arm_angular_levels",
+    "gripper-rate": "gripper_rate_levels",
+    "flipper-velocity": "flipper_velocity_levels",
+}
 
 
-def add_level_args(parser: argparse.ArgumentParser, prefix: str, help_name: str) -> None:
+def add_level_args(
+    parser: argparse.ArgumentParser,
+    prefix: str,
+    help_name: str,
+    defaults: Dict[int, float],
+) -> None:
     for level in range(1, 6):
         parser.add_argument(
             f"--{prefix}-level-{level}",
             type=float,
-            default=None,
+            default=float(defaults[level]),
             help=f"{help_name} speed/rate for level {level}",
         )
 
 
-def collect_level_args(args: argparse.Namespace, prefix: str) -> Optional[Dict[int, float]]:
+def collect_level_args(
+    args: argparse.Namespace,
+    parser: argparse.ArgumentParser,
+    prefix: str,
+    config: Optional[Dict[str, Any]] = None,
+) -> Optional[Dict[int, float]]:
     values: Dict[int, float] = {}
     attr_prefix = prefix.replace("-", "_")
+    config_levels = {}
+    if config:
+        config_key = LEVEL_CONFIG_KEYS.get(prefix, "")
+        raw_config_levels = config.get(config_key, {})
+        if raw_config_levels is not None:
+            if not isinstance(raw_config_levels, dict):
+                raise ValueError(f"{config_key} must be a mapping of speed levels")
+            config_levels = {
+                int(level): float(value)
+                for level, value in raw_config_levels.items()
+            }
     for level in range(1, 6):
-        value = getattr(args, f"{attr_prefix}_level_{level}", None)
-        if value is not None:
-            values[level] = float(value)
+        attr_name = f"{attr_prefix}_level_{level}"
+        cli_value = getattr(args, attr_name, None)
+        parser_default = parser.get_default(attr_name)
+        config_value = config_levels.get(level)
+        if cli_value is None:
+            if config_value is not None:
+                values[level] = config_value
+            continue
+        if config_value is not None and cli_value == parser_default:
+            values[level] = config_value
+            continue
+        values[level] = float(cli_value)
     return values or None
 
 
@@ -75,18 +119,50 @@ def load_bridge_control_config(path: str) -> Dict[str, Any]:
     return node_config
 
 
-def resolve_float_config(args: argparse.Namespace, attr: str, config: Dict[str, Any], default: float) -> float:
+def resolve_config_value(
+    args: argparse.Namespace,
+    parser: argparse.ArgumentParser,
+    attr: str,
+    config: Dict[str, Any],
+    default: Any,
+) -> Any:
     value = getattr(args, attr)
+    parser_default = parser.get_default(attr)
     if value is None:
-        value = config.get(attr, default)
-    return float(value)
+        return config.get(attr, default)
+    if attr in config and value == parser_default:
+        return config[attr]
+    return value
 
 
-def resolve_str_config(args: argparse.Namespace, attr: str, config: Dict[str, Any], default: str) -> str:
-    value = getattr(args, attr)
-    if value is None:
-        value = config.get(attr, default)
-    return str(value)
+def resolve_float_config(
+    args: argparse.Namespace,
+    parser: argparse.ArgumentParser,
+    attr: str,
+    config: Dict[str, Any],
+    default: float,
+) -> float:
+    return float(resolve_config_value(args, parser, attr, config, default))
+
+
+def resolve_int_config(
+    args: argparse.Namespace,
+    parser: argparse.ArgumentParser,
+    attr: str,
+    config: Dict[str, Any],
+    default: int,
+) -> int:
+    return int(resolve_config_value(args, parser, attr, config, default))
+
+
+def resolve_str_config(
+    args: argparse.Namespace,
+    parser: argparse.ArgumentParser,
+    attr: str,
+    config: Dict[str, Any],
+    default: str,
+) -> str:
+    return str(resolve_config_value(args, parser, attr, config, default))
 
 
 class HostBridgeServer:
@@ -504,12 +580,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--watchdog-ms", type=int, default=DEFAULT_WATCHDOG_MS)
     parser.add_argument("--linear-speed", type=float, default=0.8, help="vehicle level-5 linear speed")
     parser.add_argument("--angular-speed", type=float, default=1.5, help="vehicle level-5 angular speed")
-    add_level_args(parser, "base-linear", "base linear")
-    add_level_args(parser, "base-angular", "base angular")
-    add_level_args(parser, "arm-linear", "arm linear")
-    add_level_args(parser, "arm-angular", "arm angular")
-    add_level_args(parser, "gripper-rate", "gripper")
-    add_level_args(parser, "flipper-velocity", "flipper")
+    add_level_args(parser, "base-linear", "base linear", DEFAULT_BASE_LINEAR_LEVELS)
+    add_level_args(parser, "base-angular", "base angular", DEFAULT_BASE_ANGULAR_LEVELS)
+    add_level_args(parser, "arm-linear", "arm linear", DEFAULT_ARM_LINEAR_LEVELS)
+    add_level_args(parser, "arm-angular", "arm angular", DEFAULT_ARM_ANGULAR_LEVELS)
+    add_level_args(parser, "gripper-rate", "gripper", DEFAULT_GRIPPER_RATE_LEVELS)
+    add_level_args(parser, "flipper-velocity", "flipper", DEFAULT_FLIPPER_VELOCITY_LEVELS)
     parser.add_argument("--debug-ui", dest="debug_ui", action="store_true", default=True,
                         help="start read-only debug HTTP UI; enabled by default")
     parser.add_argument("--no-debug-ui", dest="debug_ui", action="store_false",
@@ -569,14 +645,16 @@ def build_arg_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def parse_node_args() -> argparse.Namespace:
-    return build_arg_parser().parse_args([
+def parse_node_args() -> Tuple[argparse.ArgumentParser, argparse.Namespace]:
+    parser = build_arg_parser()
+    args = parser.parse_args([
         arg for arg in sys.argv[1:] if ":=" not in arg
     ])
+    return parser, args
 
 
 def main() -> None:
-    args = parse_node_args()
+    parser, args = parse_node_args()
     events = RingBufferEventSink()
     service_commands = dict(args.service_command or [])
     bridge_control_config = load_bridge_control_config(
@@ -584,15 +662,45 @@ def main() -> None:
     ) if args.bridge_control_config else {}
     gamepad_deadzone_percent = resolve_float_config(
         args,
+        parser,
         "gamepad_deadzone_percent",
         bridge_control_config,
         4.0,
     )
     moveit_group = resolve_str_config(
         args,
+        parser,
         "moveit_group",
         bridge_control_config,
         "arm",
+    )
+    linear_speed = resolve_float_config(args, parser, "linear_speed", bridge_control_config, 0.8)
+    angular_speed = resolve_float_config(args, parser, "angular_speed", bridge_control_config, 1.5)
+    gripper_min_position = resolve_float_config(
+        args, parser, "gripper_min_position", bridge_control_config, 0.0
+    )
+    gripper_max_position = resolve_float_config(
+        args, parser, "gripper_max_position", bridge_control_config, 0.044
+    )
+    gripper_initial_position = resolve_float_config(
+        args, parser, "gripper_initial_position", bridge_control_config, 0.022
+    )
+    default_speed_level = resolve_int_config(
+        args, parser, "default_speed_level", bridge_control_config, 2
+    )
+    flipper_jog_duration = resolve_float_config(
+        args, parser, "flipper_jog_duration", bridge_control_config, 0.15
+    )
+    flipper_profile_retry_sec = resolve_float_config(
+        args, parser, "flipper_profile_retry_sec", bridge_control_config, 2.0
+    )
+    base_linear_levels = collect_level_args(args, parser, "base-linear", bridge_control_config)
+    base_angular_levels = collect_level_args(args, parser, "base-angular", bridge_control_config)
+    arm_linear_levels = collect_level_args(args, parser, "arm-linear", bridge_control_config)
+    arm_angular_levels = collect_level_args(args, parser, "arm-angular", bridge_control_config)
+    gripper_rate_levels = collect_level_args(args, parser, "gripper-rate", bridge_control_config)
+    flipper_velocity_levels = collect_level_args(
+        args, parser, "flipper-velocity", bridge_control_config
     )
     
     cameras = args.camera
@@ -648,23 +756,23 @@ def main() -> None:
         port=args.port,
         output=output,
         watchdog_ms=args.watchdog_ms,
-        linear_speed=args.linear_speed,
-        angular_speed=args.angular_speed,
+        linear_speed=linear_speed,
+        angular_speed=angular_speed,
         servo_frame=args.servo_frame,
-        gripper_min_position=args.gripper_min_position,
-        gripper_max_position=args.gripper_max_position,
-        gripper_initial_position=args.gripper_initial_position,
-        default_speed_level=args.default_speed_level,
-        base_linear_levels=collect_level_args(args, "base-linear"),
-        base_angular_levels=collect_level_args(args, "base-angular"),
-        arm_linear_levels=collect_level_args(args, "arm-linear"),
-        arm_angular_levels=collect_level_args(args, "arm-angular"),
-        gripper_rate_levels=collect_level_args(args, "gripper-rate"),
-        flipper_velocity_levels=collect_level_args(args, "flipper-velocity"),
+        gripper_min_position=gripper_min_position,
+        gripper_max_position=gripper_max_position,
+        gripper_initial_position=gripper_initial_position,
+        default_speed_level=default_speed_level,
+        base_linear_levels=base_linear_levels,
+        base_angular_levels=base_angular_levels,
+        arm_linear_levels=arm_linear_levels,
+        arm_angular_levels=arm_angular_levels,
+        gripper_rate_levels=gripper_rate_levels,
+        flipper_velocity_levels=flipper_velocity_levels,
         flipper_joint_names=parse_csv_list(args.flipper_joint_names),
-        flipper_jog_duration=args.flipper_jog_duration,
+        flipper_jog_duration=flipper_jog_duration,
         flipper_target_profile=args.flipper_target_profile,
-        flipper_profile_retry_sec=args.flipper_profile_retry_sec,
+        flipper_profile_retry_sec=flipper_profile_retry_sec,
         gamepad_deadzone_percent=gamepad_deadzone_percent,
         cameras=cameras,
         video_gateway=video_gateway,

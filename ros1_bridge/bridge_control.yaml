@@ -1,3 +1,66 @@
 host_bridge_node:
-  gamepad_deadzone_percent: 4.0
+  # 手柄死区百分比，小于该值的摇杆输入会被忽略
+  gamepad_deadzone_percent: 5.0
+
+  # MoveIt named target 使用的规划组
   moveit_group: arm
+
+  # 底盘最高档速度。若未单独覆盖各档位，1~5 档会按这个 level-5 值同比缩放。
+  linear_speed: 0.8
+  angular_speed: 1.5
+
+  # 开机默认速度档位
+  default_speed_level: 3
+
+  # 夹爪位置边界与初始目标值
+  gripper_min_position: 0.0
+  gripper_max_position: 0.044
+  gripper_initial_position: 0.022
+
+  # 翻转臂 jog 持续时间与 profile 重试周期
+  flipper_jog_duration: 0.15
+  flipper_profile_retry_sec: 2.0
+
+  # 底盘速度档位，单位分别为 m/s 与 rad/s
+  base_linear_levels:
+    1: 0.1
+    2: 0.2
+    3: 0.4
+    4: 0.6
+    5: 0.8
+  base_angular_levels:
+    1: 0.2
+    2: 0.4
+    3: 0.5
+    4: 0.8
+    5: 1.5
+
+  # MoveIt Servo 桥接输出档位，单位分别为 m/s 与 rad/s
+  arm_linear_levels:
+    1: 0.2
+    2: 0.4
+    3: 0.6
+    4: 0.8
+    5: 1.0
+  arm_angular_levels:
+    1: 0.6
+    2: 1.2
+    3: 1.8
+    4: 2.4
+    5: 3.0
+
+  # 夹爪每档调节速率，单位 m/s
+  gripper_rate_levels:
+    1: 0.015
+    2: 0.03
+    3: 0.04
+    4: 0.05
+    5: 0.06
+
+  # 翻转臂每档速度，单位 rad/s
+  flipper_velocity_levels:
+    1: 0.2
+    2: 0.2
+    3: 0.2
+    4: 0.2
+    5: 0.2

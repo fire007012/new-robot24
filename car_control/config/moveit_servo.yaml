@@ -16,16 +16,16 @@ command_in_type: "speed_units"
 
 # 输入指令的缩放系数，将原始输入值乘以对应系数得到实际速度
 scale:
-  # 线速度缩放（m/s）：末端线速度 = 输入值 × 0.6
-  linear: 0.6
-  # 角速度缩放（rad/s）：末端角速度 = 输入值 × 1.2
-  rotational: 1.2
+  # 线速度缩放（m/s）：末端线速度 = 输入值 × 1
+  linear: 1
+  # 角速度缩放（rad/s）：末端角速度 = 输入值 × 1.5
+  rotational: 10
   # 关节空间指令缩放（rad/s），用于 delta_joint_cmds 输入
   joint: 0.02
 
 # 低通滤波器系数：对输入速度做平滑，值越大平滑越强、响应越慢
 # 建议范围 1.0～10.0；设为 1.0 时几乎不滤波
-low_pass_filter_coeff: 2.0
+low_pass_filter_coeff: 3.0
 
 # 关节轨迹发布周期（s），即 Servo 的控制频率
 # 0.01 s = 100 Hz，需与控制器的更新频率匹配
