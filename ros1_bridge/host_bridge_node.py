@@ -16,7 +16,7 @@ from bridge_core import BridgeCore, BridgeRuntime
 from bridge_protocol import DEFAULT_WATCHDOG_MS, MAX_FRAME_BYTES, PROTOCOL_VERSION, now_ms
 from bridge_protocol import json_line
 from debug_ui import DebugHttpServer
-from debug_events import EventSink, RingBufferEventSink
+from debug_events import CompositeEventSink, ConsoleEventSink, EventSink, RingBufferEventSink
 from output_adapters import DryRunOutput, OutputAdapter, RosOutput
 from video_manager import load_video_config
 from video_manager_ipc import (
@@ -204,9 +204,6 @@ class HostBridgeServer:
         linear_speed: float = 0.8,
         angular_speed: float = 1.5,
         servo_frame: str = "catch_camera",
-        gripper_min_position: float = 0.0,
-        gripper_max_position: float = 0.071,
-        gripper_initial_position: float = 0.0355,
         default_speed_level: int = 2,
         base_linear_levels: Optional[Dict[int, float]] = None,
         base_angular_levels: Optional[Dict[int, float]] = None,
@@ -245,9 +242,6 @@ class HostBridgeServer:
             linear_speed,
             angular_speed,
             servo_frame,
-            gripper_min_position,
-            gripper_max_position,
-            gripper_initial_position,
             default_speed_level,
             base_linear_levels,
             base_angular_levels,
@@ -553,7 +547,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--cmd-vel-topic", default="/cmd_vel")
     parser.add_argument("--servo-topic", default="/servo_server/delta_twist_cmds")
     parser.add_argument("--servo-frame", default="catch_camera")
-    parser.add_argument("--gripper-position-topic", default="/arm_control/gripper_position")
+    parser.add_argument(
+        "--gripper-velocity-topic",
+        default="/gripper_controller/command",
+    )
     parser.add_argument(
         "--moveit-group",
         default=None,
@@ -583,9 +580,6 @@ def build_arg_parser() -> argparse.ArgumentParser:
             "set_control_mode=/robot/set_{mode}_mode"
         ),
     )
-    parser.add_argument("--gripper-min-position", type=float, default=0.0)
-    parser.add_argument("--gripper-max-position", type=float, default=0.071)
-    parser.add_argument("--gripper-initial-position", type=float, default=0.0355)
     parser.add_argument("--default-speed-level", type=int, default=2)
     parser.add_argument("--flipper-target-profile", default="csv_velocity")
     parser.add_argument("--flipper-profile-retry-sec", type=float, default=2.0)
@@ -689,7 +683,11 @@ def parse_node_args() -> Tuple[argparse.ArgumentParser, argparse.Namespace]:
 
 def main() -> None:
     parser, args = parse_node_args()
-    events = RingBufferEventSink()
+    buffer_events = RingBufferEventSink()
+    events: EventSink = CompositeEventSink(
+        buffer_events,
+        ConsoleEventSink(min_level="warning"),
+    )
     service_commands = dict(args.service_command or [])
     bridge_control_config = load_bridge_control_config(
         os.path.expanduser(args.bridge_control_config)
@@ -724,15 +722,6 @@ def main() -> None:
     )
     linear_speed = resolve_float_config(args, parser, "linear_speed", bridge_control_config, 0.8)
     angular_speed = resolve_float_config(args, parser, "angular_speed", bridge_control_config, 1.5)
-    gripper_min_position = resolve_float_config(
-        args, parser, "gripper_min_position", bridge_control_config, 0.0
-    )
-    gripper_max_position = resolve_float_config(
-        args, parser, "gripper_max_position", bridge_control_config, 0.071
-    )
-    gripper_initial_position = resolve_float_config(
-        args, parser, "gripper_initial_position", bridge_control_config, 0.0355
-    )
     default_speed_level = resolve_int_config(
         args, parser, "default_speed_level", bridge_control_config, 2
     )
@@ -788,7 +777,7 @@ def main() -> None:
             "host_bridge_node",
             args.cmd_vel_topic,
             args.servo_topic,
-            args.gripper_position_topic,
+            args.gripper_velocity_topic,
             args.flipper_jog_topic,
             args.flipper_profile_service,
             args.hybrid_service_ns,
@@ -830,9 +819,6 @@ def main() -> None:
         linear_speed=linear_speed,
         angular_speed=angular_speed,
         servo_frame=args.servo_frame,
-        gripper_min_position=gripper_min_position,
-        gripper_max_position=gripper_max_position,
-        gripper_initial_position=gripper_initial_position,
         default_speed_level=default_speed_level,
         base_linear_levels=base_linear_levels,
         base_angular_levels=base_angular_levels,
@@ -854,7 +840,7 @@ def main() -> None:
         events=events,
     )
     if args.debug_ui:
-        DebugHttpServer(args.debug_host, args.debug_port, server.core, events).start()
+        DebugHttpServer(args.debug_host, args.debug_port, server.core, buffer_events).start()
 
     def handle_signal(signum: int, frame: Any) -> None:
         del signum, frame

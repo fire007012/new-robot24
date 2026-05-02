@@ -119,7 +119,7 @@ class DryRunOutput(OutputAdapter):
 
     def publish_gripper(self, gripper: GripperCommand) -> None:
         print(
-            f"[bridge] gripper source={gripper.source} position={gripper.position:.4f}",
+            f"[bridge] gripper source={gripper.source} velocity={gripper.velocity:+.4f}",
             flush=True,
         )
         self.events.emit("output", "dry-run gripper", data=gripper.to_dict())
@@ -187,7 +187,7 @@ class RosOutput(OutputAdapter):
         node_name: str,
         cmd_vel_topic: str,
         servo_topic: str,
-        gripper_position_topic: str,
+        gripper_velocity_topic: str,
         flipper_jog_topic: str,
         flipper_profile_service: str,
         hybrid_service_ns: str,
@@ -227,14 +227,14 @@ class RosOutput(OutputAdapter):
         rospy.init_node(node_name, anonymous=False)
         self._cmd_vel_pub = rospy.Publisher(cmd_vel_topic, Twist, queue_size=1)
         self._servo_pub = rospy.Publisher(servo_topic, TwistStamped, queue_size=1)
-        self._gripper_pub = rospy.Publisher(gripper_position_topic, Float64, queue_size=1)
+        self._gripper_pub = rospy.Publisher(gripper_velocity_topic, Float64, queue_size=1)
         self._flipper_pub = rospy.Publisher(flipper_jog_topic, JointJog, queue_size=1)
         self._flipper_profile_client = rospy.ServiceProxy(
             flipper_profile_service, SetControlProfile
         )
         rospy.loginfo("host_bridge_node publishing Twist to %s", cmd_vel_topic)
         rospy.loginfo("host_bridge_node publishing TwistStamped to %s", servo_topic)
-        rospy.loginfo("host_bridge_node publishing Float64 to %s", gripper_position_topic)
+        rospy.loginfo("host_bridge_node publishing Float64 to %s", gripper_velocity_topic)
         rospy.loginfo("host_bridge_node publishing JointJog to %s", flipper_jog_topic)
         rospy.loginfo("host_bridge_node using flipper profile service %s", flipper_profile_service)
         rospy.loginfo("host_bridge_node using hybrid service namespace %s", self.hybrid_service_ns)
@@ -266,7 +266,7 @@ class RosOutput(OutputAdapter):
         self.events.emit("output", "ros servo published", data=servo.to_dict())
 
     def publish_gripper(self, gripper: GripperCommand) -> None:
-        msg = self._float64_type(data=gripper.position)
+        msg = self._float64_type(data=gripper.velocity)
         self._gripper_pub.publish(msg)
         self.events.emit("output", "ros gripper published", data=gripper.to_dict())
 

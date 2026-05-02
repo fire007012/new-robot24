@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 import threading
+import json
 
 from bridge_protocol import now_ms
 
@@ -64,3 +65,34 @@ class RingBufferEventSink(EventSink):
         limit = max(0, min(limit, self.capacity))
         with self._lock:
             return [event.to_dict() for event in self._events[-limit:]]
+
+
+class CompositeEventSink(EventSink):
+    def __init__(self, *sinks: EventSink) -> None:
+        self._sinks = [sink for sink in sinks if sink is not None]
+
+    def emit(self, category: str, message: str, level: str = "info",
+             data: Optional[Dict[str, Any]] = None) -> None:
+        for sink in self._sinks:
+            sink.emit(category, message, level=level, data=data)
+
+
+class ConsoleEventSink(EventSink):
+    LEVEL_PRIORITY = {
+        "debug": 10,
+        "info": 20,
+        "warning": 30,
+        "error": 40,
+    }
+
+    def __init__(self, min_level: str = "warning") -> None:
+        self.min_level = min_level if min_level in self.LEVEL_PRIORITY else "warning"
+
+    def emit(self, category: str, message: str, level: str = "info",
+             data: Optional[Dict[str, Any]] = None) -> None:
+        if self.LEVEL_PRIORITY.get(level, 20) < self.LEVEL_PRIORITY[self.min_level]:
+            return
+        payload = ""
+        if data:
+            payload = f" data={json.dumps(data, ensure_ascii=False, sort_keys=True, separators=(',', ':'))}"
+        print(f"[bridge][{level}][{category}] {message}{payload}", flush=True)

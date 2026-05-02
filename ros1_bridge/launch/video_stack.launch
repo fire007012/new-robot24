@@ -34,7 +34,8 @@
   <arg name="cmd_vel_topic" default="/cmd_vel" />
   <arg name="servo_topic" default="/servo_server/delta_twist_cmds" />
   <arg name="servo_frame" default="catch_camera" />
-  <arg name="gripper_position_topic" default="/arm_control/gripper_position" />
+  <arg name="gripper_velocity_topic"
+       default="/gripper_controller/command" />
   <arg name="flipper_jog_topic" default="/flipper_control/jog_cmd" />
   <arg name="flipper_profile_service" default="/flipper_control/set_control_profile" />
   <arg name="hybrid_service_ns" default="/hybrid_motor_hw_node" />
@@ -42,9 +43,6 @@
   <arg name="watchdog_ms" default="300" />
   <arg name="linear_speed" default="0.8" />
   <arg name="angular_speed" default="1.5" />
-  <arg name="gripper_min_position" default="0.0" />
-  <arg name="gripper_max_position" default="0.071" />
-  <arg name="gripper_initial_position" default="0.0355" />
   <arg name="default_speed_level" default="2" />
   <arg name="flipper_target_profile" default="csv_velocity" />
   <arg name="flipper_profile_retry_sec" default="2.0" />
@@ -144,7 +142,7 @@
               --cmd-vel-topic $(arg cmd_vel_topic)
               --servo-topic $(arg servo_topic)
               --servo-frame $(arg servo_frame)
-              --gripper-position-topic $(arg gripper_position_topic)
+              --gripper-velocity-topic $(arg gripper_velocity_topic)
               --flipper-jog-topic $(arg flipper_jog_topic)
               --flipper-profile-service $(arg flipper_profile_service)
               --hybrid-service-ns $(arg hybrid_service_ns)
@@ -152,9 +150,6 @@
               --watchdog-ms $(arg watchdog_ms)
               --linear-speed $(arg linear_speed)
               --angular-speed $(arg angular_speed)
-              --gripper-min-position $(arg gripper_min_position)
-              --gripper-max-position $(arg gripper_max_position)
-              --gripper-initial-position $(arg gripper_initial_position)
               --default-speed-level $(arg default_speed_level)
               --flipper-target-profile $(arg flipper_target_profile)
               --flipper-profile-retry-sec $(arg flipper_profile_retry_sec)

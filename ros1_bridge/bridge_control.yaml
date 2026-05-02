@@ -19,11 +19,6 @@ host_bridge_node:
   # 开机默认速度档位
   default_speed_level: 3
 
-  # 夹爪位置边界与初始目标值
-  gripper_min_position: 0.0
-  gripper_max_position: 0.071
-  gripper_initial_position: 0.0355
-
   # 翻转臂 jog 持续时间与 profile 重试周期
   flipper_jog_duration: 0.15
   flipper_profile_retry_sec: 2.0
@@ -32,9 +27,9 @@ host_bridge_node:
   # 收起/展开的逻辑方向会先生成，再乘上这里的系数修正到实机正反方向。
   flipper_direction_corrections:
     left_front_arm_joint: 1.0
-    right_front_arm_joint: 1.0
+    right_front_arm_joint: -1.0
     left_rear_arm_joint: 1.0
-    right_rear_arm_joint: 1.0
+    right_rear_arm_joint: -1.0
 
   # 底盘速度档位，单位分别为 m/s 与 rad/s
   base_linear_levels:
@@ -52,25 +47,25 @@ host_bridge_node:
 
   # MoveIt Servo 桥接输出档位，单位分别为 m/s 与 rad/s
   arm_linear_levels:
-    1: 0.2
-    2: 0.4
-    3: 0.6
-    4: 0.8
-    5: 1.0
+    1: 0.4
+    2: 0.8
+    3: 1.2
+    4: 1.6
+    5: 2.0
   arm_angular_levels:
-    1: 0.6
-    2: 1.2
-    3: 1.8
-    4: 2.4
-    5: 3.0
+    1: 1.2
+    2: 2.4
+    3: 4.0
+    4: 6.0
+    5: 9.0
 
-  # 夹爪每档调节速率，单位 m/s
+  # 夹爪每档速度，单位 rad/s；桥接默认直发 hybrid can_driver 的原始 cmd_velocity。
   gripper_rate_levels:
-    1: 0.015
-    2: 0.03
-    3: 0.04
-    4: 0.05
-    5: 0.06
+    1: 0.4
+    2: 0.6
+    3: 0.8
+    4: 1.0
+    5: 1.2
 
   # 翻转臂每档速度，单位 rad/s
   flipper_velocity_levels:
