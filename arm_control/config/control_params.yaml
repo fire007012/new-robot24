@@ -4,36 +4,28 @@
 
 # ------------------------------------------------------------
 # gripper_cmd_node - 夹爪控制节点
-# 作用：将 Bool（开/合）或 Float64（精确位置）指令
-#       转换为 JointTrajectory 发送给夹爪控制器
+# 作用：将 Bool（开/合）或 Float64（速度）指令
+#       转换为 std_msgs/Float64 发送给速度型夹爪控制器
 # ------------------------------------------------------------
 gripper_cmd_node:
-  # 精确位置控制话题（std_msgs/Float64）
-  position_topic: /arm_control/gripper_position
+  # 速度控制话题（std_msgs/Float64），单位 rad/s
+  velocity_topic: /arm_control/gripper_velocity
 
   # 一键开/合话题（std_msgs/Bool）：true=开爪，false=合爪
   open_close_topic: /arm_control/gripper_open
 
-  # 发布给夹爪控制器的话题（trajectory_msgs/JointTrajectory）
+  # 发布给夹爪控制器的话题（std_msgs/Float64）
   output_topic: /gripper_controller/command
 
-  # 夹爪关节名称，需与 URDF 中定义一致
-  joint_name: left_gripper_finger_joint
+  # Bool=true/false 时映射的速度（rad/s）
+  open_velocity: 0.8
+  close_velocity: -0.8
 
-  # 关节位置下限，用于 clamp 限幅，防止超程
-  min_position: 0.0
+  # Bool 命令保持时长；到时自动补发 0 速，避免一直转
+  command_hold_sec: 0.2
 
-  # 关节位置上限，用于 clamp 限幅，防止超程
-  max_position: 0.071
-
-  # 收到 Bool=true 时发送的目标位置，即完全张开
-  open_position: 0.071
-
-  # 收到 Bool=false 时发送的目标位置，即完全闭合
-  close_position: 0.0
-
-  # 关节轨迹的执行时间（s）
-  move_duration: 0.8
+  # <=0 表示不额外限幅，保持原始速度语义直通
+  max_abs_velocity: 0.0
 
 
 # ------------------------------------------------------------
@@ -49,7 +41,7 @@ servo_twist_frame_bridge_node:
   output_topic: /servo_server/delta_twist_cmds
 
   # MoveIt Servo 当前使用的控制坐标系
-  target_frame: catch_camera
+  target_frame: grasp_tcp
 
   # 默认 optical frame
   expected_source_frame: catch_camera_optical_frame
