@@ -2,7 +2,7 @@
 import rospy
 from sensor_msgs.msg import Joy
 from geometry_msgs.msg import Twist, TwistStamped
-from std_msgs.msg import Bool
+from std_msgs.msg import Float64
 
 
 class DS5TeleopNode(object):
@@ -11,7 +11,9 @@ class DS5TeleopNode(object):
         self.joy_topic = rospy.get_param('~joy_topic', '/joy')
         self.chassis_topic = rospy.get_param('~chassis_cmd_topic', '/car_control/cmd_vel')
         self.servo_topic = rospy.get_param('~servo_cmd_topic', '/servo_server/delta_twist_cmds')
-        self.gripper_open_topic = rospy.get_param('~gripper_open_topic', '/car_control/gripper_open')
+        self.gripper_velocity_topic = rospy.get_param(
+            '~gripper_velocity_topic', '/car_control/gripper_velocity'
+        )
 
         # Servo frame
         self.servo_frame = rospy.get_param('~servo_frame', 'base_link')
@@ -25,6 +27,9 @@ class DS5TeleopNode(object):
         self.chassis_turn_sign = float(rospy.get_param('~chassis_turn_sign', 1.0))
         self.max_arm_linear = float(rospy.get_param('~max_arm_linear', 0.15))
         self.max_arm_angular = float(rospy.get_param('~max_arm_angular', 0.6))
+        self.max_gripper_velocity = float(
+            rospy.get_param('~max_gripper_velocity', 0.8)
+        )
         self.chassis_turn_use_rx_fallback = bool(rospy.get_param('~chassis_turn_use_rx_fallback', False))
 
         # Safety
@@ -69,7 +74,9 @@ class DS5TeleopNode(object):
         # Pub/Sub
         self.pub_chassis = rospy.Publisher(self.chassis_topic, Twist, queue_size=10)
         self.pub_servo = rospy.Publisher(self.servo_topic, TwistStamped, queue_size=10)
-        self.pub_gripper_open = rospy.Publisher(self.gripper_open_topic, Bool, queue_size=10)
+        self.pub_gripper_velocity = rospy.Publisher(
+            self.gripper_velocity_topic, Float64, queue_size=10
+        )
         self.sub = rospy.Subscriber(self.joy_topic, Joy, self.joy_cb, queue_size=10)
         self.timer = rospy.Timer(rospy.Duration(0.05), self.watchdog_cb)
         self.servo_frame_check_attempts = 0
@@ -162,6 +169,7 @@ class DS5TeleopNode(object):
 
     def publish_zero(self):
         self.pub_chassis.publish(Twist())
+        self.pub_gripper_velocity.publish(Float64(data=0.0))
         ts = TwistStamped()
         ts.header.stamp = rospy.Time.now()
         ts.header.frame_id = self.servo_frame
@@ -177,11 +185,11 @@ class DS5TeleopNode(object):
             rospy.loginfo('ds5_teleop_node mode=%s', 'ARM_SERVO' if self.mode == self.MODE_ARM else 'CHASSIS')
             self.publish_zero()
 
-        # Gripper edge control: square=open, circle=close
-        if self.button_rising(msg, self.BTN_SQUARE):
-            self.pub_gripper_open.publish(Bool(data=True))
-        if self.button_rising(msg, self.BTN_CIRCLE):
-            self.pub_gripper_open.publish(Bool(data=False))
+        # Gripper hold control: square=open, circle=close
+        gripper_velocity = (
+            self.button(msg, self.BTN_SQUARE) - self.button(msg, self.BTN_CIRCLE)
+        ) * self.max_gripper_velocity
+        self.pub_gripper_velocity.publish(Float64(data=gripper_velocity))
 
         if self.mode == self.MODE_CHASSIS:
             cmd = Twist()

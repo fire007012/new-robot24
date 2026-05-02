@@ -57,36 +57,28 @@ gazebo_model_odom_node:
 
 # ------------------------------------------------------------
 # gripper_cmd_node — 夹爪控制节点
-# 作用：将 Bool（开/合）或 Float64（精确位置）指令
-#       转换为 JointTrajectory 发送给夹爪控制器
+# 作用：将 Bool（开/合）或 Float64（速度）指令
+#       转换为 std_msgs/Float64 发送给速度型夹爪控制器
 # ------------------------------------------------------------
 gripper_cmd_node:
-  # 精确位置控制话题（std_msgs/Float64），单位：米
-  position_topic: /car_control/gripper_position
+  # 速度控制话题（std_msgs/Float64），单位：rad/s
+  velocity_topic: /car_control/gripper_velocity
 
   # 一键开/合话题（std_msgs/Bool）：true=开爪，false=合爪
   open_close_topic: /car_control/gripper_open
 
-  # 发布给夹爪控制器的话题（trajectory_msgs/JointTrajectory）
+  # 发布给夹爪控制器的话题（std_msgs/Float64）
   output_topic: /gripper_controller/command
 
-  # 夹爪关节名称，需与 URDF 中定义一致
-  joint_name: left_gripper_finger_joint
+  # Bool=true/false 时映射的速度（rad/s）
+  open_velocity: 0.8
+  close_velocity: -0.8
 
-  # 关节位置下限（m），用于 clamp 限幅，防止超程
-  min_position: 0.0
+  # Bool 命令保持时长；到时自动补发 0 速，避免一直转
+  command_hold_sec: 0.2
 
-  # 关节位置上限（m），用于 clamp 限幅，防止超程
-  max_position: 0.044
-
-  # 收到 Bool=true 时发送的目标位置（m），即完全张开
-  open_position: 0.044
-
-  # 收到 Bool=false 时发送的目标位置（m），即完全闭合
-  close_position: 0.0
-
-  # 关节轨迹的执行时间（s）：控制器在此时间内完成开/合动作
-  move_duration: 0.8
+  # <=0 表示不额外限幅，保持原始速度语义直通
+  max_abs_velocity: 0.0
 
 
 # ------------------------------------------------------------
@@ -102,7 +94,7 @@ servo_twist_frame_bridge_node:
   output_topic: /servo_server/delta_twist_cmds
 
   # MoveIt Servo 当前使用的控制坐标系
-  target_frame: catch_camera
+  target_frame: grasp_tcp
 
   # 视觉相机/深度相机默认发布的 optical frame
   expected_source_frame: catch_camera_optical_frame
@@ -131,14 +123,15 @@ ds5_teleop_node:
   servo_cmd_topic: /servo_server/delta_twist_cmds
 
   # Servo 指令的参考坐标系，需与 MoveIt Servo 配置一致。
-  # 使用相机本体坐标系而不是 optical frame，避免 optical 坐标系的轴置换。
-  servo_frame: catch_camera
+  # 使用夹爪 TCP 坐标系；视觉链若输出 optical frame，则先经桥接转换。
+  servo_frame: grasp_tcp
 
   # 启动后用于核对 MoveIt Servo 当前控制坐标系的参数路径。
   servo_command_frame_param: /servo_server/robot_link_command_frame
 
-  # 夹爪开/合输出话题（std_msgs/Bool）
-  gripper_open_topic: /car_control/gripper_open
+  # 夹爪速度输出话题（std_msgs/Float64, rad/s）
+  gripper_velocity_topic: /car_control/gripper_velocity
+  max_gripper_velocity: 0.8
 
   # --- 速度上限 ---
   # CHASSIS 模式下底盘线速度上限（m/s），对应左摇杆 LY 满偏时的速度
@@ -209,13 +202,13 @@ ds5_teleop_node:
   chassis_turn_axis_candidates: [0, 6]
 
   # --- 按键索引（DS4/DS5 在 Linux joy 驱动下的默认映射）---
-  # □ 键：发送 gripper_open=true（打开夹爪）
+  # □ 键：夹爪正向速度（打开夹爪）
   btn_square: 0
 
   # × 键：保留，暂未使用
   btn_cross: 1
 
-  # ○ 键：发送 gripper_open=false（闭合夹爪）
+  # ○ 键：夹爪负向速度（闭合夹爪）
   btn_circle: 2
 
   # △ 键：保留，暂未使用
