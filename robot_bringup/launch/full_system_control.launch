@@ -1,6 +1,7 @@
 <launch>
   <arg name="enable_flipper_control" default="true"/>
   <arg name="enable_mobility_control" default="true"/>
+  <!-- gripper_cmd_node 现为速度直通中继，可安全接入速度型 gripper_controller。 -->
   <arg name="enable_gripper_cmd" default="true"/>
 
   <include if="$(arg enable_mobility_control)" file="$(find mobility_control)/launch/base_cmd.launch"/>

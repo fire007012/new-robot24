@@ -40,18 +40,9 @@ arm_position_controller:
 
 gripper_controller:
   # 夹爪右指由 URDF mimic 左指，这里只控制真实驱动的左夹爪关节。
-  type: position_controllers/JointTrajectoryController
-  joints:
-    - left_gripper_finger_joint
-  gains:
-    left_gripper_finger_joint: {p: 100.0, i: 1.0, d: 1.0, i_clamp: 1.0}
-  constraints:
-    goal_time: 1.0
-    stopped_velocity_tolerance: 0.02
-    left_gripper_finger_joint: {trajectory: 0.01, goal: 0.005}
-  stop_trajectory_duration: 0.1
-  state_publish_rate: 50
-  action_monitor_rate: 20
+  type: velocity_controllers/JointVelocityController
+  joint: left_gripper_finger_joint
+  pid: {p: 100.0, i: 1.0, d: 1.0, i_clamp: 1.0}
 
 flipper_csp_controller:
   type: position_controllers/JointTrajectoryController

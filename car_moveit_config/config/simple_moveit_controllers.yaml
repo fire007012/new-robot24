@@ -10,9 +10,3 @@ controller_list:
       - wrist_pitch_joint
       - wrist_roll_joint
       - wrist_yaw_joint
-  - name: gripper_controller
-    action_ns: follow_joint_trajectory
-    type: FollowJointTrajectory
-    default: True
-    joints:
-      - left_gripper_finger_joint

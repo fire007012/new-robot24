@@ -3,6 +3,7 @@
   <arg name="enable_rviz" default="true"/>
   <arg name="enable_flipper_control" default="true"/>
   <arg name="enable_mobility_control" default="true"/>
+  <!-- gripper_cmd_node 已改为速度直通中继，默认接入整机启动链。 -->
   <arg name="enable_gripper_cmd" default="true"/>
   <arg name="enable_moveit_servo" default="true"/>
   <arg name="enable_paw_vision" default="true"/>

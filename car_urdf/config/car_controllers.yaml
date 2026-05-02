@@ -17,7 +17,7 @@ car_urdf:
 
   # 夹爪控制器
   gripper_controller:
-    type: position_controllers/JointPositionController
+    type: velocity_controllers/JointVelocityController
     joint: left_gripper_finger_joint
 
     pid: {p: 300.0, i: 0.1, d: 8.0, i_clamp: 1.0}
