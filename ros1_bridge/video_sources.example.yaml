@@ -36,3 +36,16 @@ direct_sources:
     bitrate_kbps: 2500
     rtsp_path: rear_raw
     enabled: false
+
+streams:
+  - camera_id: 0
+    source_id: arm_ros
+    slot_hint: 0
+    name: Arm ROS Stream
+    image_topic: /arm_camera/image/compressed
+    rtsp_path: arm_ros
+    fps: 30
+    bitrate_kbps: 2500
+    codec: h264
+    frame_timeout_sec: 3.0
+    enabled: false

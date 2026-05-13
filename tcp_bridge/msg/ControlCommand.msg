@@ -1,0 +1,12 @@
+Header header
+float32 imu_yaw
+float32 imu_roll
+float32 imu_pitch
+float32[4] swing_arm_current
+float32 arm_x
+float32 arm_y
+float32 arm_z
+float32 arm_roll
+float32 arm_pitch
+float32 arm_yaw
+uint8 command_flags

@@ -16,8 +16,9 @@ from bridge_core import BridgeCore, BridgeRuntime
 from bridge_protocol import DEFAULT_WATCHDOG_MS, MAX_FRAME_BYTES, PROTOCOL_VERSION, now_ms
 from bridge_protocol import json_line
 from debug_ui import DebugHttpServer
-from debug_events import EventSink, RingBufferEventSink
+from debug_events import CompositeEventSink, ConsoleEventSink, EventSink, RingBufferEventSink
 from output_adapters import DryRunOutput, OutputAdapter, RosOutput
+from video_manager import load_video_config
 from video_manager_ipc import (
     DEFAULT_VIDEO_MANAGER_HOST,
     DEFAULT_VIDEO_MANAGER_PORT,
@@ -33,30 +34,78 @@ DEFAULT_FLIPPER_JOINT_NAMES = [
     "left_rear_arm_joint",
     "right_rear_arm_joint",
 ]
+DEFAULT_BASE_LINEAR_LEVELS = {1: 0.2, 2: 0.4, 3: 0.55, 4: 0.7, 5: 0.8}
+DEFAULT_BASE_ANGULAR_LEVELS = {1: 0.4, 2: 0.8, 3: 1.0, 4: 1.25, 5: 1.5}
+DEFAULT_ARM_LINEAR_LEVELS = {1: 0.04, 2: 0.08, 3: 0.10, 4: 0.125, 5: 0.15}
+DEFAULT_ARM_ANGULAR_LEVELS = {1: 0.2, 2: 0.4, 3: 0.55, 4: 0.7, 5: 0.8}
+DEFAULT_GRIPPER_RATE_LEVELS = {1: 0.015, 2: 0.03, 3: 0.04, 4: 0.05, 5: 0.06}
+DEFAULT_FLIPPER_VELOCITY_LEVELS = {1: 0.2, 2: 0.4, 3: 0.55, 4: 0.7, 5: 0.8}
+LEVEL_CONFIG_KEYS = {
+    "base-linear": "base_linear_levels",
+    "base-angular": "base_angular_levels",
+    "arm-linear": "arm_linear_levels",
+    "arm-angular": "arm_angular_levels",
+    "gripper-rate": "gripper_rate_levels",
+    "flipper-velocity": "flipper_velocity_levels",
+}
 
 
-def add_level_args(parser: argparse.ArgumentParser, prefix: str, help_name: str) -> None:
+def add_level_args(
+    parser: argparse.ArgumentParser,
+    prefix: str,
+    help_name: str,
+    defaults: Dict[int, float],
+) -> None:
     for level in range(1, 6):
         parser.add_argument(
             f"--{prefix}-level-{level}",
             type=float,
-            default=None,
+            default=float(defaults[level]),
             help=f"{help_name} speed/rate for level {level}",
         )
 
 
-def collect_level_args(args: argparse.Namespace, prefix: str) -> Optional[Dict[int, float]]:
+def collect_level_args(
+    args: argparse.Namespace,
+    parser: argparse.ArgumentParser,
+    prefix: str,
+    config: Optional[Dict[str, Any]] = None,
+) -> Optional[Dict[int, float]]:
     values: Dict[int, float] = {}
     attr_prefix = prefix.replace("-", "_")
+    config_levels = {}
+    if config:
+        config_key = LEVEL_CONFIG_KEYS.get(prefix, "")
+        raw_config_levels = config.get(config_key, {})
+        if raw_config_levels is not None:
+            if not isinstance(raw_config_levels, dict):
+                raise ValueError(f"{config_key} must be a mapping of speed levels")
+            config_levels = {
+                int(level): float(value)
+                for level, value in raw_config_levels.items()
+            }
     for level in range(1, 6):
-        value = getattr(args, f"{attr_prefix}_level_{level}", None)
-        if value is not None:
-            values[level] = float(value)
+        attr_name = f"{attr_prefix}_level_{level}"
+        cli_value = getattr(args, attr_name, None)
+        parser_default = parser.get_default(attr_name)
+        config_value = config_levels.get(level)
+        if cli_value is None:
+            if config_value is not None:
+                values[level] = config_value
+            continue
+        if config_value is not None and cli_value == parser_default:
+            values[level] = config_value
+            continue
+        values[level] = float(cli_value)
     return values or None
 
 
 def parse_csv_list(value: str) -> List[str]:
     return [item.strip() for item in value.split(",") if item.strip()]
+
+
+def parse_float_csv_list(value: str) -> List[float]:
+    return [float(item.strip()) for item in value.split(",") if item.strip()]
 
 
 def load_bridge_control_config(path: str) -> Dict[str, Any]:
@@ -75,18 +124,123 @@ def load_bridge_control_config(path: str) -> Dict[str, Any]:
     return node_config
 
 
-def resolve_float_config(args: argparse.Namespace, attr: str, config: Dict[str, Any], default: float) -> float:
+def resolve_config_value(
+    args: argparse.Namespace,
+    parser: argparse.ArgumentParser,
+    attr: str,
+    config: Dict[str, Any],
+    default: Any,
+) -> Any:
     value = getattr(args, attr)
+    parser_default = parser.get_default(attr)
     if value is None:
-        value = config.get(attr, default)
-    return float(value)
+        return config.get(attr, default)
+    if attr in config and value == parser_default:
+        return config[attr]
+    return value
 
 
-def resolve_str_config(args: argparse.Namespace, attr: str, config: Dict[str, Any], default: str) -> str:
-    value = getattr(args, attr)
-    if value is None:
-        value = config.get(attr, default)
-    return str(value)
+def resolve_float_config(
+    args: argparse.Namespace,
+    parser: argparse.ArgumentParser,
+    attr: str,
+    config: Dict[str, Any],
+    default: float,
+) -> float:
+    return float(resolve_config_value(args, parser, attr, config, default))
+
+
+def resolve_int_config(
+    args: argparse.Namespace,
+    parser: argparse.ArgumentParser,
+    attr: str,
+    config: Dict[str, Any],
+    default: int,
+) -> int:
+    return int(resolve_config_value(args, parser, attr, config, default))
+
+
+def resolve_str_config(
+    args: argparse.Namespace,
+    parser: argparse.ArgumentParser,
+    attr: str,
+    config: Dict[str, Any],
+    default: str,
+) -> str:
+    return str(resolve_config_value(args, parser, attr, config, default))
+
+
+def resolve_flipper_direction_corrections(
+    args: argparse.Namespace,
+    parser: argparse.ArgumentParser,
+    config: Dict[str, Any],
+    joint_names: List[str],
+) -> Optional[List[float]]:
+    raw_value = resolve_config_value(
+        args,
+        parser,
+        "flipper_direction_corrections",
+        config,
+        None,
+    )
+    if raw_value in (None, ""):
+        return None
+    if isinstance(raw_value, str):
+        return parse_float_csv_list(raw_value)
+    if isinstance(raw_value, list):
+        return [float(value) for value in raw_value]
+    if isinstance(raw_value, dict):
+        return [float(raw_value.get(name, 1.0)) for name in joint_names]
+    raise ValueError("flipper_direction_corrections must be a comma-separated string, list, or mapping")
+
+
+def resolve_servo_angular_direction_corrections(
+    args: argparse.Namespace,
+    parser: argparse.ArgumentParser,
+    config: Dict[str, Any],
+) -> Optional[List[float]]:
+    raw_value = resolve_config_value(
+        args,
+        parser,
+        "servo_angular_direction_corrections",
+        config,
+        None,
+    )
+    if raw_value in (None, ""):
+        return None
+    if isinstance(raw_value, str):
+        return parse_float_csv_list(raw_value)
+    if isinstance(raw_value, list):
+        return [float(value) for value in raw_value]
+    if isinstance(raw_value, dict):
+        return [
+            float(raw_value.get("x", 1.0)),
+            float(raw_value.get("y", 1.0)),
+            float(raw_value.get("z", 1.0)),
+        ]
+    raise ValueError(
+        "servo_angular_direction_corrections must be a comma-separated string, list, or mapping"
+    )
+
+
+def resolve_service_bindings_config(
+    config: Dict[str, Any],
+    attr: str,
+) -> Dict[str, str]:
+    raw_value = config.get(attr, {})
+    if raw_value in (None, ""):
+        return {}
+    if not isinstance(raw_value, dict):
+        raise ValueError(f"{attr} must be a mapping of input name to ROS service name")
+
+    bindings: Dict[str, str] = {}
+    for raw_name, raw_service in raw_value.items():
+        name = str(raw_name).strip().lower()
+        service = str(raw_service).strip()
+        if not name or not service:
+            raise ValueError(f"{attr} keys and values must be non-empty")
+        bindings[name] = service
+    return bindings
 
 
 class HostBridgeServer:
@@ -99,25 +253,27 @@ class HostBridgeServer:
         linear_speed: float = 0.8,
         angular_speed: float = 1.5,
         servo_frame: str = "catch_camera",
-        gripper_min_position: float = 0.0,
-        gripper_max_position: float = 0.044,
-        gripper_initial_position: float = 0.022,
         default_speed_level: int = 2,
         base_linear_levels: Optional[Dict[int, float]] = None,
         base_angular_levels: Optional[Dict[int, float]] = None,
         arm_linear_levels: Optional[Dict[int, float]] = None,
         arm_angular_levels: Optional[Dict[int, float]] = None,
+        servo_angular_direction_corrections: Optional[List[float]] = None,
         gripper_rate_levels: Optional[Dict[int, float]] = None,
         flipper_velocity_levels: Optional[Dict[int, float]] = None,
         flipper_joint_names: Optional[List[str]] = None,
+        flipper_direction_corrections: Optional[List[float]] = None,
         flipper_jog_duration: float = 0.15,
         flipper_target_profile: str = "csv_velocity",
         flipper_profile_retry_sec: float = 2.0,
         gamepad_deadzone_percent: float = 4.0,
+        keyboard_service_bindings: Optional[Dict[str, str]] = None,
+        gamepad_service_bindings: Optional[Dict[str, str]] = None,
         cameras: Optional[List[Dict[str, Any]]] = None,
         video_gateway: Optional[VideoManagerGateway] = None,
         video_poll_sec: float = 1.0,
         joint_runtime_topic: str = "",
+        co2_topic: str = "",
         events: Optional[EventSink] = None,
     ) -> None:
         self.host = host
@@ -129,28 +285,31 @@ class HostBridgeServer:
         self.video_gateway = video_gateway
         self.video_poll_sec = max(video_poll_sec, 0.1)
         self.joint_runtime_topic = joint_runtime_topic
+        self.co2_topic = co2_topic
         self.joint_runtime_subscriber = None
+        self.co2_subscriber = None
         self.core = BridgeCore(
             output,
             watchdog_ms,
             linear_speed,
             angular_speed,
             servo_frame,
-            gripper_min_position,
-            gripper_max_position,
-            gripper_initial_position,
             default_speed_level,
             base_linear_levels,
             base_angular_levels,
             arm_linear_levels,
             arm_angular_levels,
+            servo_angular_direction_corrections,
             gripper_rate_levels,
             flipper_velocity_levels,
             flipper_joint_names,
+            flipper_direction_corrections,
             flipper_jog_duration,
             flipper_target_profile,
             flipper_profile_retry_sec,
             gamepad_deadzone_percent,
+            keyboard_service_bindings,
+            gamepad_service_bindings,
             cameras,
             self.video_gateway.camera_infos if self.video_gateway else None,
             self.handle_camera_stream_request if self.video_gateway else None,
@@ -161,6 +320,7 @@ class HostBridgeServer:
     def serve_forever(self) -> None:
         self.start_video_manager()
         self.start_joint_runtime_forwarder()
+        self.start_co2_forwarder()
         self.runtime.start_watchdog()
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server:
@@ -238,6 +398,25 @@ class HostBridgeServer:
             topic, JointRuntimeStateArray, callback, queue_size=1
         )
         self.events.emit("joint_runtime", "joint runtime forwarder started", data={"topic": topic})
+
+    def start_co2_forwarder(self) -> None:
+        topic = self.co2_topic.strip()
+        if not topic:
+            return
+        try:
+            import rospy
+            from std_msgs.msg import Int32
+        except Exception as exc:
+            self.events.emit("co2", "co2 forwarder unavailable",
+                             level="warning", data={"error": str(exc)})
+            return
+
+        def callback(msg: Any) -> None:
+            ppm = int(getattr(msg, "data", 0) or 0)
+            self.broadcast(self.core.make_co2_data(ppm))
+
+        self.co2_subscriber = rospy.Subscriber(topic, Int32, callback, queue_size=1)
+        self.events.emit("co2", "co2 forwarder started", data={"topic": topic})
 
     def _video_monitor_loop(self) -> None:
         if not self.video_gateway:
@@ -378,60 +557,25 @@ def parse_service_command(value: str) -> Tuple[str, str]:
 
 
 def load_cameras_from_yaml(path: str, publish_host_override: str = "") -> List[Dict[str, Any]]:
-    try:
-        import yaml
-    except ImportError as exc:
-        raise RuntimeError("PyYAML is required for --camera-config") from exc
+    config = load_video_config(path)
+    if publish_host_override:
+        config.rtsp.host = publish_host_override
 
-    with open(path, "r", encoding="utf-8") as f:
-        data = yaml.safe_load(f) or {}
-
-    rtsp = data.get("rtsp", {}) if isinstance(data.get("rtsp", {}), dict) else {}
-    publish_host = (
-        publish_host_override
-        or rtsp.get("public_host")
-        or rtsp.get("host")
-        or rtsp.get("publish_host")
-        or "127.0.0.1"
+    cameras = [
+        source.camera_info(config.rtsp, online=True)
+        for source in config.direct_sources
+    ]
+    cameras.extend(
+        source.camera_info(config.rtsp, online=True)
+        for source in config.stream_sources
     )
-    port = int(rtsp.get("port", 8554))
-
-    sources = data.get("direct_sources", [])
-    if not isinstance(sources, list):
-        raise ValueError("camera config field direct_sources must be a list")
-
-    cameras: List[Dict[str, Any]] = []
-    for source in sources:
-        if not isinstance(source, dict):
-            continue
-        if not bool(source.get("enabled", True)):
-            continue
-
-        rtsp_path = str(source.get("rtsp_path") or source.get("source_id") or "").strip("/")
-        if not rtsp_path:
-            raise ValueError("enabled camera source is missing rtsp_path/source_id")
-
-        camera_id = int(source.get("camera_id", len(cameras)))
-        name = str(source.get("name") or source.get("source_id") or rtsp_path)
-        codec = str(source.get("codec", "h264"))
-        width = int(source.get("width", 1280))
-        height = int(source.get("height", 720))
-        fps = int(source.get("fps", 25))
-        bitrate_kbps = int(source.get("bitrate_kbps", 0))
-
-        cameras.append({
-            "camera_id": camera_id,
-            "name": name,
-            "online": True,
-            "rtsp_url": f"rtsp://{publish_host}:{port}/{rtsp_path}",
-            "codec": codec,
-            "width": width,
-            "height": height,
-            "fps": fps,
-            "bitrate_kbps": bitrate_kbps,
-        })
-
-    return cameras
+    deduped: Dict[int, Dict[str, Any]] = {}
+    for camera in cameras:
+        deduped[int(camera.get("camera_id", 1_000_000))] = camera
+    return [
+        deduped[camera_id]
+        for camera_id in sorted(deduped.keys())
+    ]
 
 
 def detect_publish_host() -> str:
@@ -458,7 +602,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--cmd-vel-topic", default="/cmd_vel")
     parser.add_argument("--servo-topic", default="/servo_server/delta_twist_cmds")
     parser.add_argument("--servo-frame", default="catch_camera")
-    parser.add_argument("--gripper-position-topic", default="/arm_control/gripper_position")
+    parser.add_argument(
+        "--gripper-velocity-topic",
+        default="/gripper_controller/command",
+    )
     parser.add_argument(
         "--moveit-group",
         default=None,
@@ -466,6 +613,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--flipper-jog-topic", default="/flipper_control/jog_cmd")
     parser.add_argument("--flipper-profile-service", default="/flipper_control/set_control_profile")
+    parser.add_argument(
+        "--vision-detection-service",
+        default="/paw_vision/set_detection_enabled",
+        help="ROS service used for monitor-mode system_command routing",
+    )
     parser.add_argument(
         "--hybrid-service-ns",
         default="/hybrid_motor_hw_node",
@@ -483,9 +635,6 @@ def build_arg_parser() -> argparse.ArgumentParser:
             "set_control_mode=/robot/set_{mode}_mode"
         ),
     )
-    parser.add_argument("--gripper-min-position", type=float, default=0.0)
-    parser.add_argument("--gripper-max-position", type=float, default=0.044)
-    parser.add_argument("--gripper-initial-position", type=float, default=0.022)
     parser.add_argument("--default-speed-level", type=int, default=2)
     parser.add_argument("--flipper-target-profile", default="csv_velocity")
     parser.add_argument("--flipper-profile-retry-sec", type=float, default=2.0)
@@ -501,15 +650,25 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default=",".join(DEFAULT_FLIPPER_JOINT_NAMES),
         help="comma-separated flipper joint names in command order",
     )
+    parser.add_argument(
+        "--flipper-direction-corrections",
+        default=None,
+        help="comma-separated flipper direction corrections aligned with --flipper-joint-names",
+    )
+    parser.add_argument(
+        "--servo-angular-direction-corrections",
+        default=None,
+        help="comma-separated angular x,y,z direction corrections for arm servo output",
+    )
     parser.add_argument("--watchdog-ms", type=int, default=DEFAULT_WATCHDOG_MS)
     parser.add_argument("--linear-speed", type=float, default=0.8, help="vehicle level-5 linear speed")
     parser.add_argument("--angular-speed", type=float, default=1.5, help="vehicle level-5 angular speed")
-    add_level_args(parser, "base-linear", "base linear")
-    add_level_args(parser, "base-angular", "base angular")
-    add_level_args(parser, "arm-linear", "arm linear")
-    add_level_args(parser, "arm-angular", "arm angular")
-    add_level_args(parser, "gripper-rate", "gripper")
-    add_level_args(parser, "flipper-velocity", "flipper")
+    add_level_args(parser, "base-linear", "base linear", DEFAULT_BASE_LINEAR_LEVELS)
+    add_level_args(parser, "base-angular", "base angular", DEFAULT_BASE_ANGULAR_LEVELS)
+    add_level_args(parser, "arm-linear", "arm linear", DEFAULT_ARM_LINEAR_LEVELS)
+    add_level_args(parser, "arm-angular", "arm angular", DEFAULT_ARM_ANGULAR_LEVELS)
+    add_level_args(parser, "gripper-rate", "gripper", DEFAULT_GRIPPER_RATE_LEVELS)
+    add_level_args(parser, "flipper-velocity", "flipper", DEFAULT_FLIPPER_VELOCITY_LEVELS)
     parser.add_argument("--debug-ui", dest="debug_ui", action="store_true", default=True,
                         help="start read-only debug HTTP UI; enabled by default")
     parser.add_argument("--no-debug-ui", dest="debug_ui", action="store_false",
@@ -566,35 +725,116 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default="/hybrid_motor_hw_node/joint_runtime_states",
         help="ROS topic to forward as TCP joint_runtime_states when --ros is used; empty disables it",
     )
+    parser.add_argument(
+        "--co2-topic",
+        default="/co2_ppm",
+        help="ROS std_msgs/Int32 topic to forward as TCP co2_data; empty disables it",
+    )
     return parser
 
 
-def parse_node_args() -> argparse.Namespace:
-    return build_arg_parser().parse_args([
+def parse_node_args() -> Tuple[argparse.ArgumentParser, argparse.Namespace]:
+    parser = build_arg_parser()
+    args = parser.parse_args([
         arg for arg in sys.argv[1:] if ":=" not in arg
     ])
+    return parser, args
 
 
 def main() -> None:
-    args = parse_node_args()
-    events = RingBufferEventSink()
+    parser, args = parse_node_args()
+    buffer_events = RingBufferEventSink()
+    events: EventSink = CompositeEventSink(
+        buffer_events,
+        ConsoleEventSink(min_level="warning"),
+    )
     service_commands = dict(args.service_command or [])
     bridge_control_config = load_bridge_control_config(
         os.path.expanduser(args.bridge_control_config)
     ) if args.bridge_control_config else {}
     gamepad_deadzone_percent = resolve_float_config(
         args,
+        parser,
         "gamepad_deadzone_percent",
         bridge_control_config,
         4.0,
     )
     moveit_group = resolve_str_config(
         args,
+        parser,
         "moveit_group",
         bridge_control_config,
         "arm",
     )
-    
+    vision_detection_service = resolve_str_config(
+        args,
+        parser,
+        "vision_detection_service",
+        bridge_control_config,
+        "/paw_vision/set_detection_enabled",
+    )
+    co2_topic = resolve_str_config(
+        args,
+        parser,
+        "co2_topic",
+        bridge_control_config,
+        "/co2_ppm",
+    )
+    linear_speed = resolve_float_config(args, parser, "linear_speed", bridge_control_config, 0.8)
+    angular_speed = resolve_float_config(args, parser, "angular_speed", bridge_control_config, 1.5)
+    default_speed_level = resolve_int_config(
+        args, parser, "default_speed_level", bridge_control_config, 2
+    )
+    flipper_jog_duration = resolve_float_config(
+        args, parser, "flipper_jog_duration", bridge_control_config, 0.15
+    )
+    flipper_profile_retry_sec = resolve_float_config(
+        args, parser, "flipper_profile_retry_sec", bridge_control_config, 2.0
+    )
+    base_linear_levels = collect_level_args(args, parser, "base-linear", bridge_control_config)
+    base_angular_levels = collect_level_args(args, parser, "base-angular", bridge_control_config)
+    arm_linear_levels = collect_level_args(args, parser, "arm-linear", bridge_control_config)
+    arm_angular_levels = collect_level_args(args, parser, "arm-angular", bridge_control_config)
+    gripper_rate_levels = collect_level_args(args, parser, "gripper-rate", bridge_control_config)
+    flipper_velocity_levels = collect_level_args(
+        args, parser, "flipper-velocity", bridge_control_config
+    )
+    flipper_joint_names = parse_csv_list(
+        resolve_str_config(
+            args,
+            parser,
+            "flipper_joint_names",
+            bridge_control_config,
+            ",".join(DEFAULT_FLIPPER_JOINT_NAMES),
+        )
+    )
+    flipper_direction_corrections = resolve_flipper_direction_corrections(
+        args,
+        parser,
+        bridge_control_config,
+        flipper_joint_names,
+    )
+    servo_angular_direction_corrections = resolve_servo_angular_direction_corrections(
+        args,
+        parser,
+        bridge_control_config,
+    )
+    flipper_target_profile = resolve_str_config(
+        args,
+        parser,
+        "flipper_target_profile",
+        bridge_control_config,
+        "csv_velocity",
+    )
+    keyboard_service_bindings = resolve_service_bindings_config(
+        bridge_control_config,
+        "keyboard_service_bindings",
+    )
+    gamepad_service_bindings = resolve_service_bindings_config(
+        bridge_control_config,
+        "gamepad_service_bindings",
+    )
+
     cameras = args.camera
     if args.no_camera_config:
         cameras = cameras or []
@@ -610,11 +850,12 @@ def main() -> None:
             "host_bridge_node",
             args.cmd_vel_topic,
             args.servo_topic,
-            args.gripper_position_topic,
+            args.gripper_velocity_topic,
             args.flipper_jog_topic,
             args.flipper_profile_service,
             args.hybrid_service_ns,
             service_commands,
+            vision_detection_service,
             moveit_group,
             events,
         )
@@ -648,32 +889,34 @@ def main() -> None:
         port=args.port,
         output=output,
         watchdog_ms=args.watchdog_ms,
-        linear_speed=args.linear_speed,
-        angular_speed=args.angular_speed,
+        linear_speed=linear_speed,
+        angular_speed=angular_speed,
         servo_frame=args.servo_frame,
-        gripper_min_position=args.gripper_min_position,
-        gripper_max_position=args.gripper_max_position,
-        gripper_initial_position=args.gripper_initial_position,
-        default_speed_level=args.default_speed_level,
-        base_linear_levels=collect_level_args(args, "base-linear"),
-        base_angular_levels=collect_level_args(args, "base-angular"),
-        arm_linear_levels=collect_level_args(args, "arm-linear"),
-        arm_angular_levels=collect_level_args(args, "arm-angular"),
-        gripper_rate_levels=collect_level_args(args, "gripper-rate"),
-        flipper_velocity_levels=collect_level_args(args, "flipper-velocity"),
-        flipper_joint_names=parse_csv_list(args.flipper_joint_names),
-        flipper_jog_duration=args.flipper_jog_duration,
-        flipper_target_profile=args.flipper_target_profile,
-        flipper_profile_retry_sec=args.flipper_profile_retry_sec,
+        default_speed_level=default_speed_level,
+        base_linear_levels=base_linear_levels,
+        base_angular_levels=base_angular_levels,
+        arm_linear_levels=arm_linear_levels,
+        arm_angular_levels=arm_angular_levels,
+        servo_angular_direction_corrections=servo_angular_direction_corrections,
+        gripper_rate_levels=gripper_rate_levels,
+        flipper_velocity_levels=flipper_velocity_levels,
+        flipper_joint_names=flipper_joint_names,
+        flipper_direction_corrections=flipper_direction_corrections,
+        flipper_jog_duration=flipper_jog_duration,
+        flipper_target_profile=flipper_target_profile,
+        flipper_profile_retry_sec=flipper_profile_retry_sec,
         gamepad_deadzone_percent=gamepad_deadzone_percent,
+        keyboard_service_bindings=keyboard_service_bindings,
+        gamepad_service_bindings=gamepad_service_bindings,
         cameras=cameras,
         video_gateway=video_gateway,
         video_poll_sec=args.video_poll_sec,
         joint_runtime_topic=args.joint_runtime_topic if not args.dry_run else "",
+        co2_topic=co2_topic if not args.dry_run else "",
         events=events,
     )
     if args.debug_ui:
-        DebugHttpServer(args.debug_host, args.debug_port, server.core, events).start()
+        DebugHttpServer(args.debug_host, args.debug_port, server.core, buffer_events).start()
 
     def handle_signal(signum: int, frame: Any) -> None:
         del signum, frame

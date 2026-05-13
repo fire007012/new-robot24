@@ -13,7 +13,7 @@
   <arg name="auto_release" default="true"/>
   <arg name="controllers_file" default="$(find Eyou_ROS1_Master)/config/controllers_jtc.yaml"/>
   <arg name="spawn_controllers" default="true"/>
-  <arg name="start_gripper_controller" default="false"/>
+  <arg name="start_gripper_controller" default="true"/>
   <arg name="start_controllers"
        default="$(eval 'joint_state_controller arm_position_controller gripper_controller' if str(start_gripper_controller).lower() == 'true' else 'joint_state_controller arm_position_controller')"/>
   <arg name="stopped_controllers" default=""/>

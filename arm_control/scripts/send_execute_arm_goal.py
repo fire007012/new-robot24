@@ -1,13 +1,25 @@
 #!/usr/bin/env python3
 
 import argparse
+import math
 import sys
 
 import actionlib
 import rospy
 from geometry_msgs.msg import PoseStamped
+from sensor_msgs.msg import JointState
 
 from arm_control.msg import ExecuteArmGoalAction, ExecuteArmGoalGoal
+
+
+DEFAULT_ARM_JOINTS = [
+    "shoulder_yaw_joint",
+    "shoulder_pitch_joint",
+    "elbow_pitch_joint",
+    "wrist_pitch_joint",
+    "wrist_yaw_joint",
+    "wrist_roll_joint",
+]
 
 
 def build_parser():
@@ -69,6 +81,55 @@ def build_parser():
         "--qw", type=float, default=1.0, help="Orientation quaternion w."
     )
 
+    roll_parser = subparsers.add_parser(
+        "roll180",
+        help="Read current arm joint states, add pi to wrist_roll_joint, and send a full joint goal.",
+    )
+    roll_parser.add_argument(
+        "--joint-states-topic",
+        default="/joint_states",
+        help="JointState topic used to read the current arm pose. Default: /joint_states.",
+    )
+    roll_parser.add_argument(
+        "--joint-states-timeout",
+        type=float,
+        default=2.0,
+        help="Seconds to wait for a JointState message. Default: 2.0.",
+    )
+    roll_parser.add_argument(
+        "--roll-joint",
+        default="wrist_roll_joint",
+        help="Roll joint name to increment. Default: wrist_roll_joint.",
+    )
+    roll_parser.add_argument(
+        "--delta-rad",
+        type=float,
+        default=math.pi,
+        help="Relative roll increment in radians. Default: pi.",
+    )
+    roll_parser.add_argument(
+        "--limit-lower",
+        type=float,
+        default=-7.069,
+        help="Lower safety check bound for the roll joint. Default: -7.069.",
+    )
+    roll_parser.add_argument(
+        "--limit-upper",
+        type=float,
+        default=7.069,
+        help="Upper safety check bound for the roll joint. Default: 7.069.",
+    )
+    roll_parser.add_argument(
+        "--skip-limit-check",
+        action="store_true",
+        help="Skip the local roll joint limit check before sending the goal.",
+    )
+    roll_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Print the computed absolute joint target and exit without calling the action.",
+    )
+
     return parser
 
 
@@ -94,6 +155,78 @@ def parse_joint_assignments(assignments):
         raise ValueError("at least one --joint name=value is required")
 
     return joint_map
+
+
+def read_current_joint_map(topic_name, timeout_sec):
+    try:
+        msg = rospy.wait_for_message(topic_name, JointState, timeout=timeout_sec)
+    except rospy.ROSException as exc:
+        raise ValueError(
+            "failed to read current JointState from {} within {:.3f}s: {}".format(
+                topic_name, timeout_sec, exc
+            )
+        )
+
+    if len(msg.name) != len(msg.position):
+        raise ValueError(
+            "JointState on {} has mismatched name/position lengths: {} vs {}".format(
+                topic_name, len(msg.name), len(msg.position)
+            )
+        )
+
+    joint_map = {}
+    for name, position in zip(msg.name, msg.position):
+        if name not in joint_map:
+            joint_map[name] = float(position)
+    return joint_map
+
+
+def build_roll180_goal(args):
+    joint_map = read_current_joint_map(args.joint_states_topic, args.joint_states_timeout)
+
+    if args.roll_joint not in DEFAULT_ARM_JOINTS:
+        raise ValueError(
+            "roll joint '{}' is not in the default active arm joint set {}".format(
+                args.roll_joint, DEFAULT_ARM_JOINTS
+            )
+        )
+
+    missing = [name for name in DEFAULT_ARM_JOINTS if name not in joint_map]
+    if missing:
+        raise ValueError(
+            "JointState on {} is missing active arm joints: {}".format(
+                args.joint_states_topic, missing
+            )
+        )
+
+    if args.roll_joint not in joint_map:
+        raise ValueError(
+            "roll joint '{}' was not found on {}".format(
+                args.roll_joint, args.joint_states_topic
+            )
+        )
+
+    current_roll = float(joint_map[args.roll_joint])
+    target_roll = current_roll + float(args.delta_rad)
+    if not args.skip_limit_check:
+        if not (float(args.limit_lower) <= target_roll <= float(args.limit_upper)):
+            raise ValueError(
+                "target {}={} rad exceeds local limit check [{}, {}]".format(
+                    args.roll_joint,
+                    target_roll,
+                    args.limit_lower,
+                    args.limit_upper,
+                )
+            )
+
+    target_joint_map = {name: float(joint_map[name]) for name in DEFAULT_ARM_JOINTS}
+    target_joint_map[args.roll_joint] = target_roll
+
+    goal = ExecuteArmGoalGoal()
+    goal.target_type = ExecuteArmGoalGoal.TARGET_JOINTS
+    goal.joint_names = list(DEFAULT_ARM_JOINTS)
+    goal.joint_positions = [target_joint_map[name] for name in goal.joint_names]
+    return goal, current_roll, target_roll
 
 
 def build_goal(args):
@@ -127,6 +260,9 @@ def build_goal(args):
         goal.pose_target = pose
         return goal
 
+    if args.mode == "roll180":
+        return build_roll180_goal(args)
+
     raise ValueError("unsupported mode '{}'".format(args.mode))
 
 
@@ -150,10 +286,25 @@ def main():
     action_name = resolve_action_name(args.action_name)
 
     try:
-        goal = build_goal(args)
+        built_goal = build_goal(args)
     except ValueError as exc:
         print("invalid arguments: {}".format(exc), file=sys.stderr)
         return 2
+
+    if args.mode == "roll180":
+        goal, current_roll, target_roll = built_goal
+        print(
+            "computed {}: current={:.6f} target={:.6f} delta={:.6f}".format(
+                args.roll_joint, current_roll, target_roll, args.delta_rad
+            )
+        )
+        if args.dry_run:
+            print("dry_run=true, not sending action goal")
+            print("joint_names={}".format(goal.joint_names))
+            print("joint_positions={}".format([float(v) for v in goal.joint_positions]))
+            return 0
+    else:
+        goal = built_goal
 
     client = actionlib.SimpleActionClient(action_name, ExecuteArmGoalAction)
 

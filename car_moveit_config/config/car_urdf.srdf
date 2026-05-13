@@ -21,8 +21,8 @@
         <joint name="shoulder_pitch_joint" value="-0.877"/>
         <joint name="shoulder_yaw_joint" value="0"/>
         <joint name="wrist_pitch_joint" value="0.1677"/>
-        <joint name="wrist_roll_joint" value="-0.1674"/>
-        <joint name="wrist_yaw_joint" value="0"/>
+        <joint name="wrist_roll_joint" value="0"/>
+        <joint name="wrist_yaw_joint" value="-0.1674"/>
     </group_state>
     <group_state name="zero" group="arm">
         <joint name="elbow_pitch_joint" value="0"/>
@@ -37,6 +37,22 @@
         <joint name="shoulder_pitch_joint" value="-0.227"/>
         <joint name="shoulder_yaw_joint" value="0"/>
         <joint name="wrist_pitch_joint" value="0.2106"/>
+        <joint name="wrist_roll_joint" value="0"/>
+        <joint name="wrist_yaw_joint" value="0"/>
+    </group_state>
+    <group_state name="ReadyToCatch" group="arm">
+        <joint name="elbow_pitch_joint" value="1.7320"/>
+        <joint name="shoulder_pitch_joint" value="0.2681"/>
+        <joint name="shoulder_yaw_joint" value="0"/>
+        <joint name="wrist_pitch_joint" value="1.1480"/>
+        <joint name="wrist_roll_joint" value="0"/>
+        <joint name="wrist_yaw_joint" value="0"/>
+    </group_state>
+    <group_state name="ReadyToScan" group="arm">
+        <joint name="elbow_pitch_joint" value="2.4749"/>
+        <joint name="shoulder_pitch_joint" value="-0.2262"/>
+        <joint name="shoulder_yaw_joint" value="0"/>
+        <joint name="wrist_pitch_joint" value="-1.0357"/>
         <joint name="wrist_roll_joint" value="0"/>
         <joint name="wrist_yaw_joint" value="0"/>
     </group_state>

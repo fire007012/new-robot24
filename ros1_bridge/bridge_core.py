@@ -13,6 +13,7 @@ class BridgeCore:
     MODE_ARM = "arm"
     LIFECYCLE_COMMANDS = {"init", "enable", "disable", "halt", "resume", "recover", "shutdown"}
     MODE_SWITCH_KEYS = {"1", "num_1"}
+    MODE_SWITCH_GAMEPAD_BUTTONS = {"menu", "options", "start"}
     EMERGENCY_KEYS = {"space"}
     SPEED_KEY_LEVELS = {
         "6": 1,
@@ -39,21 +40,22 @@ class BridgeCore:
         linear_speed: float,
         angular_speed: float,
         servo_frame: str = "catch_camera",
-        gripper_min_position: float = 0.0,
-        gripper_max_position: float = 0.044,
-        gripper_initial_position: float = 0.022,
         default_speed_level: int = 2,
         base_linear_levels: Optional[Dict[int, float]] = None,
         base_angular_levels: Optional[Dict[int, float]] = None,
         arm_linear_levels: Optional[Dict[int, float]] = None,
         arm_angular_levels: Optional[Dict[int, float]] = None,
+        servo_angular_direction_corrections: Optional[List[float]] = None,
         gripper_rate_levels: Optional[Dict[int, float]] = None,
         flipper_velocity_levels: Optional[Dict[int, float]] = None,
         flipper_joint_names: Optional[List[str]] = None,
+        flipper_direction_corrections: Optional[List[float]] = None,
         flipper_jog_duration: float = 0.15,
         flipper_target_profile: str = "csv_velocity",
         flipper_profile_retry_sec: float = 2.0,
         gamepad_deadzone_percent: float = 4.0,
+        keyboard_service_bindings: Optional[Dict[str, str]] = None,
+        gamepad_service_bindings: Optional[Dict[str, str]] = None,
         cameras: Optional[List[Dict[str, Any]]] = None,
         camera_provider: Optional[Callable[[], List[Dict[str, Any]]]] = None,
         camera_stream_handler: Optional[Callable[[Dict[str, Any]], Tuple[bool, int, str, Optional[Dict[str, Any]]]]] = None,
@@ -72,37 +74,45 @@ class BridgeCore:
         )
         self.arm_linear = self.normalized_levels(arm_linear_levels, self.ARM_LINEAR_LEVELS)
         self.arm_angular = self.normalized_levels(arm_angular_levels, self.ARM_ANGULAR_LEVELS)
+        self.servo_angular_direction_corrections = self.normalized_axis_direction_corrections(
+            servo_angular_direction_corrections
+        )
         self.gripper_rates = self.normalized_levels(gripper_rate_levels, self.GRIPPER_RATE_LEVELS)
         self.flipper_velocities = self.normalized_levels(
             flipper_velocity_levels,
             {1: 0.2, 2: 0.4, 3: 0.55, 4: 0.7, 5: 0.8},
         )
         self.servo_frame = servo_frame
-        self.gripper_min_position = gripper_min_position
-        self.gripper_max_position = gripper_max_position
         self.flipper_joint_names = flipper_joint_names or [
             "left_front_arm_joint",
             "right_front_arm_joint",
             "left_rear_arm_joint",
             "right_rear_arm_joint",
         ]
+        self.flipper_direction_corrections = self.normalized_flipper_direction_corrections(
+            flipper_direction_corrections
+        )
         self.flipper_jog_duration = flipper_jog_duration
         self.flipper_target_profile = flipper_target_profile
         self.flipper_profile_retry_sec = flipper_profile_retry_sec
         self.last_flipper_profile_attempt = 0.0
         self.gamepad_deadzone = clamp(gamepad_deadzone_percent / 100.0, 0.0, 1.0)
+        self.keyboard_service_bindings = self.normalized_service_bindings(keyboard_service_bindings)
+        self.gamepad_service_bindings = self.normalized_service_bindings(gamepad_service_bindings)
         self.cameras = cameras if cameras is not None else self.default_cameras()
         self.camera_provider = camera_provider
         self.camera_stream_handler = camera_stream_handler
         self.state = BridgeState(
             control_mode=self.MODE_VEHICLE,
             speed_level=self.clamp_speed_level(default_speed_level),
-            gripper_target=self.clamp_gripper(gripper_initial_position),
+            gripper_velocity=0.0,
             last_servo=ServoCommand(frame_id=servo_frame),
+            last_gripper=GripperCommand(velocity=0.0, source="startup"),
             last_flipper=self.zero_flipper_command("startup"),
             flipper_profile_target=flipper_target_profile,
         )
         self.state_lock = threading.Lock()
+        self.operator_input_clock_offset_ms: Optional[int] = None
 
     @staticmethod
     def scaled_levels(levels: Dict[int, float], configured_max: float, default_max: float) -> Dict[int, float]:
@@ -164,9 +174,10 @@ class BridgeCore:
                 "watchdog",
                 "keyboard_base_arm_mapping",
                 "arm_servo_output",
-                "gripper_position_output",
+                "gripper_velocity_output",
                 "flipper_jog_output",
                 "joint_runtime_states",
+                "co2_data",
                 "hybrid_lifecycle_services",
                 "service_call_result",
                 "arm_named_targets",
@@ -175,8 +186,10 @@ class BridgeCore:
             "max_frame_bytes": MAX_FRAME_BYTES,
             "watchdog_ms": self.watchdog_ms,
             "gamepad_deadzone_percent": self.gamepad_deadzone * 100.0,
+            "keyboard_service_bindings": dict(self.keyboard_service_bindings),
+            "gamepad_service_bindings": dict(self.gamepad_service_bindings),
             "keyboard_mapping": {
-                "mode_switch": "1",
+                "mode_switch": "1 or gamepad menu/options/start",
                 "emergency": "space or gamepad l3+r3",
                 "speed_levels": {"6": 1, "7": 2, "8": 3, "9": 4, "0": 5},
                 "vehicle": {
@@ -234,7 +247,7 @@ class BridgeCore:
                 "last_twist": self.state.last_twist.to_dict(),
                 "last_servo": self.state.last_servo.to_dict(),
                 "last_flipper": self.state.last_flipper.to_dict(),
-                "gripper_target": self.state.gripper_target,
+                "gripper_velocity": self.state.gripper_velocity,
                 "flipper_profile": {
                     "target": self.state.flipper_profile_target,
                     "result": self.state.flipper_profile_result,
@@ -258,6 +271,12 @@ class BridgeCore:
         message["seq"] = 0
         message["timestamp_ms"] = now_ms()
         return message
+
+    def make_co2_data(self, ppm: int) -> Dict[str, Any]:
+        return {
+            "type": "co2_data",
+            "ppm": int(ppm),
+        }
 
     def make_arm_named_targets(
         self,
@@ -365,9 +384,16 @@ class BridgeCore:
         duration_ms = int((time.monotonic() - started) * 1000)
         return ok, code, message, service, duration_ms
 
+    def call_named_service_result(self, service: str) -> Tuple[bool, int, str, int]:
+        started = time.monotonic()
+        ok, code, message = self.output.call_named_service(service)
+        duration_ms = int((time.monotonic() - started) * 1000)
+        return ok, code, message, duration_ms
+
     def publish_zero(self, source: str) -> None:
         self.publish_twist(TwistCommand(0.0, 0.0, source))
         self.publish_servo(ServoCommand(frame_id=self.servo_frame, source=source))
+        self.publish_gripper(GripperCommand(velocity=0.0, source=source))
         self.publish_flipper(self.zero_flipper_command(source))
 
     def reset_operator_input_session(self, source: str) -> None:
@@ -377,6 +403,7 @@ class BridgeCore:
             self.state.watchdog_active = False
             self.state.last_pressed_keys = []
             self.state.last_gamepad_buttons = []
+        self.operator_input_clock_offset_ms = None
         self.publish_zero(source)
         self.events.emit("operator_input", "operator input session reset", data={
             "source": source,
@@ -394,7 +421,7 @@ class BridgeCore:
 
     def publish_gripper(self, gripper: GripperCommand) -> None:
         with self.state_lock:
-            self.state.gripper_target = gripper.position
+            self.state.gripper_velocity = gripper.velocity
             self.state.last_gripper = gripper
         self.output.publish_gripper(gripper)
 
@@ -633,7 +660,31 @@ class BridgeCore:
                     duration_ms=duration_ms,
                 )
             else:
-                yield self.make_ack(msg, True, 0, f"system command {command} accepted")
+                params = msg.get("params", {}) or {}
+                service_result = self.call_configured_service_result(msg, command, params)
+                if service_result is not None:
+                    ok, code, message, service, duration_ms = service_result
+                    self.events.emit("service", "system command service handled", data={
+                        "seq": seq,
+                        "command": command,
+                        "service": service,
+                        "ok": ok,
+                        "code": code,
+                        "message": message,
+                        "duration_ms": duration_ms,
+                    }, level="info" if ok else "error")
+                    yield self.make_ack(msg, ok, code, message)
+                    yield self.make_service_call_result(
+                        msg,
+                        command=command,
+                        service=service,
+                        ok=ok,
+                        code=code,
+                        message=message,
+                        duration_ms=duration_ms,
+                    )
+                else:
+                    yield self.make_ack(msg, True, 0, f"system command {command} accepted")
             return
 
         self.events.emit("protocol", "unsupported message type", level="warning", data={
@@ -650,38 +701,57 @@ class BridgeCore:
         pressed = self.normalized_pressed_keys(msg)
         gamepad = msg.get("gamepad", {}) if isinstance(msg.get("gamepad", {}), dict) else {}
         current_buttons = self.active_gamepad_buttons(gamepad)
+        raw_age_ms, effective_age_ms, clock_offset_ms = self.operator_input_age_ms(timestamp, current_ms)
 
         status: Optional[str] = None
+        previous_seq = 0
+        emergency_source = ""
         with self.state_lock:
+            previous_seq = self.state.last_operator_seq
             if seq <= self.state.last_operator_seq:
                 status = "dropped_old_seq"
-            elif ttl_ms > 0 and timestamp > 0 and current_ms > timestamp + ttl_ms:
-                self.state.last_operator_seq = seq
-                status = "dropped_expired"
             elif self.state.emergency_active:
                 self.state.last_operator_seq = seq
                 self.state.last_pressed_keys = sorted(pressed)
                 self.state.last_gamepad_buttons = sorted(current_buttons)
+                emergency_source = self.state.emergency_source
                 status = "ignored_emergency"
 
-        if status == "dropped_old_seq":
-            self.events.emit("operator_input", "operator input dropped old seq", level="warning", data={"seq": seq})
-            return [self.input_status(seq, status)]
+        drop_debug = {
+            "seq": seq,
+            "previous_seq": previous_seq,
+            "timestamp_ms": timestamp,
+            "ttl_ms": ttl_ms,
+            "current_ms": current_ms,
+            "raw_age_ms": raw_age_ms,
+            "effective_age_ms": effective_age_ms,
+            "clock_offset_ms": clock_offset_ms,
+            "mode": str(msg.get("mode", "")),
+            "pressed_keys": sorted(pressed),
+            "active_gamepad_buttons": sorted(current_buttons),
+            "gamepad_connected": bool(gamepad.get("connected", False)),
+        }
 
-        if status == "dropped_expired":
-            self.events.emit("operator_input", "operator input dropped expired", level="warning", data={"seq": seq})
+        if status == "dropped_old_seq":
+            self.events.emit(
+                "operator_input",
+                "operator input dropped old seq",
+                level="warning",
+                data=drop_debug,
+            )
             return [self.input_status(seq, status)]
 
         if status == "ignored_emergency":
             self.publish_zero("emergency_active")
-            with self.state_lock:
-                emergency_source = self.state.emergency_source
-            self.events.emit("operator_input", "operator input ignored emergency", level="warning", data={
-                "seq": seq,
-                "emergency_source": emergency_source,
-                "pressed_keys": sorted(pressed),
-                "active_gamepad_buttons": sorted(current_buttons),
-            })
+            self.events.emit(
+                "operator_input",
+                "operator input ignored emergency",
+                level="warning",
+                data={
+                    **drop_debug,
+                    "emergency_source": emergency_source,
+                },
+            )
             return [self.input_status(seq, status)]
 
         key_edges: Set[str]
@@ -715,6 +785,7 @@ class BridgeCore:
                 self.make_emergency_state("emergency active"),
             ]
 
+        service_results = self.handle_input_service_bindings(msg, key_edges, button_edges)
         self.apply_mode_and_speed_edges(key_edges, button_edges, seq)
         twist, servo, gripper, flipper = self.operator_input_to_outputs(pressed, gamepad, current_ms)
         self.publish_twist(twist)
@@ -744,14 +815,14 @@ class BridgeCore:
             "flipper": flipper.to_dict(),
             "pressed_keys": pressed_snapshot,
         })
-        return [self.input_status(seq, "accepted")]
+        return [self.input_status(seq, "accepted"), *service_results]
 
     def input_status(self, seq: int, status: str) -> Dict[str, Any]:
         with self.state_lock:
             twist = self.state.last_twist
             servo = self.state.last_servo
             flipper = self.state.last_flipper
-            gripper_target = self.state.gripper_target
+            gripper_velocity = self.state.gripper_velocity
             watchdog_active = self.state.watchdog_active
             emergency_active = self.state.emergency_active
             control_mode = self.state.control_mode
@@ -777,7 +848,7 @@ class BridgeCore:
             },
             "servo": servo.to_dict(),
             "gripper": {
-                "target": gripper_target,
+                "velocity": gripper_velocity,
             },
             "flipper": flipper.to_dict(),
             "flipper_profile": {
@@ -793,27 +864,27 @@ class BridgeCore:
         gamepad: Dict[str, Any],
         current_ms: int,
     ) -> Tuple[TwistCommand, ServoCommand, Optional[GripperCommand], FlipperCommand]:
-        axes = gamepad.get("axes", {}) if isinstance(gamepad.get("axes", {}), dict) else {}
-        buttons = gamepad.get("buttons", {}) if isinstance(gamepad.get("buttons", {}), dict) else {}
+        axes = self.normalized_gamepad_mapping(gamepad.get("axes", {}))
+        buttons = self.normalized_gamepad_mapping(gamepad.get("buttons", {}))
         connected = bool(gamepad.get("connected", False))
 
         with self.state_lock:
             mode = self.state.control_mode
             speed_level = self.state.speed_level
             previous_input_ms = self.state.last_valid_input_ms
-            gripper_target = self.state.gripper_target
 
         if mode == self.MODE_ARM:
             return self.operator_input_to_arm_outputs(
-                pressed, axes, buttons, connected, speed_level, previous_input_ms, current_ms, gripper_target
+                pressed, axes, buttons, connected, speed_level, previous_input_ms, current_ms
             )
 
-        return self.operator_input_to_vehicle_outputs(pressed, axes, connected, speed_level)
+        return self.operator_input_to_vehicle_outputs(pressed, axes, buttons, connected, speed_level)
 
     def operator_input_to_vehicle_outputs(
         self,
         pressed: Set[str],
         axes: Dict[str, Any],
+        buttons: Dict[str, Any],
         connected: bool,
         speed_level: int,
     ) -> Tuple[TwistCommand, ServoCommand, Optional[GripperCommand], FlipperCommand]:
@@ -822,9 +893,10 @@ class BridgeCore:
 
         if connected:
             linear_axis += self.axis_float_value(axes.get("left_y", 0.0))
-            # Browser/gamepad horizontal axes commonly report left as -1.
-            # Keep the operator-facing convention aligned with keyboard: left is positive.
-            angular_axis += -self.axis_float_value(axes.get("right_x", 0.0))
+            # Keep physical left aligned with keyboard "a": positive angular velocity.
+            left_rotation_axis = -self.axis_float_value(axes.get("left_x", 0.0))
+            right_rotation_axis = -self.axis_float_value(axes.get("right_x", 0.0))
+            angular_axis += self.strongest_axis_value(left_rotation_axis, right_rotation_axis)
 
         twist = TwistCommand(
             linear_x=clamp(linear_axis, -1.0, 1.0) * self.base_linear[speed_level],
@@ -832,7 +904,7 @@ class BridgeCore:
             source="operator_input.vehicle",
         )
         servo = ServoCommand(frame_id=self.servo_frame, source="operator_input.vehicle_zero")
-        flipper = self.operator_input_to_flipper_outputs(pressed, speed_level)
+        flipper = self.operator_input_to_flipper_outputs(pressed, buttons, axes, connected, speed_level)
         return twist, servo, None, flipper
 
     def operator_input_to_arm_outputs(
@@ -844,7 +916,6 @@ class BridgeCore:
         speed_level: int,
         previous_input_ms: int,
         current_ms: int,
-        gripper_target: float,
     ) -> Tuple[TwistCommand, ServoCommand, Optional[GripperCommand], FlipperCommand]:
         linear = self.arm_linear[speed_level]
         angular = self.arm_angular[speed_level]
@@ -860,47 +931,96 @@ class BridgeCore:
             # Keep physical left on the stick aligned with keyboard "a" / +linear.y.
             linear_y_axis += -self.axis_float_value(axes.get("left_x", 0.0))
             linear_z_axis += self.axis_float_value(axes.get("left_y", 0.0))
-            linear_x_axis += self.axis_float_value(axes.get("lt", 0.0)) - self.axis_float_value(axes.get("rt", 0.0))
+            # Use right trigger for forward and left trigger for backward motion.
+            linear_x_axis += self.axis_float_value(axes.get("rt", 0.0)) - self.axis_float_value(axes.get("lt", 0.0))
             angular_x_axis += self.bool_value(buttons.get("lb", False)) - self.bool_value(buttons.get("rb", False))
             angular_y_axis += -self.axis_float_value(axes.get("right_y", 0.0))
             angular_z_axis += self.axis_float_value(axes.get("right_x", 0.0))
+
+        angular_x = clamp(angular_x_axis, -1.0, 1.0) * angular
+        angular_y = clamp(angular_y_axis, -1.0, 1.0) * angular
+        angular_z = clamp(angular_z_axis, -1.0, 1.0) * angular
+        angular_x, angular_y, angular_z = self.apply_axis_direction_corrections(
+            angular_x,
+            angular_y,
+            angular_z,
+            self.servo_angular_direction_corrections,
+        )
 
         twist = TwistCommand(0.0, 0.0, "operator_input.arm_base_zero")
         servo = ServoCommand(
             linear_x=clamp(linear_x_axis, -1.0, 1.0) * linear,
             linear_y=clamp(linear_y_axis, -1.0, 1.0) * linear,
             linear_z=clamp(linear_z_axis, -1.0, 1.0) * linear,
-            angular_x=clamp(angular_x_axis, -1.0, 1.0) * angular,
-            angular_y=clamp(angular_y_axis, -1.0, 1.0) * angular,
-            angular_z=clamp(angular_z_axis, -1.0, 1.0) * angular,
+            angular_x=angular_x,
+            angular_y=angular_y,
+            angular_z=angular_z,
             frame_id=self.servo_frame,
             source="operator_input.arm",
         )
 
-        dt = 0.0
-        if previous_input_ms > 0:
-            dt = clamp((current_ms - previous_input_ms) / 1000.0, 0.0, 0.2)
         gripper_axis = self.axis_value(pressed, "f", "h")
-        gripper = None
-        if abs(gripper_axis) > 0.0 and dt > 0.0:
-            target = self.clamp_gripper(
-                gripper_target + gripper_axis * self.gripper_rates[speed_level] * dt
+        if connected:
+            gripper_axis += self.button_axis_value(
+                buttons,
+                positive_names=("x", "square"),
+                negative_names=("b", "circle"),
             )
-            gripper = GripperCommand(position=target, source="operator_input.arm")
+        if previous_input_ms <= 0:
+            gripper_velocity = 0.0
+        else:
+            # Velocity mode must receive explicit zero when keys are released.
+            gripper_velocity = clamp(gripper_axis, -1.0, 1.0) * self.gripper_rates[speed_level]
+        gripper = GripperCommand(velocity=gripper_velocity, source="operator_input.arm")
 
         return twist, servo, gripper, self.zero_flipper_command("operator_input.arm_zero")
 
-    def operator_input_to_flipper_outputs(self, pressed: Set[str], speed_level: int) -> FlipperCommand:
+    def operator_input_to_flipper_outputs(
+        self,
+        pressed: Set[str],
+        buttons: Dict[str, Any],
+        axes: Dict[str, Any],
+        connected: bool,
+        speed_level: int,
+    ) -> FlipperCommand:
         flipper_speed = self.flipper_velocities[speed_level]
-        key_pairs = [
-            ("y", "h"),
-            ("u", "j"),
-            ("i", "k"),
-            ("o", "l"),
-        ]
+        logical_axes = {
+            "left_front_arm_joint": self.axis_value(pressed, "y", "h"),
+            "right_front_arm_joint": self.axis_value(pressed, "u", "j"),
+            "left_rear_arm_joint": self.axis_value(pressed, "i", "k"),
+            "right_rear_arm_joint": self.axis_value(pressed, "o", "l"),
+        }
+        if connected:
+            logical_axes["left_front_arm_joint"] += self.gamepad_button_axis_value(
+                buttons,
+                axes,
+                positive_button_names=("l1", "lb"),
+                negative_button_names=("l2", "lt"),
+                negative_axis_names=("lt",),
+            )
+            logical_axes["right_front_arm_joint"] += self.gamepad_button_axis_value(
+                buttons,
+                axes,
+                positive_button_names=("r1", "rb"),
+                negative_button_names=("r2", "rt"),
+                negative_axis_names=("rt",),
+            )
+            logical_axes["left_rear_arm_joint"] += self.gamepad_button_axis_value(
+                buttons,
+                axes,
+                positive_button_names=("dpad_up",),
+                negative_button_names=("dpad_down",),
+            )
+            logical_axes["right_rear_arm_joint"] += self.gamepad_button_axis_value(
+                buttons,
+                axes,
+                positive_button_names=("triangle", "y"),
+                negative_button_names=("cross", "a"),
+            )
+
         velocities = [
-            self.axis_value(pressed, pos_key, neg_key) * flipper_speed
-            for pos_key, neg_key in key_pairs
+            clamp(logical_axes.get(joint_name, 0.0), -1.0, 1.0) * flipper_speed * correction
+            for joint_name, correction in zip(self.flipper_joint_names, self.flipper_direction_corrections)
         ]
         velocities = (velocities + [0.0] * len(self.flipper_joint_names))[: len(self.flipper_joint_names)]
 
@@ -928,7 +1048,7 @@ class BridgeCore:
         return pressed
 
     def active_gamepad_buttons(self, gamepad: Dict[str, Any]) -> Set[str]:
-        buttons = gamepad.get("buttons", {}) if isinstance(gamepad.get("buttons", {}), dict) else {}
+        buttons = self.normalized_gamepad_mapping(gamepad.get("buttons", {}))
         return {name for name, value in buttons.items() if bool(value)}
 
     def emergency_input_source(
@@ -954,11 +1074,10 @@ class BridgeCore:
                 )
                 mode_changed = True
 
-            if "dpad_up" in button_edges:
-                self.state.control_mode = self.MODE_VEHICLE
-                mode_changed = True
-            elif "dpad_down" in button_edges:
-                self.state.control_mode = self.MODE_ARM
+            if self.MODE_SWITCH_GAMEPAD_BUTTONS & button_edges:
+                self.state.control_mode = (
+                    self.MODE_ARM if self.state.control_mode == self.MODE_VEHICLE else self.MODE_VEHICLE
+                )
                 mode_changed = True
 
             for key in sorted(key_edges):
@@ -985,6 +1104,66 @@ class BridgeCore:
             return self.MODE_ARM
         return ""
 
+    @staticmethod
+    def normalized_service_bindings(bindings: Optional[Dict[str, str]]) -> Dict[str, str]:
+        if not bindings:
+            return {}
+        normalized: Dict[str, str] = {}
+        for raw_name, raw_service in bindings.items():
+            name = str(raw_name).strip().lower()
+            service = str(raw_service).strip()
+            if not name or not service:
+                continue
+            normalized[name] = service
+        return normalized
+
+    def handle_input_service_bindings(
+        self,
+        msg: Dict[str, Any],
+        key_edges: Set[str],
+        button_edges: Set[str],
+    ) -> List[Dict[str, Any]]:
+        results: List[Dict[str, Any]] = []
+        bindings = []
+        bindings.extend(
+            ("keyboard", key_name, self.keyboard_service_bindings[key_name])
+            for key_name in sorted(key_edges)
+            if key_name in self.keyboard_service_bindings
+        )
+        bindings.extend(
+            ("gamepad", button_name, self.gamepad_service_bindings[button_name])
+            for button_name in sorted(button_edges)
+            if button_name in self.gamepad_service_bindings
+        )
+        for input_type, input_name, service_name in bindings:
+            ok, code, message, duration_ms = self.call_named_service_result(service_name)
+            command = f"{input_type}:{input_name}"
+            self.events.emit(
+                "service",
+                "input binding service handled",
+                data={
+                    "command": command,
+                    "service": service_name,
+                    "ok": ok,
+                    "code": code,
+                    "message": message,
+                    "duration_ms": duration_ms,
+                },
+                level="info" if ok else "error",
+            )
+            results.append(
+                self.make_service_call_result(
+                    msg,
+                    command=command,
+                    service=service_name,
+                    ok=ok,
+                    code=code,
+                    message=message,
+                    duration_ms=duration_ms,
+                )
+            )
+        return results
+
     def clamp_speed_level(self, level: int) -> int:
         return max(1, min(5, int(level)))
 
@@ -995,6 +1174,55 @@ class BridgeCore:
         if negative_key in pressed:
             value -= 1.0
         return value
+
+    def normalized_flipper_direction_corrections(self, configured: Optional[List[float]]) -> List[float]:
+        defaults = [1.0] * len(self.flipper_joint_names)
+        if not configured:
+            return defaults
+        values = [float(value) for value in configured]
+        return (values + defaults)[0: len(self.flipper_joint_names)]
+
+    @staticmethod
+    def normalized_axis_direction_corrections(configured: Optional[List[float]]) -> List[float]:
+        defaults = [1.0, 1.0, 1.0]
+        if not configured:
+            return defaults
+        values = [float(value) for value in configured]
+        return (values + defaults)[0:3]
+
+    @staticmethod
+    def apply_axis_direction_corrections(
+        x_value: float,
+        y_value: float,
+        z_value: float,
+        corrections: List[float],
+    ) -> Tuple[float, float, float]:
+        normalized = BridgeCore.normalized_axis_direction_corrections(corrections)
+        return (
+            x_value * normalized[0],
+            y_value * normalized[1],
+            z_value * normalized[2],
+        )
+
+    @staticmethod
+    def normalized_gamepad_mapping(raw: Any) -> Dict[str, Any]:
+        if not isinstance(raw, dict):
+            return {}
+        normalized: Dict[str, Any] = {}
+        for name, value in raw.items():
+            key = str(name).strip().lower()
+            if not key:
+                continue
+            normalized[key] = value
+        return normalized
+
+    @staticmethod
+    def strongest_axis_value(*values: float) -> float:
+        strongest = 0.0
+        for value in values:
+            if abs(value) > abs(strongest):
+                strongest = value
+        return strongest
 
     @staticmethod
     def float_value(value: Any) -> float:
@@ -1011,8 +1239,58 @@ class BridgeCore:
     def bool_value(value: Any) -> float:
         return 1.0 if bool(value) else 0.0
 
-    def clamp_gripper(self, value: float) -> float:
-        return clamp(value, self.gripper_min_position, self.gripper_max_position)
+    def button_axis_value(
+        self,
+        buttons: Dict[str, Any],
+        positive_names: Tuple[str, ...],
+        negative_names: Tuple[str, ...],
+    ) -> float:
+        value = 0.0
+        if any(bool(buttons.get(name, False)) for name in positive_names):
+            value += 1.0
+        if any(bool(buttons.get(name, False)) for name in negative_names):
+            value -= 1.0
+        return value
+
+    def gamepad_button_axis_value(
+        self,
+        buttons: Dict[str, Any],
+        axes: Dict[str, Any],
+        *,
+        positive_button_names: Tuple[str, ...] = (),
+        negative_button_names: Tuple[str, ...] = (),
+        positive_axis_names: Tuple[str, ...] = (),
+        negative_axis_names: Tuple[str, ...] = (),
+    ) -> float:
+        value = 0.0
+        if self.gamepad_inputs_active(buttons, axes, positive_button_names, positive_axis_names):
+            value += 1.0
+        if self.gamepad_inputs_active(buttons, axes, negative_button_names, negative_axis_names):
+            value -= 1.0
+        return value
+
+    def gamepad_inputs_active(
+        self,
+        buttons: Dict[str, Any],
+        axes: Dict[str, Any],
+        button_names: Tuple[str, ...],
+        axis_names: Tuple[str, ...],
+    ) -> bool:
+        if any(bool(buttons.get(name, False)) for name in button_names):
+            return True
+        return any(abs(self.axis_float_value(axes.get(name, 0.0))) > 0.0 for name in axis_names)
+
+    def operator_input_age_ms(self, timestamp_ms: int, current_ms: int) -> Tuple[Optional[int], Optional[int], Optional[int]]:
+        if timestamp_ms <= 0:
+            return None, None, self.operator_input_clock_offset_ms
+
+        raw_age_ms = current_ms - timestamp_ms
+        if self.operator_input_clock_offset_ms is None or raw_age_ms < self.operator_input_clock_offset_ms:
+            self.operator_input_clock_offset_ms = raw_age_ms
+
+        clock_offset_ms = self.operator_input_clock_offset_ms
+        effective_age_ms = raw_age_ms - clock_offset_ms if clock_offset_ms is not None else raw_age_ms
+        return raw_age_ms, max(0, effective_age_ms), clock_offset_ms
 
     def check_watchdog(self) -> List[Dict[str, Any]]:
         emit_status = False

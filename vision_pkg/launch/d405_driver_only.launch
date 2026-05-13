@@ -1,0 +1,35 @@
+<launch>
+  <arg name="paw_serial" default="260322273334"/>
+
+  <arg name="color_width" default="1280"/>
+  <arg name="color_height" default="720"/>
+  <arg name="color_fps" default="30"/>
+
+  <arg name="depth_width" default="848"/>
+  <arg name="depth_height" default="480"/>
+  <arg name="depth_fps" default="30"/>
+
+  <arg name="align_depth" default="true"/>
+  <arg name="enable_sync" default="false"/>
+  <arg name="enable_pointcloud" default="false"/>
+  <arg name="enable_infra1" default="false"/>
+  <arg name="enable_infra2" default="false"/>
+
+  <include file="$(find realsense2_camera)/launch/rs_camera.launch">
+    <arg name="serial_no" value="$(arg paw_serial)"/>
+    <arg name="camera" value="paw_camera"/>
+    <arg name="enable_color" value="true"/>
+    <arg name="enable_depth" value="true"/>
+    <arg name="color_width" value="$(arg color_width)"/>
+    <arg name="color_height" value="$(arg color_height)"/>
+    <arg name="color_fps" value="$(arg color_fps)"/>
+    <arg name="depth_width" value="$(arg depth_width)"/>
+    <arg name="depth_height" value="$(arg depth_height)"/>
+    <arg name="depth_fps" value="$(arg depth_fps)"/>
+    <arg name="align_depth" value="$(arg align_depth)"/>
+    <arg name="enable_sync" value="$(arg enable_sync)"/>
+    <arg name="enable_infra1" value="$(arg enable_infra1)"/>
+    <arg name="enable_infra2" value="$(arg enable_infra2)"/>
+    <arg name="enable_pointcloud" value="$(arg enable_pointcloud)"/>
+  </include>
+</launch>

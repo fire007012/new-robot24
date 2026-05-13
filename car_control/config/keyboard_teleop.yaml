@@ -7,20 +7,15 @@ keyboard_teleop_node:
   chassis_cmd_topic: /cmd_vel
   servo_cmd_topic: /servo_server/delta_twist_cmds
   servo_command_frame_param: /servo_server/robot_link_command_frame
-  servo_frame: catch_camera
+  servo_frame: grasp_tcp
 
-  gripper_position_topic: /arm_control/gripper_position
-  gripper_joint_name: left_gripper_finger_joint
-  joint_states_topic: /joint_states
-  gripper_min_position: 0.0
-  gripper_max_position: 0.044
-  gripper_initial_position: 0.022
+  gripper_velocity_topic: /arm_control/gripper_velocity
   default_speed_level: 2
-  gripper_rate_level_1: 0.015
-  gripper_rate_level_2: 0.03
-  gripper_rate_level_3: 0.04
-  gripper_rate_level_4: 0.05
-  gripper_rate_level_5: 0.06
+  gripper_rate_level_1: 0.4
+  gripper_rate_level_2: 0.6
+  gripper_rate_level_3: 0.8
+  gripper_rate_level_4: 1.0
+  gripper_rate_level_5: 1.2
 
   flipper_jog_topic: /flipper_control/jog_cmd
   flipper_profile_service: /flipper_control/set_control_profile

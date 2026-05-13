@@ -1,0 +1,5 @@
+<launch>
+  <node name="tcp_bridge_node" pkg="tcp_bridge" type="tcp_bridge_node" output="screen">
+    <rosparam command="load" file="$(find tcp_bridge)/config/tcp_bridge.yaml" />
+  </node>
+</launch>

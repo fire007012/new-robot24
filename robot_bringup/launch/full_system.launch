@@ -3,8 +3,12 @@
   <arg name="enable_rviz" default="true"/>
   <arg name="enable_flipper_control" default="true"/>
   <arg name="enable_mobility_control" default="true"/>
+  <!-- gripper_cmd_node 已改为速度直通中继，默认接入整机启动链。 -->
   <arg name="enable_gripper_cmd" default="true"/>
   <arg name="enable_moveit_servo" default="true"/>
+  <arg name="enable_wrist_roll_services" default="true"/>
+  <arg name="enable_paw_vision" default="true"/>
+  <arg name="enable_co2_sensor" default="true"/>
 
   <arg name="pipeline" default="ompl"/>
   <arg name="servo_config" default="$(find car_control)/config/moveit_servo.yaml"/>
@@ -18,8 +22,8 @@
   <arg name="auto_enable" default="false"/>
   <arg name="auto_release" default="false"/>
 
-  <!-- Unified real hardware facade -->
-  <include file="$(find Eyou_ROS1_Master)/launch/hybrid_motor_hw.launch">
+  <include file="$(find robot_bringup)/launch/full_system_hardware.launch">
+    <arg name="enable_co2_sensor" value="$(arg enable_co2_sensor)"/>
     <arg name="canopen_dcf_path" value="$(arg canopen_dcf_path)"/>
     <arg name="canopen_joints_path" value="$(arg canopen_joints_path)"/>
     <arg name="can_driver_config" value="$(arg can_driver_config)"/>
@@ -28,28 +32,26 @@
     <arg name="auto_init" value="$(arg auto_init)"/>
     <arg name="auto_enable" value="$(arg auto_enable)"/>
     <arg name="auto_release" value="$(arg auto_release)"/>
-    <arg name="start_gripper_controller" value="true"/>
   </include>
 
-  <!-- Northbound control nodes kept aligned with simulation -->
-  <include if="$(arg enable_mobility_control)" file="$(find mobility_control)/launch/base_cmd.launch"/>
-  <include if="$(arg enable_flipper_control)" file="$(find flipper_control)/launch/flipper_control.launch"/>
-  <include if="$(arg enable_gripper_cmd)" file="$(find arm_control)/launch/gripper_cmd.launch"/>
+  <include file="$(find robot_bringup)/launch/full_system_control.launch">
+    <arg name="enable_mobility_control" value="$(arg enable_mobility_control)"/>
+    <arg name="enable_flipper_control" value="$(arg enable_flipper_control)"/>
+    <arg name="enable_gripper_cmd" value="$(arg enable_gripper_cmd)"/>
+  </include>
 
-  <!-- MoveIt planning/execution -->
-  <include if="$(arg enable_moveit)" file="$(find car_moveit_config)/launch/move_group.launch">
+  <include file="$(find robot_bringup)/launch/full_system_moveit.launch">
+    <arg name="enable_moveit" value="$(arg enable_moveit)"/>
+    <arg name="enable_rviz" value="$(arg enable_rviz)"/>
+    <arg name="enable_moveit_servo" value="$(arg enable_moveit_servo)"/>
     <arg name="pipeline" value="$(arg pipeline)"/>
-    <arg name="allow_trajectory_execution" value="true"/>
-    <arg name="moveit_controller_manager" value="simple"/>
-    <arg name="load_robot_description" value="false"/>
-  </include>
-
-  <include if="$(eval arg('enable_moveit') and arg('enable_moveit_servo'))"
-           file="$(find car_control)/launch/moveit_servo.launch">
     <arg name="servo_config" value="$(arg servo_config)"/>
   </include>
 
-  <include if="$(arg enable_rviz)" file="$(find car_moveit_config)/launch/moveit_rviz.launch">
-    <arg name="rviz_config" value="$(find car_moveit_config)/launch/moveit.rviz"/>
+  <include if="$(eval arg('enable_moveit') and arg('enable_wrist_roll_services'))"
+           file="$(find arm_control)/launch/wrist_roll_services.launch" />
+
+  <include file="$(find robot_bringup)/launch/full_system_vision.launch">
+    <arg name="enable_paw_vision" value="$(arg enable_paw_vision)"/>
   </include>
 </launch>

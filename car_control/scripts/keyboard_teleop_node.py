@@ -6,7 +6,6 @@ import rospy
 from control_msgs.msg import JointJog
 from flipper_control.srv import SetControlProfile, SetControlProfileRequest
 from geometry_msgs.msg import Twist, TwistStamped
-from sensor_msgs.msg import JointState
 from std_msgs.msg import Float64, String
 
 
@@ -23,9 +22,7 @@ class KeyboardTeleopNode(object):
     DEFAULT_SERVO_CMD_TOPIC = "/servo_server/delta_twist_cmds"
     DEFAULT_SERVO_FRAME_PARAM = "/servo_server/robot_link_command_frame"
     DEFAULT_SERVO_FRAME = "catch_camera"
-    DEFAULT_GRIPPER_POSITION_TOPIC = "/arm_control/gripper_position"
-    DEFAULT_GRIPPER_JOINT_NAME = "left_gripper_finger_joint"
-    DEFAULT_JOINT_STATES_TOPIC = "/joint_states"
+    DEFAULT_GRIPPER_VELOCITY_TOPIC = "/arm_control/gripper_velocity"
     DEFAULT_FLIPPER_JOG_TOPIC = "/flipper_control/jog_cmd"
     DEFAULT_FLIPPER_PROFILE_SERVICE = "/flipper_control/set_control_profile"
     DEFAULT_FLIPPER_TARGET_PROFILE = "csv_velocity"
@@ -61,18 +58,9 @@ class KeyboardTeleopNode(object):
         )
         self.servo_frame = rospy.get_param("~servo_frame", self.DEFAULT_SERVO_FRAME)
 
-        self.gripper_position_topic = rospy.get_param(
-            "~gripper_position_topic", self.DEFAULT_GRIPPER_POSITION_TOPIC
+        self.gripper_velocity_topic = rospy.get_param(
+            "~gripper_velocity_topic", self.DEFAULT_GRIPPER_VELOCITY_TOPIC
         )
-        self.gripper_joint_name = rospy.get_param(
-            "~gripper_joint_name", self.DEFAULT_GRIPPER_JOINT_NAME
-        )
-        self.joint_states_topic = rospy.get_param(
-            "~joint_states_topic", self.DEFAULT_JOINT_STATES_TOPIC
-        )
-        self.gripper_min_position = float(rospy.get_param("~gripper_min_position", 0.0))
-        self.gripper_max_position = float(rospy.get_param("~gripper_max_position", 0.044))
-        self.gripper_target = float(rospy.get_param("~gripper_initial_position", 0.022))
         self.default_speed_level = self.clamp_speed_level(
             int(rospy.get_param("~default_speed_level", self.DEFAULT_SPEED_LEVEL))
         )
@@ -80,14 +68,14 @@ class KeyboardTeleopNode(object):
         self.gripper_rates = self.load_speed_levels(
             "gripper_rate",
             {
-                1: 0.015,
-                2: 0.03,
-                3: 0.04,
-                4: 0.05,
-                5: 0.06,
+                1: 0.4,
+                2: 0.6,
+                3: 0.8,
+                4: 1.0,
+                5: 1.2,
             },
         )
-        self.have_gripper_state = False
+        self.last_gripper_velocity_cmd = 0.0
 
         self.flipper_jog_topic = rospy.get_param(
             "~flipper_jog_topic", self.DEFAULT_FLIPPER_JOG_TOPIC
@@ -170,16 +158,13 @@ class KeyboardTeleopNode(object):
         self.base_pub = rospy.Publisher(self.chassis_cmd_topic, Twist, queue_size=10)
         self.servo_pub = rospy.Publisher(self.servo_cmd_topic, TwistStamped, queue_size=10)
         self.gripper_pub = rospy.Publisher(
-            self.gripper_position_topic, Float64, queue_size=10
+            self.gripper_velocity_topic, Float64, queue_size=10
         )
         self.flipper_pub = rospy.Publisher(self.flipper_jog_topic, JointJog, queue_size=10)
         self.status_pub = rospy.Publisher(self.status_topic, String, queue_size=10)
 
         self.raw_state_sub = rospy.Subscriber(
             self.raw_state_topic, String, self.raw_state_cb, queue_size=10
-        )
-        self.joint_state_sub = rospy.Subscriber(
-            self.joint_states_topic, JointState, self.joint_state_cb, queue_size=20
         )
 
         self.flipper_profile_client = rospy.ServiceProxy(
@@ -197,23 +182,9 @@ class KeyboardTeleopNode(object):
             self.status_topic,
             self.chassis_cmd_topic,
             self.servo_cmd_topic,
-            self.gripper_position_topic,
+            self.gripper_velocity_topic,
             self.flipper_jog_topic,
         )
-
-    def joint_state_cb(self, msg):
-        try:
-            index = msg.name.index(self.gripper_joint_name)
-        except ValueError:
-            return
-
-        if index >= len(msg.position):
-            return
-
-        measured = self.clamp_gripper(msg.position[index])
-        if not self.have_gripper_state:
-            self.gripper_target = measured
-            self.have_gripper_state = True
 
     def raw_state_cb(self, msg):
         try:
@@ -341,9 +312,10 @@ class KeyboardTeleopNode(object):
         self.base_pub.publish(cmd)
 
         self.publish_zero_servo(now)
+        self.publish_zero_gripper()
         self.publish_flipper_jog(now, speed_level)
 
-    def publish_arm_outputs(self, now, dt, speed_level):
+    def publish_arm_outputs(self, now, _dt, speed_level):
         self.base_pub.publish(Twist())
         self.publish_zero_flipper(now)
 
@@ -361,14 +333,12 @@ class KeyboardTeleopNode(object):
         cmd.twist.angular.z = self.axis_value("j", "l") * angular
         self.servo_pub.publish(cmd)
 
-        gripper_delta = self.axis_value("f", "h") * self.gripper_rates[speed_level] * dt
-        if abs(gripper_delta) > 0.0:
-            self.gripper_target = self.clamp_gripper(self.gripper_target + gripper_delta)
-            self.gripper_pub.publish(Float64(data=self.gripper_target))
+        self.publish_gripper_velocity(speed_level)
 
     def publish_zero_outputs(self, now):
         self.base_pub.publish(Twist())
         self.publish_zero_servo(now)
+        self.publish_zero_gripper()
         self.publish_zero_flipper(now)
 
     def publish_zero_servo(self, now):
@@ -386,6 +356,15 @@ class KeyboardTeleopNode(object):
         msg.velocities = [0.0] * len(self.flipper_joint_names)
         msg.duration = self.flipper_jog_duration
         self.flipper_pub.publish(msg)
+
+    def publish_zero_gripper(self):
+        self.last_gripper_velocity_cmd = 0.0
+        self.gripper_pub.publish(Float64(data=0.0))
+
+    def publish_gripper_velocity(self, speed_level):
+        velocity = self.axis_value("f", "h") * self.gripper_rates[speed_level]
+        self.last_gripper_velocity_cmd = velocity
+        self.gripper_pub.publish(Float64(data=velocity))
 
     def publish_flipper_jog(self, now, speed_level):
         if not self.flipper_joint_names:
@@ -419,7 +398,7 @@ class KeyboardTeleopNode(object):
             "stale": stale,
             "pressed": sorted(self.current_pressed),
             "servo_frame": self.servo_frame,
-            "gripper_target": round(self.gripper_target, 4),
+            "gripper_velocity_cmd": round(self.last_gripper_velocity_cmd, 4),
             "flipper_profile_target": self.flipper_target_profile,
             "flipper_profile_result": self.last_flipper_profile_result,
             "flipper_profile_message": self.last_flipper_profile_message,
@@ -448,10 +427,6 @@ class KeyboardTeleopNode(object):
         if negative_key in self.current_pressed:
             value -= 1.0
         return value
-
-    def clamp_gripper(self, value):
-        return max(self.gripper_min_position, min(self.gripper_max_position, value))
-
 
 if __name__ == "__main__":
     rospy.init_node("keyboard_teleop_node")

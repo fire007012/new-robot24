@@ -1,0 +1,23 @@
+<launch>
+  <arg name="enable_moveit" default="true"/>
+  <arg name="enable_rviz" default="true"/>
+  <arg name="enable_moveit_servo" default="true"/>
+  <arg name="pipeline" default="ompl"/>
+  <arg name="servo_config" default="$(find car_control)/config/moveit_servo.yaml"/>
+
+  <include if="$(arg enable_moveit)" file="$(find car_moveit_config)/launch/move_group.launch">
+    <arg name="pipeline" value="$(arg pipeline)"/>
+    <arg name="allow_trajectory_execution" value="true"/>
+    <arg name="moveit_controller_manager" value="simple"/>
+    <arg name="load_robot_description" value="false"/>
+  </include>
+
+  <include if="$(eval arg('enable_moveit') and arg('enable_moveit_servo'))"
+           file="$(find car_control)/launch/moveit_servo.launch">
+    <arg name="servo_config" value="$(arg servo_config)"/>
+  </include>
+
+  <include if="$(arg enable_rviz)" file="$(find car_moveit_config)/launch/moveit_rviz.launch">
+    <arg name="rviz_config" value="$(find car_moveit_config)/launch/moveit.rviz"/>
+  </include>
+</launch>

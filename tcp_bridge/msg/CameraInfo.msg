@@ -1,0 +1,9 @@
+Header header
+uint8 camera_id
+bool online
+string codec
+uint16 width
+uint16 height
+uint8 fps
+uint16 bitrate_kbps
+string rtsp_url

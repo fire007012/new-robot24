@@ -1,0 +1,31 @@
+port: 9090
+heartbeat_timeout_sec: 3.0
+
+topics:
+  subscribe:
+    joint_states: "/joint_states"
+    executor_state: "/executor_state"
+    joint_data: "/joint_data"
+    imu: "/imu/data"
+    co2_sensor: "/co2_sensor"
+    camera_info: "/camera_info"
+    system_status: "/system_status"
+
+  publish:
+    cmd_vel: "/cmd_vel"
+    emergency_stop: "/emergency_stop"
+    joint_command: "/joint_command"
+    cartesian_command: "/cartesian_command"
+    motor_command: "/motor_command"
+    control_command: "/control_command"
+    system_command: "/system_command"
+
+rates:
+  joint_state_hz: 50
+  executor_state_hz: 20
+  imu_hz: 100
+  co2_hz: 1
+  system_status_hz: 1
+
+logging:
+  level: "info"

@@ -1,0 +1,119 @@
+<launch>
+  <!-- Focused test launch for paw vision + thermal only. -->
+  <arg name="paw_serial" default="260322273334"/>
+  <arg name="thermal_camera_dev" default=""/>
+
+  <!-- Start switches for the three visible-light features you want to test. -->
+  <arg name="start_yolo" default="true"/>
+  <arg name="start_qrcode" default="true"/>
+  <arg name="start_motion" default="true"/>
+  <arg name="start_thermal" default="true"/>
+
+  <!-- D405 settings -->
+  <arg name="paw_color_width" default="1280"/>
+  <arg name="paw_color_height" default="720"/>
+  <arg name="paw_color_fps" default="30"/>
+  <arg name="paw_depth_width" default="848"/>
+  <arg name="paw_depth_height" default="480"/>
+  <arg name="paw_depth_fps" default="30"/>
+  <arg name="paw_align_depth" default="true"/>
+  <arg name="paw_enable_pointcloud" default="false"/>
+
+  <!-- Vision node tuning -->
+  <arg name="paw_output_max_fps" default="30.0"/>
+  <arg name="paw_yolo_max_fps" default="5.0"/>
+  <arg name="paw_motion_max_fps" default="15.0"/>
+  <arg name="paw_enable_motion_debug_images" default="false"/>
+  <arg name="paw_enable_motion_depth_filter" default="false"/>
+  <arg name="paw_motion_min_area" default="50"/>
+  <arg name="paw_motion_diff_threshold" default="12.0"/>
+  <arg name="paw_motion_gaussian_k" default="7"/>
+  <arg name="paw_motion_gaussian_sigma" default="1.4"/>
+  <arg name="paw_motion_median_k" default="5"/>
+  <arg name="paw_motion_gamma" default="1.0"/>
+  <arg name="paw_motion_clahe_clip" default="1.2"/>
+  <arg name="paw_motion_min_support_ratio" default="0.05"/>
+  <arg name="paw_motion_min_support_pixels" default="90"/>
+  <arg name="paw_color_input_transport" default="raw"/>
+  <arg name="paw_depth_input_transport" default="raw"/>
+  <arg name="paw_tcp_nodelay" default="true"/>
+  <arg name="paw_color_queue_size" default="1"/>
+  <arg name="paw_depth_queue_size" default="1"/>
+  <arg name="paw_camera_info_queue_size" default="1"/>
+  <arg name="paw_output_queue_size" default="1"/>
+  <arg name="paw_qrcode_eps_x" default="0.35"/>
+  <arg name="paw_qrcode_eps_y" default="0.35"/>
+  <arg name="paw_qrcode_require_decoded_text" default="true"/>
+
+  <!-- Thermal camera settings -->
+  <arg name="thermal_frame_rate" default="25"/>
+  <arg name="thermal_raw_mode" default="true"/>
+  <arg name="thermal_temp_offset" default="0.0"/>
+  <arg name="thermal_upscale" default="4"/>
+  <arg name="thermal_colormap" default="plasma"/>
+
+  <include file="$(find realsense2_camera)/launch/rs_camera.launch">
+    <arg name="serial_no" value="$(arg paw_serial)"/>
+    <arg name="camera" value="paw_camera"/>
+    <arg name="enable_color" value="true"/>
+    <arg name="enable_depth" value="true"/>
+    <arg name="color_width" value="$(arg paw_color_width)"/>
+    <arg name="color_height" value="$(arg paw_color_height)"/>
+    <arg name="color_fps" value="$(arg paw_color_fps)"/>
+    <arg name="depth_width" value="$(arg paw_depth_width)"/>
+    <arg name="depth_height" value="$(arg paw_depth_height)"/>
+    <arg name="depth_fps" value="$(arg paw_depth_fps)"/>
+    <arg name="align_depth" value="$(arg paw_align_depth)"/>
+    <arg name="enable_infra1" value="false"/>
+    <arg name="enable_infra2" value="false"/>
+    <arg name="enable_pointcloud" value="$(arg paw_enable_pointcloud)"/>
+  </include>
+
+  <group if="$(arg start_thermal)">
+    <include file="$(find thermal_camera)/launch/thermal_camera.launch">
+      <arg name="device" value="$(arg thermal_camera_dev)"/>
+      <arg name="raw_mode" value="$(arg thermal_raw_mode)"/>
+      <arg name="frame_rate" value="$(arg thermal_frame_rate)"/>
+      <arg name="temp_offset" value="$(arg thermal_temp_offset)"/>
+      <arg name="upscale" value="$(arg thermal_upscale)"/>
+      <arg name="colormap" value="$(arg thermal_colormap)"/>
+    </include>
+  </group>
+
+  <node pkg="vision_pkg" type="vision_display_node" name="paw_vision" output="screen">
+    <param name="model_path" value="$(find vision_pkg)/model/best.onnx"/>
+    <param name="color_topic" value="/paw_camera/color/image_raw"/>
+    <param name="depth_topic" value="/paw_camera/aligned_depth_to_color/image_raw"/>
+    <param name="camera_info_topic" value="/paw_camera/color/camera_info"/>
+    <param name="enable_yolo_detection" value="$(arg start_yolo)"/>
+    <param name="enable_qrcode_detection" value="$(arg start_qrcode)"/>
+    <param name="enable_motion_detection" value="$(arg start_motion)"/>
+    <param name="enable_obstacle_warning" value="false"/>
+    <param name="enable_center_distance" value="false"/>
+    <param name="enable_motion_debug_images" value="$(arg paw_enable_motion_debug_images)"/>
+    <param name="enable_motion_depth_filter" value="$(arg paw_enable_motion_depth_filter)"/>
+    <param name="motion_min_area" value="$(arg paw_motion_min_area)"/>
+    <param name="motion_diff_threshold" value="$(arg paw_motion_diff_threshold)"/>
+    <param name="motion_gaussian_k" value="$(arg paw_motion_gaussian_k)"/>
+    <param name="motion_gaussian_sigma" value="$(arg paw_motion_gaussian_sigma)"/>
+    <param name="motion_median_k" value="$(arg paw_motion_median_k)"/>
+    <param name="motion_gamma" value="$(arg paw_motion_gamma)"/>
+    <param name="motion_clahe_clip" value="$(arg paw_motion_clahe_clip)"/>
+    <param name="motion_min_support_ratio" value="$(arg paw_motion_min_support_ratio)"/>
+    <param name="motion_min_support_pixels" value="$(arg paw_motion_min_support_pixels)"/>
+    <param name="use_cuda" value="false"/>
+    <param name="color_input_transport" value="$(arg paw_color_input_transport)"/>
+    <param name="depth_input_transport" value="$(arg paw_depth_input_transport)"/>
+    <param name="tcp_nodelay" value="$(arg paw_tcp_nodelay)"/>
+    <param name="color_queue_size" value="$(arg paw_color_queue_size)"/>
+    <param name="depth_queue_size" value="$(arg paw_depth_queue_size)"/>
+    <param name="camera_info_queue_size" value="$(arg paw_camera_info_queue_size)"/>
+    <param name="output_queue_size" value="$(arg paw_output_queue_size)"/>
+    <param name="output_max_fps" value="$(arg paw_output_max_fps)"/>
+    <param name="yolo_max_fps" value="$(arg paw_yolo_max_fps)"/>
+    <param name="motion_max_fps" value="$(arg paw_motion_max_fps)"/>
+    <param name="qrcode_eps_x" value="$(arg paw_qrcode_eps_x)"/>
+    <param name="qrcode_eps_y" value="$(arg paw_qrcode_eps_y)"/>
+    <param name="qrcode_require_decoded_text" value="$(arg paw_qrcode_require_decoded_text)"/>
+  </node>
+</launch>

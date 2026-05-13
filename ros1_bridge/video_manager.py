@@ -118,12 +118,74 @@ class DirectVideoSource:
 
 
 @dataclass
+class StreamVideoSource:
+    camera_id: int
+    name: str
+    image_topic: str
+    rtsp_url: str = ""
+    rtsp_path: str = ""
+    source_id: str = ""
+    codec: str = "h264"
+    width: int = 1280
+    height: int = 720
+    fps: int = 30
+    bitrate_kbps: int = 2500
+    enabled: bool = True
+    slot_hint: Optional[int] = None
+    ffmpeg_path: str = "ffmpeg"
+    rtsp_transport: str = ""
+    frame_timeout_sec: float = 3.0
+
+    def __post_init__(self) -> None:
+        if not self.source_id:
+            self.source_id = f"camera_{self.camera_id}"
+        if self.slot_hint is None:
+            self.slot_hint = self.camera_id
+
+    def resolved_rtsp_url(self, rtsp: RtspConfig) -> str:
+        if self.rtsp_url:
+            return self.rtsp_url
+        return rtsp.public_url(self.rtsp_path)
+
+    def camera_info(
+        self,
+        rtsp: RtspConfig,
+        online: bool = True,
+        last_error: str = "",
+    ) -> Dict[str, Any]:
+        return {
+            "camera_id": self.camera_id,
+            "source_id": self.source_id,
+            "slot_hint": self.slot_hint,
+            "name": self.name,
+            "kind": "stream",
+            "online": online,
+            "rtsp_url": self.resolved_rtsp_url(rtsp) if online else "",
+            "rtsp_transport": self.rtsp_transport or rtsp.transport,
+            "codec": self.codec,
+            "width": self.width,
+            "height": self.height,
+            "source_width": self.width,
+            "source_height": self.height,
+            "fps": self.fps,
+            "bitrate_kbps": self.bitrate_kbps if online else 0,
+            "profile": "external_stream",
+            "image_topic": self.image_topic,
+            "frame_timeout_sec": self.frame_timeout_sec,
+            "last_error": last_error,
+        }
+
+
+@dataclass
 class VideoConfig:
     rtsp: RtspConfig
     direct_sources: List[DirectVideoSource]
+    stream_sources: List[StreamVideoSource]
 
     def camera_infos(self) -> List[Dict[str, Any]]:
-        return [source.camera_info(self.rtsp, online=False) for source in self.direct_sources]
+        cameras = [source.camera_info(self.rtsp, online=False) for source in self.direct_sources]
+        cameras.extend(source.camera_info(self.rtsp, online=True) for source in self.stream_sources)
+        return _dedupe_and_sort_cameras(cameras)
 
 
 @dataclass
@@ -178,6 +240,10 @@ class VideoManager:
             source.camera_id: DirectSourceRuntime(source=source)
             for source in config.direct_sources
         }
+        self._stream_sources: Dict[int, StreamVideoSource] = {
+            source.camera_id: source
+            for source in config.stream_sources
+        }
 
     @classmethod
     def from_config_path(
@@ -203,6 +269,8 @@ class VideoManager:
     def start_enabled(self) -> List[Dict[str, Any]]:
         changed: List[Dict[str, Any]] = []
         for source in self.config.direct_sources:
+            if source.camera_id in self._stream_sources:
+                continue
             if source.enabled:
                 changed.append(self.start(source.camera_id))
         return changed
@@ -325,10 +393,33 @@ class VideoManager:
 
     def camera_infos(self) -> List[Dict[str, Any]]:
         with self._lock:
-            return [
+            cameras = [
                 self._runtime[source.camera_id].camera_info(self.config.rtsp)
                 for source in self.config.direct_sources
             ]
+            cameras.extend(
+                source.camera_info(self.config.rtsp, online=True)
+                for source in self.config.stream_sources
+            )
+            return _dedupe_and_sort_cameras(cameras)
+
+    def has_camera(self, camera_id: int) -> bool:
+        with self._lock:
+            return camera_id in self._runtime or camera_id in self._stream_sources
+
+    def supports_stream_control(self, camera_id: int) -> bool:
+        with self._lock:
+            if camera_id in self._stream_sources:
+                return False
+            return camera_id in self._runtime
+
+    def camera_info(self, camera_id: int) -> Dict[str, Any]:
+        with self._lock:
+            if camera_id in self._stream_sources:
+                return self._stream_sources[camera_id].camera_info(self.config.rtsp, online=True)
+            if camera_id in self._runtime:
+                return self._runtime[camera_id].camera_info(self.config.rtsp)
+        raise KeyError(f"unknown camera_id: {camera_id}")
 
     def refresh(self, auto_restart: bool = False) -> List[Dict[str, Any]]:
         changed: List[Dict[str, Any]] = []
@@ -571,6 +662,9 @@ def parse_video_config(data: Dict[str, Any]) -> VideoConfig:
     source_items = data.get("direct_sources", []) or []
     if not isinstance(source_items, list):
         raise VideoConfigError("direct_sources must be a list")
+    stream_items = data.get("streams", []) or []
+    if not isinstance(stream_items, list):
+        raise VideoConfigError("streams must be a list")
 
     sources: List[DirectVideoSource] = []
     for index, item in enumerate(source_items):
@@ -579,9 +673,17 @@ def parse_video_config(data: Dict[str, Any]) -> VideoConfig:
         if not _bool_value(item, "enabled", default=True):
             continue
         sources.append(parse_direct_source(item, index))
-    _validate_unique_camera_ids(sources)
+    stream_sources: List[StreamVideoSource] = []
+    for index, item in enumerate(stream_items):
+        if not isinstance(item, dict):
+            raise VideoConfigError(f"streams[{index}] must be a mapping")
+        if not _bool_value(item, "enabled", default=True):
+            continue
+        stream_sources.append(parse_stream_source(item, index, rtsp))
+    _validate_unique_camera_ids(sources, stream_sources)
     _validate_unique_rtsp_paths(sources)
-    return VideoConfig(rtsp=rtsp, direct_sources=sources)
+    _validate_unique_stream_paths(sources, stream_sources)
+    return VideoConfig(rtsp=rtsp, direct_sources=sources, stream_sources=stream_sources)
 
 
 def parse_direct_source(item: Any, index: int) -> DirectVideoSource:
@@ -655,9 +757,58 @@ def parse_direct_source(item: Any, index: int) -> DirectVideoSource:
     return source
 
 
-def _validate_unique_camera_ids(sources: List[DirectVideoSource]) -> None:
+def parse_stream_source(item: Any, index: int, rtsp: RtspConfig) -> StreamVideoSource:
+    if not isinstance(item, dict):
+        raise VideoConfigError(f"streams[{index}] must be a mapping")
+
+    camera_id = _positive_int(item, "camera_id")
+    if camera_id > 5:
+        raise VideoConfigError(f"streams[{index}].camera_id must be between 0 and 5")
+
+    rtsp_path = _optional_str(item, "rtsp_path")
+    rtsp_url = _optional_str(item, "rtsp_url")
+    if not rtsp_path and not rtsp_url:
+        raise VideoConfigError(f"streams[{index}] must define rtsp_url or rtsp_path")
+    if rtsp_path and "/" in rtsp_path.strip("/"):
+        raise VideoConfigError(f"streams[{index}].rtsp_path must be a single path segment")
+
+    codec = _required_str(item, "codec", default=str(item.get("output_codec", "h264")))
+    source = StreamVideoSource(
+        camera_id=camera_id,
+        source_id=_required_str(item, "source_id", default=f"camera_{camera_id}"),
+        slot_hint=_optional_int(item, "slot_hint"),
+        name=_required_str(item, "name", default=f"Camera {camera_id}"),
+        image_topic=_required_str(item, "image_topic"),
+        rtsp_url=rtsp_url,
+        rtsp_path=rtsp_path,
+        codec=codec,
+        width=_positive_int(item, "width", default=1280),
+        height=_positive_int(item, "height", default=720),
+        fps=_positive_int(item, "fps", default=30),
+        bitrate_kbps=_positive_int(item, "bitrate_kbps", default=2500),
+        enabled=_bool_value(item, "enabled", default=True),
+        ffmpeg_path=_required_str(item, "ffmpeg_path", default="ffmpeg"),
+        rtsp_transport=_required_str(item, "rtsp_transport", default=rtsp.transport),
+        frame_timeout_sec=_positive_float(item, "frame_timeout_sec", default=3.0),
+    )
+    if not source.rtsp_url and source.rtsp_path:
+        source.rtsp_url = rtsp.public_url(source.rtsp_path)
+    return source
+
+
+def _validate_unique_camera_ids(
+    direct_sources: List[DirectVideoSource],
+    stream_sources: List[StreamVideoSource],
+) -> None:
     seen: Dict[int, str] = {}
-    for source in sources:
+    for source in direct_sources:
+        if source.camera_id in seen:
+            raise VideoConfigError(
+                f"duplicate camera_id {source.camera_id}: {seen[source.camera_id]} and {source.name}"
+            )
+        seen[source.camera_id] = source.name
+    seen.clear()
+    for source in stream_sources:
         if source.camera_id in seen:
             raise VideoConfigError(
                 f"duplicate camera_id {source.camera_id}: {seen[source.camera_id]} and {source.name}"
@@ -668,6 +819,21 @@ def _validate_unique_camera_ids(sources: List[DirectVideoSource]) -> None:
 def _validate_unique_rtsp_paths(sources: List[DirectVideoSource]) -> None:
     seen: Dict[str, str] = {}
     for source in sources:
+        if source.rtsp_path in seen:
+            raise VideoConfigError(
+                f"duplicate rtsp_path {source.rtsp_path}: {seen[source.rtsp_path]} and {source.name}"
+            )
+        seen[source.rtsp_path] = source.name
+
+
+def _validate_unique_stream_paths(
+    direct_sources: List[DirectVideoSource],
+    stream_sources: List[StreamVideoSource],
+) -> None:
+    seen: Dict[str, str] = {source.rtsp_path: source.name for source in direct_sources}
+    for source in stream_sources:
+        if not source.rtsp_path:
+            continue
         if source.rtsp_path in seen:
             raise VideoConfigError(
                 f"duplicate rtsp_path {source.rtsp_path}: {seen[source.rtsp_path]} and {source.name}"
@@ -757,6 +923,44 @@ def _rtsp_transport(data: Dict[str, Any]) -> str:
     if transport not in ("tcp", "udp"):
         raise VideoConfigError("rtsp.transport must be tcp or udp")
     return transport
+
+
+def _positive_float(data: Dict[str, Any], key: str, default: float = 0.0) -> float:
+    value = data.get(key, default)
+    try:
+        result = float(value)
+    except (TypeError, ValueError) as exc:
+        raise VideoConfigError(f"{key} must be a positive number") from exc
+    if result <= 0.0:
+        raise VideoConfigError(f"{key} must be a positive number")
+    return result
+
+
+def _camera_sort_key(camera: Dict[str, Any]) -> Tuple[int, str]:
+    camera_id = camera.get("camera_id")
+    if isinstance(camera_id, int):
+        return camera_id, str(camera.get("name", ""))
+    try:
+        return int(camera_id), str(camera.get("name", ""))
+    except (TypeError, ValueError):
+        return 1_000_000, str(camera.get("name", ""))
+
+
+def _dedupe_and_sort_cameras(cameras: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    deduped: Dict[str, Dict[str, Any]] = {}
+    for camera in cameras:
+        deduped[_camera_dedupe_key(camera)] = dict(camera)
+    return sorted(deduped.values(), key=_camera_sort_key)
+
+
+def _camera_dedupe_key(camera: Dict[str, Any]) -> str:
+    camera_id = camera.get("camera_id")
+    if camera_id is not None:
+        return f"id:{camera_id}"
+    source_id = str(camera.get("source_id", "")).strip()
+    if source_id:
+        return f"source:{source_id}"
+    return f"name:{camera.get('name', 'unknown')}"
 
 
 def _positive_int(data: Dict[str, Any], key: str, default: Optional[int] = None) -> int:

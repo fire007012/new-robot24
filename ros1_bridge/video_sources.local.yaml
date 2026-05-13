@@ -6,30 +6,30 @@ rtsp:
   transport: tcp
 
 direct_sources:
-  - camera_id: 0
-    source_id: paw_realsense
-    slot_hint: 0
-    name: Paw RealSense
-    runner: ffmpeg
-    device: /dev/v4l/by-id/usb-Intel_R__RealSense_TM__Depth_Camera_405_Intel_R__RealSense_TM__Depth_Camera_405_260423073235-video-index4
-    input_format: yuyv422
-    input_width: 1280
-    input_height: 720
-    width: 960
-    height: 720
-    fps: 30
-    codec: h264
-    bitrate_kbps: 2500
-    vf: crop=960:720:160:0
-    rtsp_path: paw_realsense
-    enabled: true
+  # - camera_id: 0
+  #   source_id: paw_realsense
+  #   slot_hint: 0
+  #   name: Paw RealSense
+  #   runner: ffmpeg
+  #   device: /dev/v4l/by-id/usb-Intel_R__RealSense_TM__Depth_Camera_405_Intel_R__RealSense_TM__Depth_Camera_405_260423073235-video-index4
+  #   input_format: yuyv422
+  #   input_width: 1280
+  #   input_height: 720
+  #   width: 960
+  #   height: 720
+  #   fps: 30
+  #   codec: h264
+  #   bitrate_kbps: 2500
+  #   vf: crop=960:720:160:0
+  #   rtsp_path: paw_realsense
+  #   enabled: true
 
-  - camera_id: 1
-    source_id: overheadcam
-    slot_hint: 1
-    name: Overhead Camera
+  - camera_id: 0
+    source_id: armcam
+    slot_hint: 0
+    name: Arm Camera
     runner: ffmpeg
-    device: /dev/overheadcam
+    device: /dev/video10
     input_format: mjpeg
     input_width: 1280
     input_height: 720
@@ -39,15 +39,15 @@ direct_sources:
     codec: h264
     bitrate_kbps: 2500
     vf: crop=960:720:160:0
-    rtsp_path: overheadcam
+    rtsp_path: armcam
     enabled: true
 
-  - camera_id: 2
+  - camera_id: 1
     source_id: pawcam
-    slot_hint: 2
+    slot_hint: 1
     name: Paw Camera
     runner: ffmpeg
-    device: /dev/pawcam
+    device: /dev/video8
     input_format: mjpeg
     input_width: 1280
     input_height: 720
@@ -61,11 +61,29 @@ direct_sources:
     enabled: true
 
   - camera_id: 3
-    source_id: frontcam
+    source_id: overheadcam
     slot_hint: 3
+    name: Overhead Camera
+    runner: ffmpeg
+    device: /dev/video12
+    input_format: mjpeg
+    input_width: 1280
+    input_height: 720
+    width: 960
+    height: 720
+    fps: 30
+    codec: h264
+    bitrate_kbps: 2500
+    vf: crop=960:720:160:0
+    rtsp_path: overheadcam
+    enabled: true
+
+  - camera_id: 4
+    source_id: frontcam
+    slot_hint: 4
     name: Front Camera
     runner: ffmpeg
-    device: /dev/frontcam
+    device: /dev/video6
     input_format: mjpeg
     input_width: 1280
     input_height: 720
@@ -78,38 +96,27 @@ direct_sources:
     rtsp_path: frontcam
     enabled: true
 
-  - camera_id: 4
-    source_id: armcam
-    slot_hint: 4
-    name: Arm Camera
-    runner: ffmpeg
-    device: /dev/armcam
-    input_format: mjpeg
-    input_width: 1280
-    input_height: 720
-    width: 960
-    height: 720
+streams:
+  - camera_id: 2
+    source_id: paw_camera
+    slot_hint: 2
+    name: paw_camera
+    image_topic: /paw_camera/image_raw/compressed
+    rtsp_path: paw_camera_ros
     fps: 30
-    codec: h264
     bitrate_kbps: 2500
-    vf: crop=960:720:160:0
-    rtsp_path: armcam
+    codec: h264
+    frame_timeout_sec: 3.0
     enabled: true
 
   - camera_id: 5
-    source_id: backcam
+    source_id: paw_vision
     slot_hint: 5
-    name: Back Camera
-    runner: ffmpeg
-    device: /dev/backcam
-    input_format: mjpeg
-    input_width: 1280
-    input_height: 720
-    width: 960
-    height: 720
+    name: paw_vision
+    image_topic: /paw_vision/vision_image/compressed
+    rtsp_path: paw_vision_ros
     fps: 30
-    codec: h264
     bitrate_kbps: 2500
-    vf: crop=960:720:160:0
-    rtsp_path: backcam
-    enabled: false
+    codec: h264
+    frame_timeout_sec: 3.0
+    enabled: true

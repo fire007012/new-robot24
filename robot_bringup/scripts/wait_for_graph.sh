@@ -10,7 +10,7 @@ REQUIRED_TOPICS=(
   "/flipper_control/state"
   "/move_group/status"
   "/arm_position_controller/follow_joint_trajectory/goal"
-  "/gripper_controller/follow_joint_trajectory/goal"
+  "/gripper_controller/command"
   "/joint_states"
 )
 

@@ -311,7 +311,7 @@ class KeyboardTeleopGui(object):
             % ("active" if focused else "inactive", " (stale input)" if stale else "")
         )
         self.gripper_var.set(
-            "Gripper target: %s" % status.get("gripper_target", "--")
+            "Gripper velocity: %s" % status.get("gripper_velocity_cmd", "--")
         )
         self.flipper_var.set(
             "Flipper profile: %s"

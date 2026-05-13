@@ -1,3 +1,94 @@
 host_bridge_node:
-  gamepad_deadzone_percent: 4.0
+  # 手柄死区百分比，小于该值的摇杆输入会被忽略
+  gamepad_deadzone_percent: 5.0
+
+  # MoveIt named target 使用的规划组
   moveit_group: arm
+
+  # 上位机 thermal_monitor / dynamic_monitor / danger_sign / qr_code_detect / reset_monitor
+  # 会路由到这个视觉开关服务
+  vision_detection_service: /paw_vision/set_detection_enabled
+
+  # 输入边沿触发 Trigger service，按键名会按小写匹配。
+  # keyboard 支持 keyboard.pressed_keys 里的键名；gamepad 支持 gamepad.buttons 里的按钮名。
+  # 建议避开内置保留键：1、space、6/7/8/9/0、menu/options/start、l3+r3。
+  keyboard_service_bindings:
+    c: /arm_control/wrist_roll_positive_180
+    z: /arm_control/wrist_roll_negative_180
+    x: /arm_control/wrist_roll_zero
+  gamepad_service_bindings:
+    dpad_left: /arm_control/wrist_roll_negative_180
+    dpad_right: /arm_control/wrist_roll_positive_180
+
+  # CO2 ppm 上送 topic，std_msgs/Int32；置空可禁用
+  co2_topic: /co2_ppm
+
+  # 底盘最高档速度。若未单独覆盖各档位，1~5 档会按这个 level-5 值同比缩放。
+  linear_speed: 0.8
+  angular_speed: 1.5
+
+  # 开机默认速度档位
+  default_speed_level: 3
+
+  # 翻转臂 jog 持续时间与 profile 重试周期
+  flipper_jog_duration: 0.15
+  flipper_profile_retry_sec: 2.0
+
+  # 摆臂方向修正系数，按 flipper_joint_names 顺序或关节名映射生效。
+  # 收起/展开的逻辑方向会先生成，再乘上这里的系数修正到实机正反方向。
+  flipper_direction_corrections:
+    left_front_arm_joint: 1.0
+    right_front_arm_joint: -1.0
+    left_rear_arm_joint: 1.0
+    right_rear_arm_joint: -1.0
+
+  # 底盘速度档位，单位分别为 m/s 与 rad/s
+  base_linear_levels:
+    1: 0.1
+    2: 0.2
+    3: 0.4
+    4: 0.6
+    5: 0.8
+  base_angular_levels:
+    1: 0.2
+    2: 0.4
+    3: 0.5
+    4: 0.8
+    5: 1.5
+
+  # MoveIt Servo 桥接输出档位，单位分别为 m/s 与 rad/s
+  arm_linear_levels:
+    1: 0.4
+    2: 0.8
+    3: 1.2
+    4: 1.6
+    5: 2.0
+  arm_angular_levels:
+    1: 1.2
+    2: 2.4
+    3: 4.0
+    4: 6.0
+    5: 9.0
+
+  # MoveIt Servo 角速度方向修正系数，按 x/y/z 生效。
+  # bridge 会先生成逻辑方向，再乘上这里的系数修正到实际笛卡尔映射方向。
+  servo_angular_direction_corrections:
+    x: -1.0
+    y: 1.0
+    z: -1.0
+
+  # 夹爪每档速度，单位 rad/s；桥接默认直发 hybrid can_driver 的原始 cmd_velocity。
+  gripper_rate_levels:
+    1: 0.4
+    2: 0.6
+    3: 0.8
+    4: 1.0
+    5: 1.2
+
+  # 翻转臂每档速度，单位 rad/s
+  flipper_velocity_levels:
+    1: 0.2
+    2: 0.2
+    3: 0.2
+    4: 0.2
+    5: 0.2
