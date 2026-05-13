@@ -9,6 +9,7 @@ Eyou_ROS1_Master/
 |-- config/
 |   |-- controllers_jtc.yaml
 |   |-- controllers_minimal.yaml
+|   |-- controllers_tracks_only.yaml
 |   `-- joint_mode_mappings.yaml
 |-- docs/
 |   |-- README.md
@@ -149,6 +150,8 @@ rosrun Eyou_ROS1_Master hybrid_joint_action_ui.py \
 
 - `config/controllers_jtc.yaml`
   - 默认控制器集合
+- `config/controllers_tracks_only.yaml`
+  - 履带专用控制器集合
 - `config/joint_mode_mappings.yaml`
   - 统一 mode 字符串到后端实际模式的映射
 - `launch/hybrid_motor_hw.launch`

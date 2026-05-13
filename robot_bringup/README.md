@@ -18,6 +18,7 @@ robot_bringup/
 |   |-- full_system_control.launch
 |   |-- full_system_hardware.launch
 |   |-- full_system_moveit.launch
+|   |-- full_system_tracks_only.launch
 |   |-- full_system_simulate.launch
 |   |-- full_system_vision.launch
 |   `-- keyboard_moveit_server.launch
@@ -45,6 +46,12 @@ roslaunch robot_bringup full_system_simulate.launch
 
 ```bash
 roslaunch robot_bringup full_system.launch
+```
+
+履带专用实机入口：
+
+```bash
+roslaunch robot_bringup full_system_tracks_only.launch
 ```
 
 四终端分组启动：
@@ -111,6 +118,8 @@ rosrun robot_bringup bringup_canable1.sh
   - 启动 Gazebo、底盘控制、摆臂控制、夹爪命令、MoveIt、RViz。
 - `full_system.launch`
   - 以 `Eyou_ROS1_Master` 为硬件统一门面，再接入同一套上层控制节点。
+- `full_system_tracks_only.launch`
+  - 仅切换 `can_driver` 为履带配置，其余视觉 / CO2 / 底盘控制链保持正常，且不启动 RViz。
 - `full_system_hardware.launch`
   - 电机硬件与控制器管理。
 - `full_system_control.launch`

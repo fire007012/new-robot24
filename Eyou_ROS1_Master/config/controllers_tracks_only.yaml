@@ -1,0 +1,59 @@
+# Tracks-only controller set.
+
+joint_state_controller:
+  type: joint_state_controller/JointStateController
+  publish_rate: 100
+
+flipper_csp_controller:
+  type: position_controllers/JointTrajectoryController
+  joints:
+    - left_front_arm_joint
+    - right_front_arm_joint
+    - left_rear_arm_joint
+    - right_rear_arm_joint
+  allow_partial_joints_goal: true
+  constraints:
+    goal_time: 1.0
+    stopped_velocity_tolerance: 0.05
+    left_front_arm_joint: {trajectory: 0.10, goal: 0.03}
+    right_front_arm_joint: {trajectory: 0.10, goal: 0.03}
+    left_rear_arm_joint: {trajectory: 0.10, goal: 0.03}
+    right_rear_arm_joint: {trajectory: 0.10, goal: 0.03}
+  stop_trajectory_duration: 0.1
+  state_publish_rate: 50
+  action_monitor_rate: 20
+
+flipper_csv_forward_controller:
+  type: flipper_control/JointGroupVelocityController
+  joints:
+    - left_front_arm_joint
+    - right_front_arm_joint
+    - left_rear_arm_joint
+    - right_rear_arm_joint
+  command_timeout: 0.25
+
+wheel_controller:
+  type: diff_drive_controller/DiffDriveController
+  left_wheel: left_front_wheel_joint
+  right_wheel: right_front_wheel_joint
+  publish_rate: 50.0
+  cmd_vel_timeout: 0.3
+  base_frame_id: base_link
+  odom_frame_id: odom
+  enable_odom_tf: true
+  wheel_separation: 0.36
+  wheel_radius: 0.075
+  pose_covariance_diagonal: [0.001, 0.001, 1000000.0, 1000000.0, 1000000.0, 0.03]
+  twist_covariance_diagonal: [0.001, 0.001, 1000000.0, 1000000.0, 1000000.0, 0.03]
+  linear:
+    x:
+      has_velocity_limits: true
+      max_velocity: 0.8
+      has_acceleration_limits: true
+      max_acceleration: 1.0
+  angular:
+    z:
+      has_velocity_limits: true
+      max_velocity: 1.5
+      has_acceleration_limits: true
+      max_acceleration: 2.0

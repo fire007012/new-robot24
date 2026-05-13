@@ -1,0 +1,47 @@
+<launch>
+  <!-- tracks_only 仅切换 can_driver 后端为履带配置；视觉、CO2 等其余组件保持正常，且不启动 RViz。 -->
+  <arg name="enable_paw_vision" default="true"/>
+  <arg name="enable_co2_sensor" default="true"/>
+  <arg name="enable_mobility_control" default="true"/>
+  <arg name="enable_flipper_control" default="true"/>
+  <arg name="enable_gripper_cmd" default="false"/>
+
+  <arg name="canopen_dcf_path" default="$(find Eyou_Canopen_Master)/config/master_flipper_4axis.dcf"/>
+  <arg name="canopen_joints_path" default="$(find Eyou_Canopen_Master)/config/joints_flipper_4axis.yaml"/>
+  <arg name="can_driver_config" default="$(find can_driver)/config/can_driver_tracks_only.yaml"/>
+  <arg name="controllers_file" default="$(find Eyou_ROS1_Master)/config/controllers_tracks_only.yaml"/>
+  <arg name="start_controllers" default="joint_state_controller flipper_csv_forward_controller wheel_controller"/>
+  <arg name="stopped_controllers" default="flipper_csp_controller"/>
+  <arg name="robot_urdf" default="$(find car_urdf)/urdf/car_urdf.urdf"/>
+  <arg name="loop_hz" default="200.0"/>
+  <arg name="auto_init" default="false"/>
+  <arg name="auto_enable" default="false"/>
+  <arg name="auto_release" default="false"/>
+
+  <include file="$(find robot_bringup)/launch/full_system_hardware.launch">
+    <arg name="canopen_dcf_path" value="$(arg canopen_dcf_path)"/>
+    <arg name="canopen_joints_path" value="$(arg canopen_joints_path)"/>
+    <arg name="can_driver_config" value="$(arg can_driver_config)"/>
+    <arg name="controllers_file" value="$(arg controllers_file)"/>
+    <arg name="start_controllers" value="$(arg start_controllers)"/>
+    <arg name="stopped_controllers" value="$(arg stopped_controllers)"/>
+    <arg name="robot_urdf" value="$(arg robot_urdf)"/>
+    <arg name="loop_hz" value="$(arg loop_hz)"/>
+    <arg name="auto_init" value="$(arg auto_init)"/>
+    <arg name="auto_enable" value="$(arg auto_enable)"/>
+    <arg name="auto_release" value="$(arg auto_release)"/>
+  </include>
+
+  <include file="$(find robot_bringup)/launch/full_system_control.launch">
+    <arg name="enable_mobility_control" value="$(arg enable_mobility_control)"/>
+    <arg name="enable_flipper_control" value="$(arg enable_flipper_control)"/>
+    <arg name="enable_gripper_cmd" value="$(arg enable_gripper_cmd)"/>
+  </include>
+
+  <include file="$(find robot_bringup)/launch/full_system_vision.launch">
+    <arg name="enable_paw_vision" value="$(arg enable_paw_vision)"/>
+  </include>
+
+  <include if="$(arg enable_co2_sensor)"
+           file="$(find senseair_co2)/launch/senseair_co2.launch"/>
+</launch>
