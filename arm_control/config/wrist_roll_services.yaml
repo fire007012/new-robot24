@@ -1,0 +1,21 @@
+wrist_roll_service_node:
+  group_name: arm
+  reference_frame: base_link
+  velocity_scaling: 0.4
+  acceleration_scaling: 0.4
+  planning_time: 5.0
+  num_planning_attempts: 1
+  moveit_wait_for_servers: 5.0
+
+  joint_states_topic: /joint_states
+  joint_states_timeout: 2.0
+
+  roll_joint_name: wrist_roll_joint
+  roll_delta_rad: 3.141592653589793
+  limit_lower: -7.069
+  limit_upper: 7.069
+  skip_limit_check: false
+
+  positive_service_name: /arm_control/wrist_roll_positive_180
+  negative_service_name: /arm_control/wrist_roll_negative_180
+  zero_service_name: /arm_control/wrist_roll_zero

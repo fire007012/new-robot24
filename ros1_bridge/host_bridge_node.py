@@ -194,6 +194,55 @@ def resolve_flipper_direction_corrections(
     raise ValueError("flipper_direction_corrections must be a comma-separated string, list, or mapping")
 
 
+def resolve_servo_angular_direction_corrections(
+    args: argparse.Namespace,
+    parser: argparse.ArgumentParser,
+    config: Dict[str, Any],
+) -> Optional[List[float]]:
+    raw_value = resolve_config_value(
+        args,
+        parser,
+        "servo_angular_direction_corrections",
+        config,
+        None,
+    )
+    if raw_value in (None, ""):
+        return None
+    if isinstance(raw_value, str):
+        return parse_float_csv_list(raw_value)
+    if isinstance(raw_value, list):
+        return [float(value) for value in raw_value]
+    if isinstance(raw_value, dict):
+        return [
+            float(raw_value.get("x", 1.0)),
+            float(raw_value.get("y", 1.0)),
+            float(raw_value.get("z", 1.0)),
+        ]
+    raise ValueError(
+        "servo_angular_direction_corrections must be a comma-separated string, list, or mapping"
+    )
+
+
+def resolve_service_bindings_config(
+    config: Dict[str, Any],
+    attr: str,
+) -> Dict[str, str]:
+    raw_value = config.get(attr, {})
+    if raw_value in (None, ""):
+        return {}
+    if not isinstance(raw_value, dict):
+        raise ValueError(f"{attr} must be a mapping of input name to ROS service name")
+
+    bindings: Dict[str, str] = {}
+    for raw_name, raw_service in raw_value.items():
+        name = str(raw_name).strip().lower()
+        service = str(raw_service).strip()
+        if not name or not service:
+            raise ValueError(f"{attr} keys and values must be non-empty")
+        bindings[name] = service
+    return bindings
+
+
 class HostBridgeServer:
     def __init__(
         self,
@@ -209,6 +258,7 @@ class HostBridgeServer:
         base_angular_levels: Optional[Dict[int, float]] = None,
         arm_linear_levels: Optional[Dict[int, float]] = None,
         arm_angular_levels: Optional[Dict[int, float]] = None,
+        servo_angular_direction_corrections: Optional[List[float]] = None,
         gripper_rate_levels: Optional[Dict[int, float]] = None,
         flipper_velocity_levels: Optional[Dict[int, float]] = None,
         flipper_joint_names: Optional[List[str]] = None,
@@ -217,6 +267,8 @@ class HostBridgeServer:
         flipper_target_profile: str = "csv_velocity",
         flipper_profile_retry_sec: float = 2.0,
         gamepad_deadzone_percent: float = 4.0,
+        keyboard_service_bindings: Optional[Dict[str, str]] = None,
+        gamepad_service_bindings: Optional[Dict[str, str]] = None,
         cameras: Optional[List[Dict[str, Any]]] = None,
         video_gateway: Optional[VideoManagerGateway] = None,
         video_poll_sec: float = 1.0,
@@ -247,6 +299,7 @@ class HostBridgeServer:
             base_angular_levels,
             arm_linear_levels,
             arm_angular_levels,
+            servo_angular_direction_corrections,
             gripper_rate_levels,
             flipper_velocity_levels,
             flipper_joint_names,
@@ -255,6 +308,8 @@ class HostBridgeServer:
             flipper_target_profile,
             flipper_profile_retry_sec,
             gamepad_deadzone_percent,
+            keyboard_service_bindings,
+            gamepad_service_bindings,
             cameras,
             self.video_gateway.camera_infos if self.video_gateway else None,
             self.handle_camera_stream_request if self.video_gateway else None,
@@ -600,6 +655,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default=None,
         help="comma-separated flipper direction corrections aligned with --flipper-joint-names",
     )
+    parser.add_argument(
+        "--servo-angular-direction-corrections",
+        default=None,
+        help="comma-separated angular x,y,z direction corrections for arm servo output",
+    )
     parser.add_argument("--watchdog-ms", type=int, default=DEFAULT_WATCHDOG_MS)
     parser.add_argument("--linear-speed", type=float, default=0.8, help="vehicle level-5 linear speed")
     parser.add_argument("--angular-speed", type=float, default=1.5, help="vehicle level-5 angular speed")
@@ -754,12 +814,25 @@ def main() -> None:
         bridge_control_config,
         flipper_joint_names,
     )
+    servo_angular_direction_corrections = resolve_servo_angular_direction_corrections(
+        args,
+        parser,
+        bridge_control_config,
+    )
     flipper_target_profile = resolve_str_config(
         args,
         parser,
         "flipper_target_profile",
         bridge_control_config,
         "csv_velocity",
+    )
+    keyboard_service_bindings = resolve_service_bindings_config(
+        bridge_control_config,
+        "keyboard_service_bindings",
+    )
+    gamepad_service_bindings = resolve_service_bindings_config(
+        bridge_control_config,
+        "gamepad_service_bindings",
     )
 
     cameras = args.camera
@@ -824,6 +897,7 @@ def main() -> None:
         base_angular_levels=base_angular_levels,
         arm_linear_levels=arm_linear_levels,
         arm_angular_levels=arm_angular_levels,
+        servo_angular_direction_corrections=servo_angular_direction_corrections,
         gripper_rate_levels=gripper_rate_levels,
         flipper_velocity_levels=flipper_velocity_levels,
         flipper_joint_names=flipper_joint_names,
@@ -832,6 +906,8 @@ def main() -> None:
         flipper_target_profile=flipper_target_profile,
         flipper_profile_retry_sec=flipper_profile_retry_sec,
         gamepad_deadzone_percent=gamepad_deadzone_percent,
+        keyboard_service_bindings=keyboard_service_bindings,
+        gamepad_service_bindings=gamepad_service_bindings,
         cameras=cameras,
         video_gateway=video_gateway,
         video_poll_sec=args.video_poll_sec,

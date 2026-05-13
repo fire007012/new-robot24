@@ -5,8 +5,8 @@ arm_position_controller:
     - shoulder_pitch_joint
     - elbow_pitch_joint
     - wrist_pitch_joint
-    - wrist_roll_joint
     - wrist_yaw_joint
+    - wrist_roll_joint
   gains:
     shoulder_yaw_joint:
       p: 100

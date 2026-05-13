@@ -11,8 +11,8 @@ arm_position_controller:
     - shoulder_pitch_joint
     - elbow_pitch_joint
     - wrist_pitch_joint
-    - wrist_roll_joint
     - wrist_yaw_joint
+    - wrist_roll_joint
   constraints:
     goal_time: 2.0
     stopped_velocity_tolerance: 0.05

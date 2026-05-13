@@ -7,6 +7,7 @@
   <arg name="enable_gripper_cmd" default="true"/>
   <arg name="enable_moveit_servo" default="true"/>
   <arg name="enable_arm_goal_executor" default="true"/>
+  <arg name="enable_wrist_roll_services" default="true"/>
   <arg name="enable_keyboard_teleop" default="false"/>
   <arg name="keyboard_teleop_start_gui" default="true"/>
 
@@ -18,7 +19,7 @@
   <arg name="paused" default="false"/>
   <arg name="world_name" default="worlds/empty.world"/>
   <arg name="world_pose" default="-x 0 -y 0 -z 0 -R 0 -P 0 -Y 0"/>
-  <arg name="initial_joint_positions" default=" -J elbow_pitch_joint 2.65 -J shoulder_pitch_joint -0.85 -J shoulder_yaw_joint 0.0009 -J wrist_pitch_joint 0.1892 -J wrist_roll_joint 0.0021 -J wrist_yaw_joint 0"/>
+  <arg name="initial_joint_positions" default=" -J elbow_pitch_joint 2.65 -J shoulder_pitch_joint -0.85 -J shoulder_yaw_joint 0.0009 -J wrist_pitch_joint 0.1892 -J wrist_yaw_joint 0.0021 -J wrist_roll_joint 0"/>
 
   <!-- Gazebo simulation and ros_control controllers -->
   <include file="$(find car_moveit_config)/launch/gazebo.launch">
@@ -52,6 +53,9 @@
 
   <include if="$(eval arg('enable_moveit') and arg('enable_arm_goal_executor'))"
            file="$(find arm_control)/launch/arm_goal_executor.launch"/>
+
+  <include if="$(eval arg('enable_moveit') and arg('enable_wrist_roll_services'))"
+           file="$(find arm_control)/launch/wrist_roll_services.launch" />
 
   <include if="$(eval arg('enable_moveit') and arg('enable_moveit_servo'))"
            file="$(find car_control)/launch/moveit_servo.launch">

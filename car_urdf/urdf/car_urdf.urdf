@@ -774,7 +774,7 @@
     </collision>
   </link>
   <joint
-    name="wrist_roll_joint"
+    name="wrist_yaw_joint"
     type="revolute">
     <origin
       xyz="-0.0330007142673656 -0.0330000000000009 0.0530007142674829"
@@ -829,7 +829,7 @@
     </collision>
   </link>
   <joint
-    name="wrist_yaw_joint"
+    name="wrist_roll_joint"
     type="revolute">
     <origin
       xyz="0.0330007142675045 0 0.0474000000000001"
@@ -1196,7 +1196,7 @@
 
   <transmission name="hands_roll_trans">
     <type>transmission_interface/SimpleTransmission</type>
-    <joint name="wrist_roll_joint">
+    <joint name="wrist_yaw_joint">
       <hardwareInterface>hardware_interface/PositionJointInterface</hardwareInterface>
     </joint>
     <actuator name="hands_roll_motor">
@@ -1207,7 +1207,7 @@
 
   <transmission name="hands_course_trans">
     <type>transmission_interface/SimpleTransmission</type>
-    <joint name="wrist_yaw_joint">
+    <joint name="wrist_roll_joint">
       <hardwareInterface>hardware_interface/PositionJointInterface</hardwareInterface>
     </joint>
     <actuator name="hands_course_motor">

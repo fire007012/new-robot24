@@ -12,8 +12,8 @@ car_urdf:
       - shoulder_pitch_joint
       - elbow_pitch_joint
       - wrist_pitch_joint
-      - wrist_roll_joint
       - wrist_yaw_joint
+      - wrist_roll_joint
 
   # 夹爪控制器
   gripper_controller:

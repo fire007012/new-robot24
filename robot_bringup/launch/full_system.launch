@@ -6,6 +6,7 @@
   <!-- gripper_cmd_node 已改为速度直通中继，默认接入整机启动链。 -->
   <arg name="enable_gripper_cmd" default="true"/>
   <arg name="enable_moveit_servo" default="true"/>
+  <arg name="enable_wrist_roll_services" default="true"/>
   <arg name="enable_paw_vision" default="true"/>
   <arg name="enable_co2_sensor" default="true"/>
 
@@ -46,6 +47,9 @@
     <arg name="pipeline" value="$(arg pipeline)"/>
     <arg name="servo_config" value="$(arg servo_config)"/>
   </include>
+
+  <include if="$(eval arg('enable_moveit') and arg('enable_wrist_roll_services'))"
+           file="$(find arm_control)/launch/wrist_roll_services.launch" />
 
   <include file="$(find robot_bringup)/launch/full_system_vision.launch">
     <arg name="enable_paw_vision" value="$(arg enable_paw_vision)"/>

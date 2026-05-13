@@ -80,6 +80,9 @@ class OutputAdapter:
     def call_command_service(self, command: str, params: Optional[Dict[str, Any]] = None) -> Tuple[bool, int, str]:
         return False, 2302, f"no ROS service configured for {command}"
 
+    def call_named_service(self, service_name: str) -> Tuple[bool, int, str]:
+        return False, 2302, f"no ROS service configured for {service_name}"
+
     def list_arm_named_targets(self) -> Tuple[bool, int, str, List[Dict[str, str]]]:
         return False, 2302, "no MoveIt arm group configured", []
 
@@ -164,6 +167,13 @@ class DryRunOutput(OutputAdapter):
             "command": command,
             "service": service_name,
             "params": params or {},
+        })
+        return True, 0, f"dry-run service {service_name} accepted"
+
+    def call_named_service(self, service_name: str) -> Tuple[bool, int, str]:
+        print(f"[bridge] trigger service dry-run service={service_name}", flush=True)
+        self.events.emit("service", "dry-run named trigger service", data={
+            "service": service_name,
         })
         return True, 0, f"dry-run service {service_name} accepted"
 
@@ -343,6 +353,18 @@ class RosOutput(OutputAdapter):
         service_name = self.command_service_name(command, params)
         if command in VISION_MONITOR_COMMANDS:
             return self._call_vision_detection_service(command, service_name)
+        return self._call_trigger_service(service_name, command=command, params=params)
+
+    def call_named_service(self, service_name: str) -> Tuple[bool, int, str]:
+        return self._call_trigger_service(service_name)
+
+    def _call_trigger_service(
+        self,
+        service_name: str,
+        *,
+        command: str = "",
+        params: Optional[Dict[str, Any]] = None,
+    ) -> Tuple[bool, int, str]:
         try:
             self._rospy.wait_for_service(service_name, timeout=2.0)
             response = self._rospy.ServiceProxy(service_name, self._trigger_type)()

@@ -12,6 +12,7 @@ find_package(catkin REQUIRED COMPONENTS
   rospy
   sensor_msgs
   std_msgs
+  std_srvs
   tf2_geometry_msgs
   tf2_ros
   trajectory_msgs
@@ -41,6 +42,7 @@ catkin_package(
     rospy
     sensor_msgs
     std_msgs
+    std_srvs
     tf2_geometry_msgs
     tf2_ros
     trajectory_msgs
@@ -55,6 +57,7 @@ catkin_install_python(PROGRAMS
   scripts/gripper_cmd_node.py
   scripts/send_execute_arm_goal.py
   scripts/servo_twist_frame_bridge_node.py
+  scripts/wrist_roll_service_node.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 
