@@ -156,33 +156,39 @@ class BridgeCore:
         }
 
     def make_capabilities(self) -> Dict[str, Any]:
+        arm_named_targets_supported = bool(self.output.supports_arm_named_targets())
+        supports = [
+            "operator_input",
+            "heartbeat_ack",
+            "critical_ack",
+            "sync_request",
+            "system_snapshot",
+            "camera_list_request",
+            "camera_list_response",
+            "camera_stream_request",
+            "emergency_state",
+            "watchdog",
+            "keyboard_base_arm_mapping",
+            "arm_servo_output",
+            "gripper_velocity_output",
+            "flipper_jog_output",
+            "joint_runtime_states",
+            "co2_data",
+            "hybrid_lifecycle_services",
+            "service_call_result",
+        ]
+        if arm_named_targets_supported:
+            supports.extend([
+                "arm_named_targets",
+                "move_arm_named_target",
+            ])
         return {
             "type": "capabilities",
             "protocol_version": PROTOCOL_VERSION,
             "seq": 0,
             "timestamp_ms": now_ms(),
-            "supports": [
-                "operator_input",
-                "heartbeat_ack",
-                "critical_ack",
-                "sync_request",
-                "system_snapshot",
-                "camera_list_request",
-                "camera_list_response",
-                "camera_stream_request",
-                "emergency_state",
-                "watchdog",
-                "keyboard_base_arm_mapping",
-                "arm_servo_output",
-                "gripper_velocity_output",
-                "flipper_jog_output",
-                "joint_runtime_states",
-                "co2_data",
-                "hybrid_lifecycle_services",
-                "service_call_result",
-                "arm_named_targets",
-                "move_arm_named_target",
-            ],
+            "supports": supports,
+            "arm_named_targets_supported": arm_named_targets_supported,
             "max_frame_bytes": MAX_FRAME_BYTES,
             "watchdog_ms": self.watchdog_ms,
             "gamepad_deadzone_percent": self.gamepad_deadzone * 100.0,
@@ -627,6 +633,15 @@ class BridgeCore:
                     duration_ms=duration_ms,
                 )
             elif command == "request_arm_named_targets":
+                if not self.output.supports_arm_named_targets():
+                    message = "MoveIt unavailable"
+                    self.events.emit("moveit", "arm named targets unavailable", level="warning", data={
+                        "seq": seq,
+                        "reason": message,
+                    })
+                    yield self.make_ack(msg, False, 2303, message)
+                    yield self.make_arm_named_targets(seq, [], message)
+                    return
                 ok, code, message, targets = self.output.list_arm_named_targets()
                 self.events.emit("moveit", "arm named targets requested", data={
                     "seq": seq,

@@ -7,7 +7,7 @@ joint_state_controller:
 flipper_csp_controller:
   type: position_controllers/JointTrajectoryController
   joints:
-    - left_front_arm_joint
+    # - left_front_arm_joint
     - right_front_arm_joint
     - left_rear_arm_joint
     - right_rear_arm_joint
@@ -26,7 +26,7 @@ flipper_csp_controller:
 flipper_csv_forward_controller:
   type: flipper_control/JointGroupVelocityController
   joints:
-    - left_front_arm_joint
+    # - left_front_arm_joint
     - right_front_arm_joint
     - left_rear_arm_joint
     - right_rear_arm_joint

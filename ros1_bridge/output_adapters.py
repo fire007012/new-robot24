@@ -89,6 +89,9 @@ class OutputAdapter:
     def move_arm_named_target(self, target: str) -> Tuple[bool, int, str]:
         return False, 2302, f"no MoveIt arm group configured for target {target}"
 
+    def supports_arm_named_targets(self) -> bool:
+        return False
+
 
 class DryRunOutput(OutputAdapter):
     def __init__(
@@ -190,6 +193,9 @@ class DryRunOutput(OutputAdapter):
         print(f"[bridge] moveit dry-run target={target}", flush=True)
         self.events.emit("moveit", "dry-run named target accepted", data={"target": target})
         return True, 0, f"dry-run MoveIt target {target} accepted"
+
+    def supports_arm_named_targets(self) -> bool:
+        return True
 
 class RosOutput(OutputAdapter):
     def __init__(
@@ -500,6 +506,9 @@ class RosOutput(OutputAdapter):
             "ok": ok,
         }, level="info" if ok else "error")
         return ok, 0 if ok else 2306, message
+
+    def supports_arm_named_targets(self) -> bool:
+        return self._move_group is not None
 
 
 def format_service_name(template: str, command: str, params: Optional[Dict[str, Any]] = None) -> str:

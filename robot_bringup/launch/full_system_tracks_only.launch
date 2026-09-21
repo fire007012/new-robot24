@@ -19,6 +19,7 @@
   <arg name="auto_release" default="false"/>
 
   <include file="$(find robot_bringup)/launch/full_system_hardware.launch">
+    <arg name="enable_co2_sensor" value="$(arg enable_co2_sensor)"/>
     <arg name="canopen_dcf_path" value="$(arg canopen_dcf_path)"/>
     <arg name="canopen_joints_path" value="$(arg canopen_joints_path)"/>
     <arg name="can_driver_config" value="$(arg can_driver_config)"/>
@@ -41,7 +42,4 @@
   <include file="$(find robot_bringup)/launch/full_system_vision.launch">
     <arg name="enable_paw_vision" value="$(arg enable_paw_vision)"/>
   </include>
-
-  <include if="$(arg enable_co2_sensor)"
-           file="$(find senseair_co2)/launch/senseair_co2.launch"/>
 </launch>
