@@ -1,9 +1,11 @@
 [submodule "Eyou_Canopen_Master"]
 	path = Eyou_Canopen_Master
 	url = git@github.com:fire007012/Eyou_Canopen_Master.git
+	branch = feature/staged-integration
 [submodule "can_driver"]
 	path = can_driver
 	url = git@github.com:fire007012/can_driver.git
+	branch = feature/staged-integration
 [submodule "realsense-ros"]
 	path = realsense-ros
 	url = https://github.com/IntelRealSense/realsense-ros.git
