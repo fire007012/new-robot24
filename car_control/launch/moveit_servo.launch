@@ -1,10 +1,14 @@
 <launch>
   <arg name="servo_config" default="$(find car_control)/config/moveit_servo.yaml"/>
+  <arg name="command_out_type" default=""/>
+  <arg name="command_out_topic" default=""/>
 
   <!-- launch-prefix 等待 move_group 完全就绪后再启动 -->
   <!-- servo_server 依赖 move_group 已初始化，并行启动会导致连接失败退出 -->
   <node name="servo_server" pkg="moveit_servo" type="servo_server" output="screen"
         launch-prefix="bash -c 'sleep 3; exec $0 $@'">
     <rosparam command="load" file="$(arg servo_config)"/>
+    <param if="$(eval command_out_type != '')" name="command_out_type" value="$(arg command_out_type)"/>
+    <param if="$(eval command_out_topic != '')" name="command_out_topic" value="$(arg command_out_topic)"/>
   </node>
 </launch>

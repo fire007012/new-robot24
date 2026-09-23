@@ -38,6 +38,18 @@ arm_position_controller:
   state_publish_rate: 50
   action_monitor_rate: 20
 
+# MoveIt Servo 的实时位置透传控制器。与 arm_position_controller 共享关节资源，
+# 由 launch 在 Servo 模式下二选一启动，不能同时运行。
+arm_position_passthrough_controller:
+  type: position_controllers/JointGroupPositionController
+  joints:
+    - shoulder_yaw_joint
+    - shoulder_pitch_joint
+    - elbow_pitch_joint
+    - wrist_pitch_joint
+    - wrist_yaw_joint
+    - wrist_roll_joint
+
 gripper_controller:
   # 夹爪右指由 URDF mimic 左指，这里只控制真实驱动的左夹爪关节。
   type: velocity_controllers/JointVelocityController

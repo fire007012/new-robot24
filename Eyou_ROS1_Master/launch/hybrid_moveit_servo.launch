@@ -14,14 +14,22 @@
   <arg name="controllers_file" default="$(find Eyou_ROS1_Master)/config/controllers_jtc.yaml"/>
   <arg name="spawn_controllers" default="true"/>
   <arg name="start_gripper_controller" default="true"/>
+  <arg name="use_position_passthrough_controller" default="true"/>
   <arg name="start_controllers"
-       default="$(eval 'joint_state_controller arm_position_controller gripper_controller' if str(start_gripper_controller).lower() == 'true' else 'joint_state_controller arm_position_controller')"/>
-  <arg name="stopped_controllers" default=""/>
+       default="$(eval 'joint_state_controller arm_position_passthrough_controller gripper_controller' if str(start_gripper_controller).lower() == 'true' and str(use_position_passthrough_controller).lower() == 'true' else 'joint_state_controller arm_position_passthrough_controller' if str(use_position_passthrough_controller).lower() == 'true' else 'joint_state_controller arm_position_controller gripper_controller' if str(start_gripper_controller).lower() == 'true' else 'joint_state_controller arm_position_controller')"/>
+  <arg name="stopped_controllers"
+       default="$(eval 'arm_position_controller' if str(use_position_passthrough_controller).lower() == 'true' else 'arm_position_passthrough_controller')"/>
 
   <!-- MoveIt / Servo -->
   <arg name="pipeline" default="ompl"/>
   <arg name="use_rviz" default="true"/>
   <arg name="use_moveit_servo" default="true"/>
+  <!-- The passthrough controller has no FollowJointTrajectory action. -->
+  <arg name="allow_trajectory_execution" default="false"/>
+  <arg name="servo_command_out_type"
+       default="$(eval 'std_msgs/Float64MultiArray' if str(use_position_passthrough_controller).lower() == 'true' else 'trajectory_msgs/JointTrajectory')"/>
+  <arg name="servo_command_out_topic"
+       default="$(eval '/arm_position_passthrough_controller/command' if str(use_position_passthrough_controller).lower() == 'true' else '/arm_position_controller/command')"/>
   <arg name="servo_config" default="$(find car_control)/config/moveit_servo.yaml"/>
   <arg name="publish_virtual_joint" default="true"/>
 
@@ -56,9 +64,9 @@
         name="hybrid_moveit_virtual_joint_broadcaster"
         args="0 0 0 0 0 0 odom base_link_root"/>
 
-  <!-- 3. MoveIt move_group using the simple controller manager so execution targets the hybrid JTC action server -->
+  <!-- 3. MoveIt move_group; trajectory execution is opt-in when Servo owns the position resource. -->
   <include file="$(find car_moveit_config)/launch/move_group.launch">
-    <arg name="allow_trajectory_execution" value="true"/>
+    <arg name="allow_trajectory_execution" value="$(arg allow_trajectory_execution)"/>
     <arg name="moveit_controller_manager" value="simple"/>
     <arg name="load_robot_description" value="false"/>
     <arg name="pipeline" value="$(arg pipeline)"/>
@@ -73,6 +81,8 @@
   <!-- 5. Optional Servo server -->
   <include if="$(arg use_moveit_servo)" file="$(find car_control)/launch/moveit_servo.launch">
     <arg name="servo_config" value="$(arg servo_config)"/>
+    <arg name="command_out_type" value="$(arg servo_command_out_type)"/>
+    <arg name="command_out_topic" value="$(arg servo_command_out_topic)"/>
   </include>
 
   <!-- 6. Optional DS5 teleop and optical->control Twist bridge -->
