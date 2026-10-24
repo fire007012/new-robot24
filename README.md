@@ -2,6 +2,8 @@
 
 基于 ROS Noetic 的机器人工作空间，当前主链路覆盖底盘、摆臂、夹抓、MoveIt、Gazebo 全机仿真与实机统一 bringup。
 
+当前工作区处于 ROS2 迁移准备阶段：手眼标定子模块已由 ROS1 `easy_handeye` 替换为 ROS2 [`easy_handeye2`](easy_handeye2/README.md)，其余主控制链仍为 ROS1。`Eye_in_hand` 的旧调用端尚待迁移；当前目录不能直接整体作为纯 Catkin 或纯 ROS2 工作空间构建。迁移任务见 [ROS1 迁移 ROS2 实施计划](docs/25_ROS1迁移ROS2实施计划.md)。
+
 ## 当前主链路
 
 核心包：

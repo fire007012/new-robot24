@@ -2,6 +2,12 @@
 
 把装在机械臂末端 `tool0` 上的 RealSense D405（paw_camera）做一次手眼标定，求出 `tool0 → paw_camera_color_optical_frame` 的精确变换。
 
+## ROS2 依赖替换状态
+
+主仓库现已用 [`easy_handeye2`](../easy_handeye2/README.md) 子模块替换旧 `easy_handeye`，锁定提交 `29bd50a`，目标为 Ubuntu 22.04 / ROS2 Humble。使用 `git submodule update --init easy_handeye2` 恢复依赖，不要在当前源码树重新克隆 ROS1 easy_handeye。
+
+本目录的脚本、package.xml 和 XML launch 仍是 ROS1 实现，尚未接入 easy_handeye2。下文为旧 ROS1 流程参考；在当前依赖组合中不能直接执行这些标定入口。后续需迁移至 rclpy/MoveIt 2、`easy_handeye2_msgs` 和 ROS2 launch，并适配新的服务前缀及 `.calib` 保存格式。具体任务见[迁移计划第 5.2 节](../docs/25_ROS1迁移ROS2实施计划.md)。
+
 ## 目录结构
 ```
 Eye_in_hand/
@@ -20,7 +26,7 @@ Eye_in_hand/
     └── auto_sample.py               # 自动采样：走位姿 + take_sample + compute + save
 ```
 
-## 一、依赖安装（第一次使用）
+## 一、旧 ROS1 依赖安装（历史参考，当前工作区不适用）
 
 ```bash
 cd ~/catkin_ws/src

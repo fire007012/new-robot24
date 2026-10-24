@@ -8,12 +8,21 @@
 - 子仓库：`can_driver`
 - 子仓库：`Eyou_Canopen_Master`
 - 子仓库：`realsense-ros`
+- 子仓库：`aruco_ros`
+- 子仓库：`OrbbecSDK_ROS2`（已锁定 ROS2 提交，尚未初始化，按需单独拉取）
+- 子仓库：`easy_handeye2`（ROS2，已替换旧 `easy_handeye`）
 
 这意味着：
 
 - 子仓库负责保存各自的完整开发历史
 - 父仓库负责记录整个工作区在某个时刻引用了哪些子仓库版本
 - 父仓库不会替代子仓库的历史，只会记录子仓库当前指向的 commit
+
+## 当前手眼标定子模块
+
+`easy_handeye2/` 来源为 `git@github.com:marcoesposito1988/easy_handeye2.git`，通过父仓库 gitlink 锁定提交。旧 ROS1 `easy_handeye/` 不再作为活动子模块；回退应使用父仓库旧版本或独立 ROS1 checkout。子模块替换后，旧 `Eye_in_hand` 的 ROS1 调用端仍需按迁移计划改造。
+
+只恢复当前手眼标定子模块，可执行 `git submodule update --init easy_handeye2`。这不会启动 Orbbec 下载。下列“不指定路径”的全量命令会尝试初始化 `OrbbecSDK_ROS2`；需要保持未下载状态时，应只对所需子模块指定路径。
 
 ## 一次性拉取整个工作区
 
