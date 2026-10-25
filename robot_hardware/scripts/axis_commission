@@ -1,0 +1,29 @@
+#!/usr/bin/env python3
+import argparse,json,threading
+from pathlib import Path
+import yaml,rclpy
+from rclpy.node import Node
+from rclpy.executors import MultiThreadedExecutor
+from ament_index_python.packages import get_package_share_directory
+from robot_hardware_runtime.node import Adapter
+from robot_hardware_runtime.policy import Policy,AXES,IDENTITY,MAINTENANCE
+parser=argparse.ArgumentParser(description='Single-axis readback/maintenance/activation through the existing master.')
+parser.add_argument('joint',choices=list(AXES));parser.add_argument('--baseline');parser.add_argument('--activate',action='store_true')
+parser.add_argument('--operation',choices=['set_zero','set_offset','limits','limits_from_urdf','disable_limits','restore']);parser.add_argument('--lower',type=float,default=0);parser.add_argument('--upper',type=float,default=0);parser.add_argument('--save',action='store_true');parser.add_argument('--journal',default=str(Path.home()/'.ros/robot_maintenance.json'))
+args=parser.parse_args();rclpy.init();node=Node('axis_commission');executor=MultiThreadedExecutor(3);executor.add_node(node);thread=threading.Thread(target=executor.spin);thread.start()
+try:
+ io=Adapter(node);io.hardware('RobotCanopenSystem','inactive')
+ nodeid=AXES[args.joint][0];share=Path(get_package_share_directory('robot_canopen_config'))/'config'/f'axis_{nodeid}'
+ baseline=yaml.safe_load(Path(args.baseline).read_text()) if args.baseline else {'commissioned':False}
+ limits=yaml.safe_load((Path(get_package_share_directory('robot_hardware'))/'config/joint_limits.yaml').read_text())
+ policy=Policy(io,yaml.safe_load((share/'bus.yml').read_text()),baseline,args.journal,limits)
+ print(json.dumps({'joint':args.joint,'node_id':nodeid,'identity':policy.read_objects(args.joint,IDENTITY),'persistent':policy.read_objects(args.joint,MAINTENANCE),'save_support':io.read(args.joint,0x1010,1)},indent=2,ensure_ascii=False))
+ if args.operation:
+  policy.verify([args.joint], allow_dirty=args.operation=='restore')
+  io.disable(args.joint)
+  if args.operation=='restore':policy.restore()
+  else:policy.maintain(args.joint,args.operation,args.lower,args.upper,args.save)
+ if args.activate:
+  policy.verify([args.joint]);io.hardware('RobotCanopenSystem','active');io.controllers(['joint_state_broadcaster','axis_controller'],[])
+finally:
+ executor.shutdown();thread.join();node.destroy_node();rclpy.shutdown()

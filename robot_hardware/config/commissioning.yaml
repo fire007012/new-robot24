@@ -1,0 +1,74 @@
+commissioned: false
+axes:
+  left_front_arm_joint:
+    node_id: 1
+    physical_label: ''
+    direction_verified: false
+    identity:
+      '1000:00': null
+      '1018:01': null
+      '1018:02': null
+      '1018:03': null
+      '1018:04': null
+      100A:00: null
+    persistent: {}
+  right_front_arm_joint:
+    node_id: 2
+    physical_label: ''
+    direction_verified: false
+    identity:
+      '1000:00': null
+      '1018:01': null
+      '1018:02': null
+      '1018:03': null
+      '1018:04': null
+      100A:00: null
+    persistent: {}
+  left_rear_arm_joint:
+    node_id: 3
+    physical_label: ''
+    direction_verified: false
+    identity:
+      '1000:00': null
+      '1018:01': null
+      '1018:02': null
+      '1018:03': null
+      '1018:04': null
+      100A:00: null
+    persistent: {}
+  right_rear_arm_joint:
+    node_id: 4
+    physical_label: ''
+    direction_verified: false
+    identity:
+      '1000:00': null
+      '1018:01': null
+      '1018:02': null
+      '1018:03': null
+      '1018:04': null
+      100A:00: null
+    persistent: {}
+  shoulder_yaw_joint:
+    node_id: 6
+    physical_label: ''
+    direction_verified: false
+    identity:
+      '1000:00': null
+      '1018:01': null
+      '1018:02': null
+      '1018:03': null
+      '1018:04': null
+      100A:00: null
+    persistent: {}
+  shoulder_pitch_joint:
+    node_id: 5
+    physical_label: ''
+    direction_verified: false
+    identity:
+      '1000:00': null
+      '1018:01': null
+      '1018:02': null
+      '1018:03': null
+      '1018:04': null
+      100A:00: null
+    persistent: {}

@@ -12,3 +12,7 @@ Testing/
 control/
 arm_traj_splitter/
 build/
+
+# ROS2 generated artifacts
+/install/
+/log/

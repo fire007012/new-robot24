@@ -5,7 +5,11 @@
 [submodule "can_driver"]
 	path = can_driver
 	url = git@github.com:fire007012/can_driver.git
-	branch = feature/staged-integration
+	branch = main
+[submodule "ros2_canopen"]
+	path = ros2_canopen
+	url = git@github.com:fire007012/ros2_canopen.git
+	branch = humble
 [submodule "realsense-ros"]
 	path = realsense-ros
 	url = https://github.com/realsenseai/realsense-ros.git

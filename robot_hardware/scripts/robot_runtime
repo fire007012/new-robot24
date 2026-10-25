@@ -1,0 +1,3 @@
+#!/usr/bin/env python3
+from robot_hardware_runtime.node import main
+main()

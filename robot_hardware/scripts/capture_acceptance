@@ -1,0 +1,44 @@
+#!/usr/bin/env python3
+"""Passive CAN and ROS evidence recorder. Opens receive-only CAN sockets, never sends frames."""
+import argparse,json,select,socket,struct,time
+from pathlib import Path
+from collections import defaultdict
+import rclpy
+from rclpy.node import Node
+from std_srvs.srv import Trigger
+from sensor_msgs.msg import JointState
+from std_msgs.msg import String
+p=argparse.ArgumentParser();p.add_argument('--interfaces',nargs='*',default=['canable0','canable1']);p.add_argument('--seconds',type=float,default=60);p.add_argument('--bitrate',type=int,default=1000000);p.add_argument('--output',required=True);args=p.parse_args()
+root=Path(args.output);root.mkdir(parents=True,exist_ok=True)
+rclpy.init();node=Node('canopen_acceptance_capture');records=[];runtime=[];periods=[]
+node.create_subscription(JointState,'/joint_states',lambda m:records.append({'t':time.monotonic(),'name':list(m.name),'position':list(m.position),'velocity':list(m.velocity)}),10)
+node.create_subscription(String,'/robot_runtime/state',lambda m:runtime.append({'t':time.monotonic(),'state':m.data}),10)
+client=node.create_client(Trigger,'/robot_runtime/status');pending=None
+channels={};counts=defaultdict(int);bits=defaultdict(int);sync_times=defaultdict(list);last_call=0
+try:
+ for interface in args.interfaces:
+  channel=socket.socket(socket.AF_CAN,socket.SOCK_RAW,socket.CAN_RAW);channel.bind((interface,));channel.setblocking(False);channels[channel]=interface
+ start=time.monotonic()
+ with (root/'can_frames.jsonl').open('w') as frames:
+  while time.monotonic()-start<args.seconds:
+   rclpy.spin_once(node,timeout_sec=.005);now=time.monotonic()
+   if now-last_call>1 and pending is None and client.service_is_ready():pending=client.call_async(Trigger.Request());last_call=now
+   if pending is not None and pending.done():
+    try:periods.append({'t':now,'status':json.loads(pending.result().message)})
+    except Exception:pass
+    pending=None
+   for channel in select.select(list(channels),[],[],0)[0]:
+    raw=channel.recv(72);interface=channels[channel]
+    identifier,length,payload=struct.unpack('=IB3x8s',raw[:16]);counts[interface]+=1
+    bits[interface]+=(47+8*length)*1.25+3  # Approximate worst-case stuffing; record raw frames for exact analysis.
+    if identifier==0x80:sync_times[interface].append(now)
+    frames.write(json.dumps({'t':now,'interface':interface,'id':identifier,'data':payload[:length].hex()})+'\n')
+ duration=time.monotonic()-start
+ report={'duration_s':duration,'bitrate':args.bitrate,'frames':dict(counts),
+         'estimated_bus_load':{i:v/(duration*args.bitrate) for i,v in bits.items()},'control_period_samples':periods,
+         'sync_intervals_s':{i:[b-a for a,b in zip(t,t[1:])] for i,t in sync_times.items()},
+         'joint_states':records,'runtime':runtime}
+ (root/'capture.json').write_text(json.dumps(report,indent=2))
+finally:
+ for channel in channels:channel.close()
+ node.destroy_node();rclpy.shutdown()

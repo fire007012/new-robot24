@@ -1,0 +1,1 @@
+<library path="robot_mock_system"><class name="robot_hardware/MockSystem" type="robot_hardware::MockSystem" base_class_type="hardware_interface::SystemInterface"><description>Offline two-component simulator with shared runtime permissions and fault injection.</description></class></library>

@@ -1,0 +1,56 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:macro name="robot_canopen_control" params="can_interface_name:=canable0 safety_domain:=robot mock:=false">
+    <ros2_control name="RobotCanopenSystem" type="system">
+      <hardware>
+        <xacro:if value="${mock}"><plugin>robot_hardware/MockSystem</plugin></xacro:if>
+        <xacro:unless value="${mock}"><plugin>canopen_ros2_control/RobotSystem</plugin></xacro:unless>
+        <param name="safety_domain">${safety_domain}</param>
+        <param name="bus_config">$(find robot_canopen_config)/config/bus.yml</param>
+        <param name="master_config">$(find robot_canopen_config)/config/master.dcf</param>
+        <param name="can_interface_name">${can_interface_name}</param>
+        <param name="master_bin">""</param>
+      </hardware>
+      <joint name="left_front_arm_joint">
+        <param name="device_name">left_front_arm_joint</param>
+        <command_interface name="position"><param name="min">-3.665</param><param name="max">0.524</param></command_interface>
+        <command_interface name="velocity"><param name="min">-1.57</param><param name="max">1.57</param></command_interface>
+        <state_interface name="position"/>
+        <state_interface name="velocity"/>
+      </joint>
+      <joint name="right_front_arm_joint">
+        <param name="device_name">right_front_arm_joint</param>
+        <command_interface name="position"><param name="min">-3.665</param><param name="max">0.524</param></command_interface>
+        <command_interface name="velocity"><param name="min">-1.57</param><param name="max">1.57</param></command_interface>
+        <state_interface name="position"/>
+        <state_interface name="velocity"/>
+      </joint>
+      <joint name="left_rear_arm_joint">
+        <param name="device_name">left_rear_arm_joint</param>
+        <command_interface name="position"><param name="min">-0.524</param><param name="max">3.665</param></command_interface>
+        <command_interface name="velocity"><param name="min">-1.57</param><param name="max">1.57</param></command_interface>
+        <state_interface name="position"/>
+        <state_interface name="velocity"/>
+      </joint>
+      <joint name="right_rear_arm_joint">
+        <param name="device_name">right_rear_arm_joint</param>
+        <command_interface name="position"><param name="min">-0.524</param><param name="max">3.665</param></command_interface>
+        <command_interface name="velocity"><param name="min">-1.57</param><param name="max">1.57</param></command_interface>
+        <state_interface name="position"/>
+        <state_interface name="velocity"/>
+      </joint>
+      <joint name="shoulder_yaw_joint">
+        <param name="device_name">shoulder_yaw_joint</param>
+        <command_interface name="position"><param name="min">-1</param><param name="max">1</param></command_interface>
+        <state_interface name="position"/>
+        <state_interface name="velocity"/>
+      </joint>
+      <joint name="shoulder_pitch_joint">
+        <param name="device_name">shoulder_pitch_joint</param>
+        <command_interface name="position"><param name="min">-0.960</param><param name="max">1.571</param></command_interface>
+        <state_interface name="position"/>
+        <state_interface name="velocity"/>
+      </joint>
+    </ros2_control>
+  </xacro:macro>
+</robot>

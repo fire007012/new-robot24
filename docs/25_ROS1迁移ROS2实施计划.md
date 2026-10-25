@@ -59,12 +59,13 @@ robot_bringup
 
 ### 2.3 子模块恢复与源码核查基线
 
-这些目录此前为空是因为子模块尚未初始化。此前按父仓库 gitlink 锁定提交拉取；之后手眼标定已替换为本地 `easy_handeye2`，RealSense 已切换到 ROS2 `ros2-master` 分支提交 `7a87097`，ArUco 已切换到 ROS2 `humble-devel` 分支提交 `2872a00`。Orbbec 已从旧 ROS1 路径替换为 `OrbbecSDK_ROS2`，仅在父仓库索引中记录远端 `v2-main` 提交 `c153462`，仍未下载或核查源码。`Eyou_Canopen_Master` 和 `can_driver` 仍保持原锁定提交。以下是当前本地工作区与索引的计划集成版本，统一提交后才形成可复现的父仓库基线；`.gitmodules` 中的分支配置不覆盖 gitlink 锁定的提交。
+这些目录此前为空是因为子模块尚未初始化。此前按父仓库 gitlink 锁定提交拉取；之后手眼标定已替换为本地 `easy_handeye2`，RealSense 已切换到 ROS2 `ros2-master` 分支提交 `7a87097`，ArUco 已切换到 ROS2 `humble-devel` 分支提交 `2872a00`。Orbbec 已从旧 ROS1 路径替换为 `OrbbecSDK_ROS2`，仅在父仓库索引中记录远端 `v2-main` 提交 `c153462`，仍未下载或核查源码。`can_driver` 已切换到 ROS2 `main` 分支提交 `0e6ca8d`，`ros2_canopen` 已从其本地 `humble` 分支锁定提交 `fef50e5` 并推送到项目仓库，`Eyou_Canopen_Master` 仍保持原锁定提交。以下是当前本地工作区与索引的计划集成版本，统一提交后才形成可复现的父仓库基线；`.gitmodules` 中的分支配置不覆盖 gitlink 锁定的提交。
 
 | 子模块 | 当前本地指针（短哈希） | 本次核查重点 |
 | --- | --- | --- |
 | `Eyou_Canopen_Master` | `c890355` | 六轴配置、Lely 主站、IP 通道、归零与软限位 |
-| `can_driver` | `cfe7174` | PP/DM/MT/ECB 后端、运行层、ROS 适配及 SDK 依赖 |
+| `can_driver` | `0ba4e61`（ROS2 `main`；原 ROS1 提交 `cfe7174`） | Humble 构建、SDK 安装及双后端离线验收通过；实机待验 |
+| `ros2_canopen` | `78242f5c`（项目仓库 `humble`） | RobotSystem 软件路径和离线回归通过；设备功能实机待验 |
 | [`realsense-ros`](https://github.com/realsenseai/realsense-ros) | `7a87097`（`4.59.1`；原 ROS1 提交 `2e1ecd5`） | 已切换为 ROS2 `realsense2_camera 4.59.1`，Humble 构建与实机集成待验证 |
 | [`OrbbecSDK_ROS2`](https://github.com/orbbec/OrbbecSDK_ROS2) | `c153462`（gitlink 已记录，源码未拉取；原 ROS1 提交 `86ab046`） | 已选定 ROS2 仓库，尚未初始化；Humble、Astra+ 型号与 SDK 兼容性待核查 |
 | [`aruco_ros`](https://github.com/pal-robotics/aruco_ros) | `2872a00`（`5.0.6`；原 ROS1 提交 `3680aea`） | 已切换为 ROS2 `aruco / aruco_msgs / aruco_ros 5.0.6`，Humble 构建与标定集成待验证 |
@@ -135,6 +136,10 @@ can_driver ROS2 SystemInterface    ros2_canopen 上游硬件插件
 
 ## 4. CANopen 替换专项计划（最高优先级）
 
+两套驱动的逐阶段迁移、功能归属和验收清单见 [CANopen 后端迁移计划](26_CANopen后端迁移计划.md)。
+
+2026-10-25 更新：CANopen 专项的软件实现及离线验收已完成，`ros2_canopen` 发布到 `78242f5c`，配套 `can_driver` 发布到 `0ba4e61`；主仓库同步锁定这两个版本。现场登记与实机验收见 [操作单](28_CANopen软件交付与实机验收.md)，完整证据见 [执行记录](27_CANopen迁移执行记录.md)。
+
 ### 4.1 替换范围与保留范围
 
 | 内容 | ROS2 迁移策略 |
@@ -152,7 +157,7 @@ can_driver ROS2 SystemInterface    ros2_canopen 上游硬件插件
 ### 4.2 先锁定上游版本和接入模式
 
 - [ ] 验证 Humble 下 `canopen_402_driver`、`canopen_ros2_control`、`canopen_interfaces`、`lely_core_libraries` 的可安装或可构建版本。
-- [ ] 使用上游 `humble` 分支对应的发布版本或固定 commit，保存到版本清单；不直接使用面向其他发行版的 `master`，也不长期跟随浮动分支。
+- [x] 从上游 `humble` 分支锁定 `fef50e5` 并推送到项目仓库，主仓库通过 gitlink 固定提交；后续升级需单独验证。
 - [ ] 阅读该版本的 plugin XML、硬件插件源码、配置生成宏和测试示例，确认真实插件名与参数。
 - [ ] 确认插件是否内置设备容器，以及是否支持所需的普通/受管理驱动组合。
 - [ ] 优先选择 ros2_control 接入；独立 service 接入用于单轴排查和功能验证，不能与正式硬件插件同时抢占设备。
@@ -227,7 +232,7 @@ CSP ↔ CSV 的推荐切换事务：关闭运动许可 → 停止当前命令/�
 | 当前包或目录 | 计划动作 | 优先级 |
 | --- | --- | --- |
 | `Eyou_Canopen_Master` | 按已确认六轴、IP/CSV/PDO 和厂商对象清单转换；用上游 `ros2_canopen` 替换通用后端，新建 `robot_canopen_config` | P0 |
-| `can_driver` | 复用协议/运行层，拆分当前混合构建库，提供 `hardware_interface::SystemInterface`；迁移 XmlRpc 参数解析及 SDK 可选构建 | P0 |
+| `can_driver` | ROS2 包和 `hardware_interface::SystemInterface` 已提交；验证 Humble 构建、SDK 依赖、接口语义及双后端集成 | P0 |
 | `Eyou_ROS1_Master` | 建议迁移为小写包 `hybrid_hardware`；保留协调器、运行态和服务语义，移除旧 RobotHW 聚合 | P0 |
 | 各包自定义 msg/srv/action | 使用 rosidl 生成；建议统一运行态接口抽入 `robot_interfaces`，其他接口按包保留或拆分 | P0 |
 | `car_urdf` | ament 安装资源；拆为基础模型、硬件 ros2_control、仿真配置，复用 mesh 和关节定义 | P1 |
@@ -249,7 +254,7 @@ P0 为技术路线前置项，P1 为控制主链路，P2 为外围功能；若�
 
 ### 5.1 ROS1 上游依赖替换专项清单
 
-**初始化子模块本身不会将 ROS1 包升级为 ROS2 包；目前已将手眼标定子模块替换为 ROS2 `easy_handeye2`，RealSense、ArUco 分别切换到 ROS2 `4.59.1`、`5.0.6`，Orbbec 改为锁定 ROS2 仓库提交。** 当前主链路的大多数包仍使用 Catkin/roscpp/rospy；以下上游依赖仍须完成目标环境验证和调用端适配，不能只把顶层工程改成 ament。
+**初始化子模块本身不会将 ROS1 包升级为 ROS2 包；目前 `can_driver` 已锁定 ROS2 提交，手眼标定子模块已替换为 ROS2 `easy_handeye2`，RealSense、ArUco 分别切换到 ROS2 `4.59.1`、`5.0.6`，Orbbec 改为锁定 ROS2 仓库提交。** 当前主链路的大多数包仍使用 Catkin/roscpp/rospy；以下上游依赖仍须完成目标环境验证和调用端适配，不能只把顶层工程改成 ament。
 
 | 当前依赖及源码证据 | Humble 迁移要求 | 必须回归的调用端 |
 | --- | --- | --- |
@@ -262,7 +267,7 @@ P0 为技术路线前置项，P1 为控制主链路，P2 为外围功能；若�
 
 实施时生成依赖锁定表，至少记录“当前来源/提交 → 目标来源/发行版/提交或 deb 版本 → SDK/固件 → 接口差异 → 验证状态”。尚未完成选型的依赖标为待验证，不填猜测版本。相机/标定的选型在阶段 0 提前验证，不能拖到最后才发现没有可用的 Humble 组合。
 
-除已替换的 `easy_handeye2`、已切换的 `realsense-ros`、`aruco_ros` 和仅锁定远端提交的 `OrbbecSDK_ROS2` 外，其余来源替换在后续 ROS2 迁移中逐项完成。旧 ROS1 标定、ArUco 和相机 launch 仍需适配，不能因子模块切换就视为可运行。最终对选定源码树执行包发现和依赖检查，确认 ROS1 的 Catkin、nodelet、`message_generation` 等未混入 ROS2 正式构建。
+除已切换的 `can_driver`、`realsense-ros`、`aruco_ros`、已替换的 `easy_handeye2` 和仅锁定远端提交的 `OrbbecSDK_ROS2` 外，其余来源替换在后续 ROS2 迁移中逐项完成。旧 ROS1 标定、ArUco 和相机 launch 仍需适配，不能因子模块切换就视为可运行。最终对选定源码树执行包发现和依赖检查，确认 ROS1 的 Catkin、nodelet、`message_generation` 等未混入 ROS2 正式构建。
 
 ### 5.2 easy_handeye2 替换决定与后续接入任务
 
@@ -326,13 +331,13 @@ Humble 的 diff_drive_controller 支持两种输入：`use_stamped_vel=true` 时
 
 ### 6.3 can_driver 已有分层的复用与拆分
 
-根据 [`CMakeLists.txt`](../can_driver/CMakeLists.txt)、[`CanDriverRuntime.h`](../can_driver/include/can_driver/CanDriverRuntime.h) 和 [`JointConfigParser.h`](../can_driver/include/can_driver/JointConfigParser.h)，已有协议、设备管理、运行协调、命令门控及 ROS 端点的分层，但构建仍把它们和 `CanDriverHW` 放在一个 `can_driver_transport` 库并链接 Catkin。
+根据 [`CMakeLists.txt`](../can_driver/CMakeLists.txt)、[`CanDriverRuntime.h`](../can_driver/include/can_driver/CanDriverRuntime.h) 和 [`can_driver_system.hpp`](../can_driver/include/can_driver/can_driver_system.hpp)，当前已使用 ament 构建 `can_driver_core`、`can_driver_system` 和 `can_driver_node`，并导出 `hardware_interface::SystemInterface` 插件。源码迁移已提交，但尚未据此认定目标环境构建和实机集成通过。
 
-- 提取并编译验证 `CanProtocol`、SocketCAN/UDP transport、PP/DM/MT 协议及可复用运行逻辑；逐文件检查 ROS 依赖，不能将现有 transport 库直接认定为纯 C++ 库。
-- 将 ROS1 `CanDriverHW`、端点、服务和 Action 适配替换为 ROS2 层；`JointConfigParser` 当前依赖 `XmlRpcValue`，改为独立配置结构和 ROS2/YAML 加载器。
+- 在 Humble 中编译并验证 `can_driver_core`、SocketCAN/UDP transport、PP/DM/MT/ECB 协议及 `can_driver_system` 插件；核对控制器接口和生命周期行为。
+- 验证 ROS2 节点的服务、Action、参数 YAML 及 `ros2_control` 路径与上层调用方的接口语义，补齐跨后端集成测试。
 - 保留启动位置同步、故障 Stop、使能门控、重连首周期 hold、清空旧命令及 PP 零点文件行为；软件零点与写电机零点必须区分。
 - 默认履带使用 DM 协议。配置注释明确编码器为 16384 counts/rev，但现有协议内部按自身 SI 粒度换算，不能把该数值直接填入 `position_scale/velocity_scale`。
-- 当前构建无条件查找 INNFOS `linux_x86_64/libActuatorController.so`，即使默认配置不启用 ECB 也可能阻塞构建。迁移时将 ECB/厂商 SDK 做成可选能力，启用时核查 Ubuntu 22.04 的 ABI、架构和安装路径；保留功能的取舍写入交付范围。
+- 当前 ROS2 构建仍要求 INNFOS `linux_x86_64/libActuatorController.so`，即使默认配置不启用 ECB 也可能阻塞构建。后续按交付范围决定是否将 ECB/厂商 SDK 做成可选能力，并核查 Ubuntu 22.04 的 ABI、架构和安装路径。
 
 ### 6.4 MoveIt 2、Action 与并发
 

@@ -1,0 +1,10 @@
+<robot name="robot" xmlns:xacro="http://www.ros.org/wiki/xacro">
+ <xacro:arg name="mock" default="false"/>
+ <xacro:arg name="canopen_interface" default="canable0"/>
+ <xacro:arg name="private_interface" default="canable1"/>
+ <xacro:include filename="$(find robot_hardware)/urdf/model.urdf.xacro"/>
+ <xacro:include filename="$(find robot_canopen_config)/urdf/canopen.ros2_control.xacro"/>
+ <xacro:include filename="$(find robot_hardware)/urdf/private.ros2_control.xacro"/>
+ <xacro:robot_canopen_control can_interface_name="$(arg canopen_interface)" mock="$(arg mock)"/>
+ <xacro:private_can_control can_interface="$(arg private_interface)" mock="$(arg mock)"/>
+</robot>

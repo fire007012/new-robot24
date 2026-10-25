@@ -1,0 +1,74 @@
+commissioned: true
+axes:
+  left_front_arm_joint:
+    node_id: 1
+    physical_label: SIMULATED
+    direction_verified: true
+    identity:
+      '1000:00': 1297040203
+      '1018:01': 1297040203
+      '1018:02': 1297040203
+      '1018:03': 1297040203
+      '1018:04': 1297040203
+      100A:00: MOCK
+    persistent: {}
+  right_front_arm_joint:
+    node_id: 2
+    physical_label: SIMULATED
+    direction_verified: true
+    identity:
+      '1000:00': 1297040203
+      '1018:01': 1297040203
+      '1018:02': 1297040203
+      '1018:03': 1297040203
+      '1018:04': 1297040203
+      100A:00: MOCK
+    persistent: {}
+  left_rear_arm_joint:
+    node_id: 3
+    physical_label: SIMULATED
+    direction_verified: true
+    identity:
+      '1000:00': 1297040203
+      '1018:01': 1297040203
+      '1018:02': 1297040203
+      '1018:03': 1297040203
+      '1018:04': 1297040203
+      100A:00: MOCK
+    persistent: {}
+  right_rear_arm_joint:
+    node_id: 4
+    physical_label: SIMULATED
+    direction_verified: true
+    identity:
+      '1000:00': 1297040203
+      '1018:01': 1297040203
+      '1018:02': 1297040203
+      '1018:03': 1297040203
+      '1018:04': 1297040203
+      100A:00: MOCK
+    persistent: {}
+  shoulder_yaw_joint:
+    node_id: 6
+    physical_label: SIMULATED
+    direction_verified: true
+    identity:
+      '1000:00': 1297040203
+      '1018:01': 1297040203
+      '1018:02': 1297040203
+      '1018:03': 1297040203
+      '1018:04': 1297040203
+      100A:00: MOCK
+    persistent: {}
+  shoulder_pitch_joint:
+    node_id: 5
+    physical_label: SIMULATED
+    direction_verified: true
+    identity:
+      '1000:00': 1297040203
+      '1018:01': 1297040203
+      '1018:02': 1297040203
+      '1018:03': 1297040203
+      '1018:04': 1297040203
+      100A:00: MOCK
+    persistent: {}
