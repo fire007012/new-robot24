@@ -1,0 +1,159 @@
+on:
+  push:
+  pull_request:
+
+env:
+  OpenCV_DIR: /usr/local/lib/cmake/opencv4
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    container:
+      image: osrf/ros:noetic-desktop-full
+    env:
+      CATKIN_WS: /root/catkin_ws
+      ROS_MASTER_URI: http://127.0.0.1:11311
+      ROS_IP: 127.0.0.1
+      ROS_HOSTNAME: 127.0.0.1
+      OpenCV_DIR: /usr/local/lib/cmake/opencv4
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          set -eux
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            build-essential cmake git pkg-config \
+            python3-rosdep \
+            ros-noetic-catkin ros-noetic-rostest \
+            ros-noetic-ddynamic-reconfigure \
+            ros-noetic-socketcan-interface \
+            libgtk-3-dev \
+            libavcodec-dev libavformat-dev libswscale-dev \
+            libv4l-dev \
+            libxvidcore-dev libx264-dev \
+            libjpeg-dev libpng-dev libtiff-dev \
+            gfortran openexr libatlas-base-dev \
+            python3-dev python3-numpy
+
+      - name: Build OpenCV 4.10
+        shell: bash
+        run: |
+          set -eux
+          git clone --depth 1 --branch 4.10.0 https://github.com/opencv/opencv.git /tmp/opencv
+
+          cmake -S /tmp/opencv -B /tmp/opencv/build \
+            -D CMAKE_BUILD_TYPE=Release \
+            -D CMAKE_INSTALL_PREFIX=/usr/local \
+            -D BUILD_LIST=core,dnn,highgui,imgcodecs,imgproc,objdetect,videoio,calib3d,features2d,flann \
+            -D BUILD_TESTS=OFF \
+            -D BUILD_PERF_TESTS=OFF \
+            -D BUILD_EXAMPLES=OFF \
+            -D BUILD_opencv_python2=OFF \
+            -D BUILD_opencv_python3=OFF
+
+          cmake --build /tmp/opencv/build --parallel 2
+          cmake --install /tmp/opencv/build
+          ldconfig
+
+      - name: Check OpenCV 4.10
+        shell: bash
+        run: |
+          set -eux
+          echo "OpenCV_DIR=$OpenCV_DIR"
+          ls "$OpenCV_DIR"
+          pkg-config --modversion opencv4 || true
+
+      - name: Fetch submodule sources
+        shell: bash
+        run: |
+          set -eux
+          rm -rf can_driver Eyou_Canopen_Master realsense-ros vision_opencv
+          git clone --depth 1 https://github.com/dianhuaeven/can_driver.git can_driver
+          git clone --depth 1 https://github.com/dianhuaeven/Eyou_Canopen_master.git Eyou_Canopen_Master
+          git clone --depth 1 https://github.com/IntelRealSense/realsense-ros.git realsense-ros
+          git clone --depth 1 --branch noetic https://github.com/ros-perception/vision_opencv.git vision_opencv
+
+      - name: Normalize ROS hostname resolution
+        shell: bash
+        run: |
+          set -eux
+          HOSTNAME_VALUE="$(hostname)"
+          if ! getent hosts "$HOSTNAME_VALUE" >/dev/null 2>&1; then
+            echo "127.0.0.1 $HOSTNAME_VALUE" >> /etc/hosts
+          fi
+          getent hosts localhost
+          getent hosts "$HOSTNAME_VALUE"
+
+      - name: Setup catkin workspace and place sources
+        shell: bash
+        run: |
+          set -eux
+          mkdir -p "$CATKIN_WS/src"
+          shopt -s dotglob
+          cp -a ./* "$CATKIN_WS/src/"
+          source /opt/ros/noetic/setup.bash
+
+          if [ -d "$CATKIN_WS/src/realsense-ros" ]; then
+            touch "$CATKIN_WS/src/realsense-ros/CATKIN_IGNORE"
+          fi
+
+          for skipped_pkg in Eyou_Canopen_Master Eyou_ROS1_Master flipper_control control arm_traj_splitter; do
+            if [ -d "$CATKIN_WS/src/$skipped_pkg" ]; then
+              touch "$CATKIN_WS/src/$skipped_pkg/CATKIN_IGNORE"
+            fi
+          done
+
+          for skipped_tree in \
+            can_driver/lib/myactuator_rmd-main \
+            can_driver/lib/myactuator_rmd_ros-main; do
+            if [ -d "$CATKIN_WS/src/$skipped_tree" ]; then
+              touch "$CATKIN_WS/src/$skipped_tree/CATKIN_IGNORE"
+            fi
+          done
+
+          apt-get update
+          rosdep init || true
+          rosdep update --rosdistro noetic
+          rosdep install --from-paths "$CATKIN_WS/src" --ignore-src -r -y --rosdistro noetic \
+            --dependency-types build \
+            --dependency-types buildtool \
+            --dependency-types build_export \
+            --dependency-types test
+
+      - name: Build
+        shell: bash
+        run: |
+          set -eux
+          export ROS_MASTER_URI=http://127.0.0.1:11311
+          export ROS_IP=127.0.0.1
+          export ROS_HOSTNAME=127.0.0.1
+          export OpenCV_DIR=/usr/local/lib/cmake/opencv4
+          source /opt/ros/noetic/setup.bash
+          cd "$CATKIN_WS"
+          catkin_make -DCATKIN_ENABLE_TESTING=ON
+
+      - name: Run tests
+        shell: bash
+        run: |
+          set -eux
+          export ROS_MASTER_URI=http://127.0.0.1:11311
+          export ROS_IP=127.0.0.1
+          export ROS_HOSTNAME=127.0.0.1
+          export OpenCV_DIR=/usr/local/lib/cmake/opencv4
+          source /opt/ros/noetic/setup.bash
+          cd "$CATKIN_WS"
+          source devel/setup.bash
+          catkin_make run_tests -j2
+
+      - name: Collect results
+        shell: bash
+        run: |
+          set -eux
+          source /opt/ros/noetic/setup.bash
+          cd "$CATKIN_WS"
+          catkin_test_results build || (cat build/*/test_results/*/*.xml || true; false)

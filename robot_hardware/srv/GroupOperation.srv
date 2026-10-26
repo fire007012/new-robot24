@@ -1,0 +1,7 @@
+string[] groups
+string operation
+string resource
+---
+bool success
+string operation_id
+string message

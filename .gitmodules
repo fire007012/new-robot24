@@ -1,7 +1,3 @@
-[submodule "Eyou_Canopen_Master"]
-	path = Eyou_Canopen_Master
-	url = git@github.com:fire007012/Eyou_Canopen_Master.git
-	branch = feature/staged-integration
 [submodule "can_driver"]
 	path = can_driver
 	url = git@github.com:fire007012/can_driver.git
@@ -17,7 +13,7 @@
 [submodule "OrbbecSDK_ROS2"]
 	path = OrbbecSDK_ROS2
 	url = git@github.com:orbbec/OrbbecSDK_ROS2.git
-	branch = v2-main
+	branch = main
 [submodule "aruco_ros"]
 	path = aruco_ros
 	url = https://github.com/pal-robotics/aruco_ros.git

@@ -1,0 +1,1 @@
+<library path="robot24_gazebo_system"><class name="robot_simulation/GazeboSystem" type="robot_simulation::GazeboSystem" base_class_type="gz_ros2_control::GazeboSimSystemInterface"><description>Gazebo measured plant using the existing simulation runtime guard.</description></class></library>

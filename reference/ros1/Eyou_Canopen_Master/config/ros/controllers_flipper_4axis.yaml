@@ -1,0 +1,57 @@
+# ros_control controller 配置（4 摆臂模式）。
+
+joint_state_controller:
+  type: joint_state_controller/JointStateController
+  publish_rate: 100
+
+flipper_csp_controller:
+  type: position_controllers/JointTrajectoryController
+  joints:
+    - left_front_arm_joint
+    - right_front_arm_joint
+    - left_rear_arm_joint
+    - right_rear_arm_joint
+  allow_partial_joints_goal: true
+  constraints:
+    goal_time: 1.0
+    stopped_velocity_tolerance: 0.05
+    left_front_arm_joint: {trajectory: 0.10, goal: 0.03}
+    right_front_arm_joint: {trajectory: 0.10, goal: 0.03}
+    left_rear_arm_joint: {trajectory: 0.10, goal: 0.03}
+    right_rear_arm_joint: {trajectory: 0.10, goal: 0.03}
+  stop_trajectory_duration: 0.1
+  state_publish_rate: 50
+  action_monitor_rate: 20
+
+flipper_csv_forward_controller:
+  type: flipper_control/JointGroupVelocityController
+  joints:
+    - left_front_arm_joint
+    - right_front_arm_joint
+    - left_rear_arm_joint
+    - right_rear_arm_joint
+  command_timeout: 0.25
+
+# 旧 2 轴机械臂控制器保留作参考，当前 4 摆臂模式不加载。
+# arm_position_controller:
+#   type: position_controllers/JointTrajectoryController
+#   joints:
+#     - shoulder_yaw_joint
+#     - shoulder_pitch_joint
+#
+# arm_velocity_controller:
+#   type: velocity_controllers/JointTrajectoryController
+#   joints:
+#     - shoulder_yaw_joint
+#     - shoulder_pitch_joint
+#   gains:
+#     shoulder_yaw_joint:
+#       p: 1.0
+#       i: 0.0
+#       d: 0.0
+#       i_clamp: 1.0
+#     shoulder_pitch_joint:
+#       p: 1.0
+#       i: 0.0
+#       d: 0.0
+#       i_clamp: 1.0

@@ -42,6 +42,18 @@ class Policy:
         self.journal = Path(journal)
         self.dirty = self.journal.exists() and json.loads(self.journal.read_text()).get('dirty', True)
 
+    @property
+    def journal_axis(self):
+        return json.loads(self.journal.read_text()).get('joint')
+
+    @property
+    def dirty_axes(self):
+        if not self.dirty: return set()
+        data = json.loads(self.journal.read_text())
+        joint = data.get('joint')
+        # Legacy/unscoped journals remain conservative until explicitly resolved.
+        return {joint} if joint in AXES else set(AXES)
+
     def read_objects(self, joint, objects):
         return {key(i, s): self.io.read(joint, i, s) for i, s in objects}
 
@@ -53,7 +65,8 @@ class Policy:
             for joint, (node, _) in AXES.items()}}
 
     def verify(self, joints=None, allow_dirty=False):
-        if self.dirty and not allow_dirty: raise RuntimeError('maintenance outcome unresolved; restore/read back first')
+        selected = set(AXES if joints is None else joints)
+        if selected & self.dirty_axes and not allow_dirty: raise RuntimeError('maintenance outcome unresolved; restore/read back first')
         if not self.baseline.get('commissioned'): raise RuntimeError('现场基线尚未登记并确认')
         axes = self.baseline.get('axes', {})
         selected = set(AXES if joints is None else joints)

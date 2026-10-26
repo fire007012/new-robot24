@@ -1,5 +1,10 @@
-#include <ros/ros.h>
-#include <sensor_msgs/Image.h>
+#include <vision_pkg/depth_image.hpp>
+#include <rclcpp/rclcpp.hpp>
+static rclcpp::Clock & vision_log_clock() { static rclcpp::Clock clock(RCL_STEADY_TIME); return clock; }
+#include <rclcpp/rclcpp.hpp>
+#include <functional>
+#include <chrono>
+#include <sensor_msgs/msg/image.hpp>
 #include <cv_bridge/cv_bridge.h>
 #include <image_transport/image_transport.h>
 #include <opencv2/imgproc.hpp>
@@ -7,38 +12,39 @@
 class DistanceDisplayNode
 {
 public:
-    DistanceDisplayNode() : nh_("~"), it_(nh_), has_depth_(false)
+    rclcpp::Node::SharedPtr node() const { return nh_; }
+    DistanceDisplayNode() : nh_(std::make_shared<rclcpp::Node>("distance_display_node")), has_depth_(false)
     {
         std::string color_topic, depth_topic;
-        nh_.param<std::string>("color_topic", color_topic, "/paw_camera/color/image_raw");
-        nh_.param<std::string>("depth_topic", depth_topic, "/paw_camera/depth/image_rect_raw");
-        nh_.param<double>("distance_threshold", distance_threshold_, 0.1);
-        nh_.param<int>("roi_size", roi_size_, 30);
+        color_topic = nh_->declare_parameter<std::string>("color_topic", "/paw_camera/color/image_raw");
+        depth_topic = nh_->declare_parameter<std::string>("depth_topic", "/paw_camera/depth/image_rect_raw");
+        distance_threshold_ = nh_->declare_parameter<double>("distance_threshold", 0.1);
+        roi_size_ = nh_->declare_parameter<int>("roi_size", 30);
 
-        image_pub_ = it_.advertise("distance_image", 1);
+        image_pub_ = image_transport::create_publisher(nh_.get(), "distance_image");
 
-        color_sub_ = nh_.subscribe(color_topic, 1, &DistanceDisplayNode::colorCallback, this);
-        depth_sub_ = nh_.subscribe(depth_topic, 1, &DistanceDisplayNode::depthCallback, this);
+        color_sub_ = nh_->create_subscription<sensor_msgs::msg::Image>(color_topic, rclcpp::SensorDataQoS(), std::bind(&DistanceDisplayNode::colorCallback, this, std::placeholders::_1));
+        depth_sub_ = nh_->create_subscription<sensor_msgs::msg::Image>(depth_topic, rclcpp::SensorDataQoS(), std::bind(&DistanceDisplayNode::depthCallback, this, std::placeholders::_1));
 
-        ROS_INFO("distance_display_node started");
-        ROS_INFO("  color_topic: %s", color_topic.c_str());
-        ROS_INFO("  depth_topic: %s", depth_topic.c_str());
-        ROS_INFO("  distance_threshold: %.2f m", distance_threshold_);
-        ROS_INFO("  roi_size: %d", roi_size_);
+        RCLCPP_INFO(rclcpp::get_logger("vision_pkg"), "distance_display_node started");
+        RCLCPP_INFO(rclcpp::get_logger("vision_pkg"), "  color_topic: %s", color_topic.c_str());
+        RCLCPP_INFO(rclcpp::get_logger("vision_pkg"), "  depth_topic: %s", depth_topic.c_str());
+        RCLCPP_INFO(rclcpp::get_logger("vision_pkg"), "  distance_threshold: %.2f m", distance_threshold_);
+        RCLCPP_INFO(rclcpp::get_logger("vision_pkg"), "  roi_size: %d", roi_size_);
     }
 
 private:
-    void depthCallback(const sensor_msgs::Image::ConstPtr& msg)
+    void depthCallback(const sensor_msgs::msg::Image::ConstSharedPtr& msg)
     {
         try {
-            depth_ptr_ = cv_bridge::toCvShare(msg, sensor_msgs::image_encodings::TYPE_16UC1);
+            depth_ptr_ = vision_pkg::depthMillimetres(msg);
             has_depth_ = true;
         } catch (cv_bridge::Exception& e) {
-            ROS_WARN_THROTTLE(5.0, "depth cv_bridge error: %s", e.what());
+            RCLCPP_WARN_THROTTLE(rclcpp::get_logger("vision_pkg"), vision_log_clock(), static_cast<int>((5.0)*1000), "depth cv_bridge error: %s", e.what());
         }
     }
 
-    void colorCallback(const sensor_msgs::Image::ConstPtr& msg)
+    void colorCallback(const sensor_msgs::msg::Image::ConstSharedPtr& msg)
     {
         if (!has_depth_) return;
 
@@ -46,7 +52,7 @@ private:
         try {
             color_ptr = cv_bridge::toCvCopy(msg, sensor_msgs::image_encodings::BGR8);
         } catch (cv_bridge::Exception& e) {
-            ROS_WARN_THROTTLE(5.0, "color cv_bridge error: %s", e.what());
+            RCLCPP_WARN_THROTTLE(rclcpp::get_logger("vision_pkg"), vision_log_clock(), static_cast<int>((5.0)*1000), "color cv_bridge error: %s", e.what());
             return;
         }
 
@@ -115,11 +121,11 @@ private:
         image_pub_.publish(color_ptr->toImageMsg());
     }
 
-    ros::NodeHandle nh_;
-    image_transport::ImageTransport it_;
+    rclcpp::Node::SharedPtr nh_;
+    
     image_transport::Publisher image_pub_;
-    ros::Subscriber color_sub_;
-    ros::Subscriber depth_sub_;
+    rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr color_sub_;
+    rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr depth_sub_;
 
     cv_bridge::CvImageConstPtr depth_ptr_;
     bool has_depth_;
@@ -130,8 +136,8 @@ private:
 
 int main(int argc, char** argv)
 {
-    ros::init(argc, argv, "distance_display_node");
+    rclcpp::init(argc, argv);
     DistanceDisplayNode node;
-    ros::spin();
+    rclcpp::spin(node.node());
     return 0;
 }

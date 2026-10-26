@@ -1,8 +1,11 @@
-#include <ros/ros.h>
-#include <sensor_msgs/CameraInfo.h>
-#include <sensor_msgs/Image.h>
-#include <sensor_msgs/image_encodings.h>
-#include <std_msgs/Header.h>
+#include <vision_pkg/depth_image.hpp>
+#include <rclcpp/rclcpp.hpp>
+#include <functional>
+#include <chrono>
+#include <sensor_msgs/msg/camera_info.hpp>
+#include <sensor_msgs/msg/image.hpp>
+#include <sensor_msgs/image_encodings.hpp>
+#include <std_msgs/msg/header.hpp>
 #include <cv_bridge/cv_bridge.h>
 #include <image_transport/image_transport.h>
 #include <opencv2/core/version.hpp>
@@ -19,9 +22,9 @@
 #include <thread>
 #include <utility>
 #include <vector>
-#include "vision_pkg/Detection.h"
-#include "vision_pkg/ObstacleWarning.h"
-#include "vision_pkg/SetDetectionEnabled.h"
+#include <vision_pkg/msg/detection.hpp>
+#include <vision_pkg/msg/obstacle_warning.hpp>
+#include <vision_pkg/srv/set_detection_enabled.hpp>
 #include "vision_pkg/motion_detector.h"
 #include "vision_pkg/qr_detector.h"
 #include "vision_pkg/yolov8.h"
@@ -29,7 +32,8 @@
 class VisionDisplayNode
 {
 public:
-    VisionDisplayNode() : nh_("~"), it_(nh_)
+    rclcpp::Node::SharedPtr node() const { return nh_; }
+    VisionDisplayNode() : nh_(std::make_shared<rclcpp::Node>("vision_display_node"))
     {
         std::string color_topic;
         std::string depth_topic;
@@ -44,67 +48,67 @@ public:
         int output_queue_size;
         bool qrcode_require_decoded_text;
 
-        nh_.param<std::string>("color_topic", color_topic, "/paw_camera/color/image_raw");
-        nh_.param<std::string>("depth_topic", depth_topic, "/paw_camera/depth/image_rect_raw");
-        nh_.param<std::string>("camera_info_topic", camera_info_topic, "/paw_camera/color/camera_info");
-        nh_.param<std::string>("model_path", model_path, "");
-        nh_.param<std::string>("color_input_transport", color_input_transport, "raw");
-        nh_.param<std::string>("depth_input_transport", depth_input_transport, "raw");
-        nh_.param<bool>("tcp_nodelay", tcp_nodelay, true);
-        nh_.param<int>("color_queue_size", color_queue_size, 1);
-        nh_.param<int>("depth_queue_size", depth_queue_size, 1);
-        nh_.param<int>("camera_info_queue_size", info_queue_size, 1);
-        nh_.param<int>("output_queue_size", output_queue_size, 1);
-        nh_.param<double>("output_max_fps", output_max_fps_, 30.0);
-        nh_.param<double>("yolo_max_fps", yolo_max_fps_, 5.0);
-        nh_.param<double>("motion_max_fps", motion_max_fps_, 15.0);
-        nh_.param<double>("warning_max_fps", warning_max_fps_, 15.0);
-        nh_.param<double>("center_distance_max_fps", center_distance_max_fps_, 15.0);
-        nh_.param<double>("warning_distance", warning_distance_, 0.5);
-        nh_.param<double>("use_rows_ratio", use_rows_ratio_, 0.6);
-        nh_.param<bool>("use_cuda", use_cuda_, false);
+        color_topic = nh_->declare_parameter<std::string>("color_topic", "/paw_camera/color/image_raw");
+        depth_topic = nh_->declare_parameter<std::string>("depth_topic", "/paw_camera/depth/image_rect_raw");
+        camera_info_topic = nh_->declare_parameter<std::string>("camera_info_topic", "/paw_camera/color/camera_info");
+        model_path = nh_->declare_parameter<std::string>("model_path", "");
+        color_input_transport = nh_->declare_parameter<std::string>("color_input_transport", "raw");
+        depth_input_transport = nh_->declare_parameter<std::string>("depth_input_transport", "raw");
+        tcp_nodelay = nh_->declare_parameter<bool>("tcp_nodelay", true);
+        color_queue_size = nh_->declare_parameter<int>("color_queue_size", 1);
+        depth_queue_size = nh_->declare_parameter<int>("depth_queue_size", 1);
+        info_queue_size = nh_->declare_parameter<int>("camera_info_queue_size", 1);
+        output_queue_size = nh_->declare_parameter<int>("output_queue_size", 1);
+        output_max_fps_ = nh_->declare_parameter<double>("output_max_fps", 30.0);
+        yolo_max_fps_ = nh_->declare_parameter<double>("yolo_max_fps", 5.0);
+        motion_max_fps_ = nh_->declare_parameter<double>("motion_max_fps", 15.0);
+        warning_max_fps_ = nh_->declare_parameter<double>("warning_max_fps", 15.0);
+        center_distance_max_fps_ = nh_->declare_parameter<double>("center_distance_max_fps", 15.0);
+        warning_distance_ = nh_->declare_parameter<double>("warning_distance", 0.5);
+        use_rows_ratio_ = nh_->declare_parameter<double>("use_rows_ratio", 0.6);
+        use_cuda_ = nh_->declare_parameter<bool>("use_cuda", false);
         bool enable_yolo_detection = true;
         bool enable_qrcode_detection = false;
         bool enable_motion_detection = false;
         bool enable_obstacle_warning = true;
         bool enable_center_distance = true;
-        nh_.param<bool>("enable_yolo_detection", enable_yolo_detection, true);
-        nh_.param<bool>("enable_qrcode_detection", enable_qrcode_detection, false);
-        nh_.param<bool>("enable_obstacle_warning", enable_obstacle_warning, true);
-        nh_.param<bool>("enable_center_distance", enable_center_distance, true);
-        nh_.param<double>("qrcode_eps_x", qrcode_eps_x_, 0.35);
-        nh_.param<double>("qrcode_eps_y", qrcode_eps_y_, 0.35);
-        nh_.param<bool>("qrcode_require_decoded_text", qrcode_require_decoded_text, true);
-        nh_.param<bool>("enable_motion_detection", enable_motion_detection, false);
-        nh_.param<bool>("enable_motion_debug_images", enable_motion_debug_images_, false);
-        nh_.param<bool>("enable_motion_depth_filter", enable_motion_depth_filter_, false);
-        nh_.param<int>("motion_min_area", motion_min_area_, 50);
-        nh_.param<double>("motion_canny_low_threshold", motion_canny_low_threshold_, 50.0);
-        nh_.param<double>("motion_canny_high_threshold", motion_canny_high_threshold_, 150.0);
-        nh_.param<double>("motion_learning_rate", motion_learning_rate_, 0.01);
-        nh_.param<double>("motion_diff_threshold", motion_diff_threshold_, 12.0);
-        nh_.param<double>("motion_max_foreground_ratio", motion_max_foreground_ratio_, 0.12);
-        nh_.param<double>("motion_depth_min_m", motion_depth_min_m_, 0.0);
-        nh_.param<double>("motion_depth_max_m", motion_depth_max_m_, 0.7);
-        nh_.param<int>("motion_gaussian_k", motion_gaussian_k_, 7);
-        nh_.param<double>("motion_gaussian_sigma", motion_gaussian_sigma_, 1.4);
-        nh_.param<int>("motion_median_k", motion_median_k_, 5);
-        nh_.param<double>("motion_gamma", motion_gamma_, 1.0);
-        nh_.param<double>("motion_clahe_clip", motion_clahe_clip_, 1.2);
-        nh_.param<int>("motion_depth_mask_dilate_k", motion_depth_mask_dilate_k_, 5);
-        nh_.param<int>("motion_depth_mask_dilate_iter", motion_depth_mask_dilate_iter_, 1);
-        nh_.param<int>("motion_roi_dilate_k", motion_roi_dilate_k_, 9);
-        nh_.param<int>("motion_roi_dilate_iter", motion_roi_dilate_iter_, 6);
-        nh_.param<int>("motion_merge_k", motion_merge_k_, 13);
-        nh_.param<int>("motion_merge_iter", motion_merge_iter_, 3);
-        nh_.param<double>("motion_scene_motion_pct", motion_scene_motion_pct_, 18.0);
-        nh_.param<double>("motion_min_support_ratio", motion_min_support_ratio_, 0.05);
-        nh_.param<int>("motion_min_support_pixels", motion_min_support_pixels_, 90);
-        nh_.param<int>("motion_final_thick", motion_final_thick_, 2);
-        nh_.param<double>("motion_min_edge_motion_ratio", motion_min_edge_motion_ratio_, 0.12);
-        nh_.param<double>("motion_box_smoothing_alpha", motion_box_smoothing_alpha_, 0.35);
-        nh_.param<int>("motion_box_hold_frames", motion_box_hold_frames_, 3);
-        nh_.param<int>("motion_box_padding", motion_box_padding_, 6);
+        enable_yolo_detection = nh_->declare_parameter<bool>("enable_yolo_detection", true);
+        enable_qrcode_detection = nh_->declare_parameter<bool>("enable_qrcode_detection", false);
+        enable_obstacle_warning = nh_->declare_parameter<bool>("enable_obstacle_warning", true);
+        enable_center_distance = nh_->declare_parameter<bool>("enable_center_distance", true);
+        qrcode_eps_x_ = nh_->declare_parameter<double>("qrcode_eps_x", 0.35);
+        qrcode_eps_y_ = nh_->declare_parameter<double>("qrcode_eps_y", 0.35);
+        qrcode_require_decoded_text = nh_->declare_parameter<bool>("qrcode_require_decoded_text", true);
+        enable_motion_detection = nh_->declare_parameter<bool>("enable_motion_detection", false);
+        enable_motion_debug_images_ = nh_->declare_parameter<bool>("enable_motion_debug_images", false);
+        enable_motion_depth_filter_ = nh_->declare_parameter<bool>("enable_motion_depth_filter", false);
+        motion_min_area_ = nh_->declare_parameter<int>("motion_min_area", 50);
+        motion_canny_low_threshold_ = nh_->declare_parameter<double>("motion_canny_low_threshold", 50.0);
+        motion_canny_high_threshold_ = nh_->declare_parameter<double>("motion_canny_high_threshold", 150.0);
+        motion_learning_rate_ = nh_->declare_parameter<double>("motion_learning_rate", 0.01);
+        motion_diff_threshold_ = nh_->declare_parameter<double>("motion_diff_threshold", 12.0);
+        motion_max_foreground_ratio_ = nh_->declare_parameter<double>("motion_max_foreground_ratio", 0.12);
+        motion_depth_min_m_ = nh_->declare_parameter<double>("motion_depth_min_m", 0.0);
+        motion_depth_max_m_ = nh_->declare_parameter<double>("motion_depth_max_m", 0.7);
+        motion_gaussian_k_ = nh_->declare_parameter<int>("motion_gaussian_k", 7);
+        motion_gaussian_sigma_ = nh_->declare_parameter<double>("motion_gaussian_sigma", 1.4);
+        motion_median_k_ = nh_->declare_parameter<int>("motion_median_k", 5);
+        motion_gamma_ = nh_->declare_parameter<double>("motion_gamma", 1.0);
+        motion_clahe_clip_ = nh_->declare_parameter<double>("motion_clahe_clip", 1.2);
+        motion_depth_mask_dilate_k_ = nh_->declare_parameter<int>("motion_depth_mask_dilate_k", 5);
+        motion_depth_mask_dilate_iter_ = nh_->declare_parameter<int>("motion_depth_mask_dilate_iter", 1);
+        motion_roi_dilate_k_ = nh_->declare_parameter<int>("motion_roi_dilate_k", 9);
+        motion_roi_dilate_iter_ = nh_->declare_parameter<int>("motion_roi_dilate_iter", 6);
+        motion_merge_k_ = nh_->declare_parameter<int>("motion_merge_k", 13);
+        motion_merge_iter_ = nh_->declare_parameter<int>("motion_merge_iter", 3);
+        motion_scene_motion_pct_ = nh_->declare_parameter<double>("motion_scene_motion_pct", 18.0);
+        motion_min_support_ratio_ = nh_->declare_parameter<double>("motion_min_support_ratio", 0.05);
+        motion_min_support_pixels_ = nh_->declare_parameter<int>("motion_min_support_pixels", 90);
+        motion_final_thick_ = nh_->declare_parameter<int>("motion_final_thick", 2);
+        motion_min_edge_motion_ratio_ = nh_->declare_parameter<double>("motion_min_edge_motion_ratio", 0.12);
+        motion_box_smoothing_alpha_ = nh_->declare_parameter<double>("motion_box_smoothing_alpha", 0.35);
+        motion_box_hold_frames_ = nh_->declare_parameter<int>("motion_box_hold_frames", 3);
+        motion_box_padding_ = nh_->declare_parameter<int>("motion_box_padding", 6);
 
         motion_gaussian_k_ = ensureOdd(motion_gaussian_k_, 1);
         motion_median_k_ = ensureOdd(motion_median_k_, 1);
@@ -156,7 +160,7 @@ public:
         motion_detector_.reset(new vision_pkg::MotionDetector(
             motion_config,
             [this](vision_pkg::MotionDetector::DebugImage kind,
-                   const std_msgs::Header& header,
+                   const std_msgs::msg::Header& header,
                    const cv::Mat& image) {
                 publishMotionDebugImage(kind, header, image);
             }));
@@ -169,36 +173,25 @@ public:
             }
         }
 
-        image_pub_ = it_.advertise("vision_image", output_queue_size);
-        motion_gray_pub_ = it_.advertise("debug/motion_gray", 1);
-        motion_frame_diff_pub_ = it_.advertise("debug/motion_frame_diff", 1);
-        motion_fg_raw_pub_ = it_.advertise("debug/motion_fg_raw", 1);
-        motion_fg_after_diff_pub_ = it_.advertise("debug/motion_fg_after_diff", 1);
-        motion_fg_after_open_pub_ = it_.advertise("debug/motion_fg_after_open", 1);
-        motion_fg_after_close_pub_ = it_.advertise("debug/motion_fg_after_close", 1);
-        motion_fg_after_dilate_pub_ = it_.advertise("debug/motion_fg_after_dilate", 1);
-        motion_depth_mask_pub_ = it_.advertise("debug/motion_depth_mask", 1);
-        motion_fg_final_pub_ = it_.advertise("debug/motion_fg_final", 1);
-        det_pub_ = nh_.advertise<vision_pkg::Detection>("detections", 10);
-        warning_pub_ = nh_.advertise<vision_pkg::ObstacleWarning>("obstacle_warning", 10);
-        detection_control_srv_ = nh_.advertiseService(
-            "set_detection_enabled", &VisionDisplayNode::setDetectionEnabled, this);
+        if(!has_yolo_)enable_yolo_detection_.store(false);
+        image_pub_ = image_transport::create_publisher(nh_.get(), "vision_image");
+        motion_gray_pub_ = image_transport::create_publisher(nh_.get(), "debug/motion_gray");
+        motion_frame_diff_pub_ = image_transport::create_publisher(nh_.get(), "debug/motion_frame_diff");
+        motion_fg_raw_pub_ = image_transport::create_publisher(nh_.get(), "debug/motion_fg_raw");
+        motion_fg_after_diff_pub_ = image_transport::create_publisher(nh_.get(), "debug/motion_fg_after_diff");
+        motion_fg_after_open_pub_ = image_transport::create_publisher(nh_.get(), "debug/motion_fg_after_open");
+        motion_fg_after_close_pub_ = image_transport::create_publisher(nh_.get(), "debug/motion_fg_after_close");
+        motion_fg_after_dilate_pub_ = image_transport::create_publisher(nh_.get(), "debug/motion_fg_after_dilate");
+        motion_depth_mask_pub_ = image_transport::create_publisher(nh_.get(), "debug/motion_depth_mask");
+        motion_fg_final_pub_ = image_transport::create_publisher(nh_.get(), "debug/motion_fg_final");
+        det_pub_ = nh_->create_publisher<vision_pkg::msg::Detection>("detections", 10);
+        warning_pub_ = nh_->create_publisher<vision_pkg::msg::ObstacleWarning>("obstacle_warning", 10);
+        detection_control_srv_ = nh_->create_service<vision_pkg::srv::SetDetectionEnabled>("set_detection_enabled", std::bind(&VisionDisplayNode::setDetectionEnabled, this, std::placeholders::_1, std::placeholders::_2));
+        color_sub_ = image_transport::create_subscription(nh_.get(), color_topic, std::bind(&VisionDisplayNode::colorCallback, this, std::placeholders::_1), color_input_transport, rmw_qos_profile_sensor_data);
+        depth_sub_ = image_transport::create_subscription(nh_.get(), depth_topic, std::bind(&VisionDisplayNode::depthCallback, this, std::placeholders::_1), depth_input_transport, rmw_qos_profile_sensor_data);
+        info_sub_ = nh_->create_subscription<sensor_msgs::msg::CameraInfo>(camera_info_topic, rclcpp::SensorDataQoS(), std::bind(&VisionDisplayNode::infoCallback, this, std::placeholders::_1));
 
-        ros::TransportHints transport_hints;
-        if (tcp_nodelay) {
-            transport_hints = ros::TransportHints().tcpNoDelay();
-        }
-
-        image_transport::TransportHints color_hints(color_input_transport, transport_hints, nh_);
-        image_transport::TransportHints depth_hints(depth_input_transport, transport_hints, nh_);
-        color_sub_ = it_.subscribe(color_topic, color_queue_size,
-                                   &VisionDisplayNode::colorCallback, this, color_hints);
-        depth_sub_ = it_.subscribe(depth_topic, depth_queue_size,
-                                   &VisionDisplayNode::depthCallback, this, depth_hints);
-        info_sub_ = nh_.subscribe(camera_info_topic, info_queue_size,
-                                  &VisionDisplayNode::infoCallback, this, transport_hints);
-
-        ROS_INFO_STREAM(
+        RCLCPP_INFO_STREAM(rclcpp::get_logger("vision_pkg"), 
             "vision_display_node started: color_topic=" << color_topic
             << " depth_topic=" << depth_topic
             << " camera_info_topic=" << camera_info_topic
@@ -260,12 +253,12 @@ private:
         float z{0.0f};
     };
 
-    static bool isDue(const ros::Time& now, ros::Time& last_time, double max_fps)
+    static bool isDue(const rclcpp::Time& now, rclcpp::Time& last_time, double max_fps)
     {
         if (max_fps <= 0.0) {
             return true;
         }
-        if (last_time.isZero() || (now - last_time).toSec() >= (1.0 / max_fps)) {
+        if ((last_time.nanoseconds()==0) || (now - last_time).seconds() >= (1.0 / max_fps)) {
             last_time = now;
             return true;
         }
@@ -285,14 +278,15 @@ private:
                motion_fg_final_pub_.getNumSubscribers() > 0;
     }
 
-    bool setDetectionEnabled(vision_pkg::SetDetectionEnabled::Request& req,
-                             vision_pkg::SetDetectionEnabled::Response& res)
+    void setDetectionEnabled(const std::shared_ptr<vision_pkg::srv::SetDetectionEnabled::Request> req,
+                             std::shared_ptr<vision_pkg::srv::SetDetectionEnabled::Response> res)
     {
-        const bool yolo_enabled = req.enable_all || req.enable_yolo;
-        const bool qrcode_enabled = req.enable_all || req.enable_qrcode;
-        const bool motion_enabled = req.enable_all || req.enable_motion;
-        const bool warning_enabled = req.enable_all || req.enable_obstacle_warning;
-        const bool center_enabled = req.enable_all || req.enable_center_distance;
+        const bool yolo_enabled = req->enable_all || req->enable_yolo;
+        if (yolo_enabled && !has_yolo_) { res->success=false;res->message="YOLO model unavailable";return; }
+        const bool qrcode_enabled = req->enable_all || req->enable_qrcode;
+        const bool motion_enabled = req->enable_all || req->enable_motion;
+        const bool warning_enabled = req->enable_all || req->enable_obstacle_warning;
+        const bool center_enabled = req->enable_all || req->enable_center_distance;
 
         enable_yolo_detection_.store(yolo_enabled);
         enable_qrcode_detection_.store(qrcode_enabled);
@@ -300,11 +294,11 @@ private:
         enable_obstacle_warning_.store(warning_enabled);
         enable_center_distance_.store(center_enabled);
 
-        nh_.setParam("enable_yolo_detection", yolo_enabled);
-        nh_.setParam("enable_qrcode_detection", qrcode_enabled);
-        nh_.setParam("enable_motion_detection", motion_enabled);
-        nh_.setParam("enable_obstacle_warning", warning_enabled);
-        nh_.setParam("enable_center_distance", center_enabled);
+        nh_->set_parameter(rclcpp::Parameter("enable_yolo_detection", yolo_enabled));
+        nh_->set_parameter(rclcpp::Parameter("enable_qrcode_detection", qrcode_enabled));
+        nh_->set_parameter(rclcpp::Parameter("enable_motion_detection", motion_enabled));
+        nh_->set_parameter(rclcpp::Parameter("enable_obstacle_warning", warning_enabled));
+        nh_->set_parameter(rclcpp::Parameter("enable_center_distance", center_enabled));
 
         if (!yolo_enabled) {
             clearYoloCache();
@@ -319,23 +313,23 @@ private:
             last_center_distance_valid_ = false;
         }
 
-        res.success = true;
-        res.message = "detection switches updated";
-        res.yolo_enabled = yolo_enabled;
-        res.qrcode_enabled = qrcode_enabled;
-        res.motion_enabled = motion_enabled;
-        res.obstacle_warning_enabled = warning_enabled;
-        res.center_distance_enabled = center_enabled;
-        ROS_INFO_STREAM("detection switches updated: yolo=" << (yolo_enabled ? "true" : "false")
+        res->success = true;
+        res->message = "detection switches updated";
+        res->yolo_enabled = yolo_enabled;
+        res->qrcode_enabled = qrcode_enabled;
+        res->motion_enabled = motion_enabled;
+        res->obstacle_warning_enabled = warning_enabled;
+        res->center_distance_enabled = center_enabled;
+        RCLCPP_INFO_STREAM(rclcpp::get_logger("vision_pkg"), "detection switches updated: yolo=" << (yolo_enabled ? "true" : "false")
                         << " qrcode=" << (qrcode_enabled ? "true" : "false")
                         << " motion=" << (motion_enabled ? "true" : "false")
                         << " obstacle_warning=" << (warning_enabled ? "true" : "false")
                         << " center_distance=" << (center_enabled ? "true" : "false"));
-        return true;
+        return;
     }
 
     void publishDebugMono(const image_transport::Publisher& pub,
-                          const std_msgs::Header& header,
+                          const std_msgs::msg::Header& header,
                           const cv::Mat& image) const
     {
         if (!enable_motion_debug_images_ || image.empty() || pub.getNumSubscribers() == 0) {
@@ -345,7 +339,7 @@ private:
     }
 
     void publishMotionDebugImage(vision_pkg::MotionDetector::DebugImage kind,
-                                 const std_msgs::Header& header,
+                                 const std_msgs::msg::Header& header,
                                  const cv::Mat& image) const
     {
         switch (kind) {
@@ -424,24 +418,24 @@ private:
         return motion_detector_ && motion_detector_->hasCachedResults();
     }
 
-    void depthCallback(const sensor_msgs::Image::ConstPtr& msg)
+    void depthCallback(const sensor_msgs::msg::Image::ConstSharedPtr& msg)
     {
         try {
-            const auto depth_ptr = cv_bridge::toCvShare(msg, sensor_msgs::image_encodings::TYPE_16UC1);
+            const auto depth_ptr = vision_pkg::depthMillimetres(msg);
             std::lock_guard<std::mutex> lock(state_mutex_);
             depth_ptr_ = depth_ptr;
         } catch (const cv_bridge::Exception& e) {
-            ROS_WARN_ONCE("depth error: %s", e.what());
+            RCLCPP_WARN_ONCE(rclcpp::get_logger("vision_pkg"), "depth error: %s", e.what());
         }
     }
 
-    void infoCallback(const sensor_msgs::CameraInfo::ConstPtr& msg)
+    void infoCallback(const sensor_msgs::msg::CameraInfo::ConstSharedPtr& msg)
     {
         std::lock_guard<std::mutex> lock(state_mutex_);
-        fx_ = msg->K[0];
-        fy_ = msg->K[4];
-        cx_ = msg->K[2];
-        cy_ = msg->K[5];
+        fx_ = msg->k[0];
+        fy_ = msg->k[4];
+        cx_ = msg->k[2];
+        cy_ = msg->k[5];
         color_w_ = msg->width;
         color_h_ = msg->height;
         has_intrinsics_ = (fx_ > 1e-3 && fy_ > 1e-3);
@@ -518,7 +512,7 @@ private:
         return valid[idx] * 0.001;
     }
 
-    void updateYoloDetections(const cv::Mat& src, const cv::Mat& depth)
+    void updateYoloDetections(const cv::Mat& src, const cv::Mat& depth, const std_msgs::msg::Header & header)
     {
         if (!has_yolo_) {
             return;
@@ -534,7 +528,8 @@ private:
         detections.reserve(results.size());
 
         for (const auto& r : results) {
-            vision_pkg::Detection det;
+            vision_pkg::msg::Detection det;
+            det.header=header;
             det.id = r.id;
             det.confidence = r.confidence;
             det.x = r.box.x;
@@ -544,7 +539,7 @@ private:
             if (r.id >= 0 && r.id < static_cast<int>(yolo_.className.size())) {
                 det.class_name = yolo_.className[r.id];
             }
-            det_pub_.publish(det);
+            det_pub_->publish(det);
 
             CachedDetection cached;
             cached.result = r;
@@ -637,7 +632,7 @@ private:
         }
     }
 
-    void queueYoloDetection(const cv::Mat& src, const cv::Mat& depth)
+    void queueYoloDetection(const cv::Mat& src, const cv::Mat& depth, const std_msgs::msg::Header & header)
     {
         if (!has_yolo_ || src.empty() || !yolo_worker_.joinable()) {
             return;
@@ -645,6 +640,7 @@ private:
 
         {
             std::lock_guard<std::mutex> lock(yolo_worker_mutex_);
+            yolo_pending_header_=header;
             yolo_pending_frame_ = src.clone();
             yolo_pending_depth_ = depth.empty() ? cv::Mat() : depth.clone();
             yolo_frame_pending_ = true;
@@ -654,9 +650,10 @@ private:
 
     void yoloWorkerLoop()
     {
-        while (ros::ok()) {
+        while (rclcpp::ok()) {
             cv::Mat frame;
             cv::Mat depth;
+            std_msgs::msg::Header header;
             {
                 std::unique_lock<std::mutex> lock(yolo_worker_mutex_);
                 yolo_worker_cv_.wait(lock, [this]() {
@@ -665,6 +662,7 @@ private:
                 if (yolo_worker_stop_) {
                     break;
                 }
+                header=yolo_pending_header_;
                 frame = yolo_pending_frame_;
                 depth = yolo_pending_depth_;
                 yolo_pending_frame_.release();
@@ -672,11 +670,11 @@ private:
                 yolo_frame_pending_ = false;
             }
 
-            updateYoloDetections(frame, depth);
+            updateYoloDetections(frame, depth, header);
         }
     }
 
-    void queueMotionDetection(const cv::Mat& src, const cv::Mat& depth, const std_msgs::Header& header)
+    void queueMotionDetection(const cv::Mat& src, const cv::Mat& depth, const std_msgs::msg::Header& header)
     {
         if (!enable_motion_detection_.load() || src.empty() || !motion_worker_.joinable()) {
             return;
@@ -694,10 +692,10 @@ private:
 
     void motionWorkerLoop()
     {
-        while (ros::ok()) {
+        while (rclcpp::ok()) {
             cv::Mat frame;
             cv::Mat depth;
-            std_msgs::Header header;
+            std_msgs::msg::Header header;
             {
                 std::unique_lock<std::mutex> lock(motion_worker_mutex_);
                 motion_worker_cv_.wait(lock, [this]() {
@@ -720,16 +718,16 @@ private:
         }
     }
 
-    void colorCallback(const sensor_msgs::Image::ConstPtr& msg)
+    void colorCallback(const sensor_msgs::msg::Image::ConstSharedPtr& msg)
     {
-        const ros::Time now = msg->header.stamp.isZero() ? ros::Time::now() : msg->header.stamp;
+        const rclcpp::Time now = rclcpp::Time(msg->header.stamp).nanoseconds()==0 ? nh_->now() : rclcpp::Time(msg->header.stamp);
         const bool output_due = isDue(now, last_output_time_, output_max_fps_);
 
         cv_bridge::CvImageConstPtr color_ptr;
         try {
             color_ptr = cv_bridge::toCvShare(msg, sensor_msgs::image_encodings::BGR8);
         } catch (const cv_bridge::Exception& e) {
-            ROS_WARN_ONCE("color error: %s", e.what());
+            RCLCPP_WARN_ONCE(rclcpp::get_logger("vision_pkg"), "color error: %s", e.what());
             return;
         }
 
@@ -753,12 +751,12 @@ private:
         const bool motion_due = motion_enabled && isDue(now, last_motion_time_, motion_max_fps_);
         const bool warning_due = warning_enabled && isDue(now, last_warning_time_, warning_max_fps_);
         const bool center_due = center_enabled && isDue(now, last_center_distance_time_, center_distance_max_fps_);
-        const bool need_yolo = has_yolo_ && yolo_due && (publish_image || det_pub_.getNumSubscribers() > 0);
+        const bool need_yolo = has_yolo_ && yolo_due && (publish_image || det_pub_->get_subscription_count() > 0);
         const bool need_motion = motion_due &&
                                  (publish_image || hasMotionDebugSubscribers());
         const bool need_qrcode = qrcode_enabled && publish_this_frame;
         const bool need_warning = has_depth && warning_due &&
-                                  (publish_image || warning_pub_.getNumSubscribers() > 0);
+                                  (publish_image || warning_pub_->get_subscription_count() > 0);
         const bool need_center_distance = has_depth && center_due && publish_image;
 
         if (!publish_this_frame && !need_yolo && !need_motion && !need_warning &&
@@ -790,7 +788,7 @@ private:
         }
 
         if (need_yolo) {
-            queueYoloDetection(src, depth);
+            queueYoloDetection(src, depth, msg->header);
         }
 
         std::vector<vision_pkg::QrDetector::Result> qr_results;
@@ -823,14 +821,14 @@ private:
         double center_dist = computeNearDist(depth, third, y0, third * 2, y1);
         double right_dist = computeNearDist(depth, third * 2, y0, cols, y1);
 
-        vision_pkg::ObstacleWarning warn;
+        vision_pkg::msg::ObstacleWarning warn;
         warn.left_dist = (left_dist >= 0) ? left_dist : 0;
         warn.center_dist = (center_dist >= 0) ? center_dist : 0;
         warn.right_dist = (right_dist >= 0) ? right_dist : 0;
         warn.left_warn = (left_dist >= 0 && left_dist < warning_distance_);
         warn.center_warn = (center_dist >= 0 && center_dist < warning_distance_);
         warn.right_warn = (right_dist >= 0 && right_dist < warning_distance_);
-        warning_pub_.publish(warn);
+        warning_pub_->publish(warn);
 
         last_warning_valid_ = true;
         last_warning_depth_size_ = depth.size();
@@ -923,8 +921,8 @@ private:
         }
     }
 
-    ros::NodeHandle nh_;
-    image_transport::ImageTransport it_;
+    rclcpp::Node::SharedPtr nh_;
+    
     image_transport::Publisher image_pub_;
     image_transport::Publisher motion_gray_pub_;
     image_transport::Publisher motion_frame_diff_pub_;
@@ -935,12 +933,12 @@ private:
     image_transport::Publisher motion_fg_after_dilate_pub_;
     image_transport::Publisher motion_depth_mask_pub_;
     image_transport::Publisher motion_fg_final_pub_;
-    ros::Publisher det_pub_;
-    ros::Publisher warning_pub_;
+    rclcpp::Publisher<vision_pkg::msg::Detection>::SharedPtr det_pub_;
+    rclcpp::Publisher<vision_pkg::msg::ObstacleWarning>::SharedPtr warning_pub_;
     image_transport::Subscriber color_sub_;
     image_transport::Subscriber depth_sub_;
-    ros::Subscriber info_sub_;
-    ros::ServiceServer detection_control_srv_;
+    rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr info_sub_;
+    rclcpp::Service<vision_pkg::srv::SetDetectionEnabled>::SharedPtr detection_control_srv_;
 
     mutable std::mutex state_mutex_;
     mutable std::mutex yolo_result_mutex_;
@@ -949,6 +947,7 @@ private:
     std::condition_variable yolo_worker_cv_;
     bool yolo_worker_stop_{false};
     bool yolo_frame_pending_{false};
+    std_msgs::msg::Header yolo_pending_header_;
     cv::Mat yolo_pending_frame_;
     cv::Mat yolo_pending_depth_;
     std::thread motion_worker_;
@@ -958,7 +957,7 @@ private:
     bool motion_frame_pending_{false};
     cv::Mat motion_pending_frame_;
     cv::Mat motion_pending_depth_;
-    std_msgs::Header motion_pending_header_;
+    std_msgs::msg::Header motion_pending_header_;
     cv_bridge::CvImageConstPtr depth_ptr_;
     bool has_yolo_{false};
     bool use_cuda_{false};
@@ -978,11 +977,11 @@ private:
     double center_distance_max_fps_{15.0};
     double qrcode_eps_x_{0.35};
     double qrcode_eps_y_{0.35};
-    ros::Time last_output_time_;
-    ros::Time last_yolo_time_;
-    ros::Time last_motion_time_;
-    ros::Time last_warning_time_;
-    ros::Time last_center_distance_time_;
+    rclcpp::Time last_output_time_{0, 0, RCL_ROS_TIME};
+    rclcpp::Time last_yolo_time_{0, 0, RCL_ROS_TIME};
+    rclcpp::Time last_motion_time_{0, 0, RCL_ROS_TIME};
+    rclcpp::Time last_warning_time_{0, 0, RCL_ROS_TIME};
+    rclcpp::Time last_center_distance_time_{0, 0, RCL_ROS_TIME};
     Yolov8 yolo_;
     cv::dnn::Net net_;
     std::vector<cv::Scalar> colors_;
@@ -1041,8 +1040,8 @@ private:
 
 int main(int argc, char** argv)
 {
-    ros::init(argc, argv, "vision_display_node");
+    rclcpp::init(argc, argv);
     VisionDisplayNode node;
-    ros::spin();
+    rclcpp::spin(node.node());
     return 0;
 }

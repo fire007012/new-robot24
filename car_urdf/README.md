@@ -1,83 +1,9 @@
-# car_urdf
+# car_urdf · ROS2 机器人模型
 
-机器人本体描述包，维护 URDF、网格模型、Gazebo 控制器配置和基础展示/仿真启动文件。
-
-## 包职责
-
-- 提供整车、机械臂、夹爪、摆臂、轮组和传感器的模型描述。
-- 维护 Gazebo 控制器参数与 joint 名称映射。
-- 为 RViz/Gazebo 提供基础模型加载入口。
-
-## 包结构
-
-```text
-car_urdf/
-|-- config/
-|   |-- car_controllers.yaml
-|   `-- joint_names_car_urdf.yaml
-|-- launch/
-|   |-- bringup.launch
-|   |-- display.launch
-|   `-- gazebo.launch
-|-- meshes/
-|   `-- *.STL
-`-- urdf/
-    |-- car_urdf.csv
-    `-- car_urdf.urdf
-```
-
-## 快速开始
+`urdf/robot.urdf.xacro` 是活动运动学模型，`meshes/` 提供网格，根 frame 为 base_link。整车入口安装并组合模型，过滤后 joint_states 仅用于有限 TF；硬件安全读取原始测量。ros2_control 硬件描述由 robot_hardware 组合。
 
 ```bash
-cd ~/robot24_ws
-catkin_make --pkg car_urdf
-source devel/setup.bash
-roslaunch car_urdf bringup.launch
+ros2 launch robot_bringup full_system_mock.launch.py
 ```
 
-如果只需要最小 Gazebo 模型加载：
-
-```bash
-roslaunch car_urdf gazebo.launch
-```
-
-## 常用命令
-
-```bash
-# 检查 URDF 语法
-check_urdf $(rospack find car_urdf)/urdf/car_urdf.urdf
-
-# 完整 bringup（Gazebo + 控制器 + RViz）
-roslaunch car_urdf bringup.launch
-
-# 最小 Gazebo 模型加载
-roslaunch car_urdf gazebo.launch
-
-# 查看关键 TF
-rosrun tf tf_echo base_link_root base_link
-```
-
-## 资源摘要
-
-- 主模型：`urdf/car_urdf.urdf`
-- 关键末端与传感器帧：
-  - `tool0`
-  - `grasp_tcp`
-  - `camera_optical_frame`
-  - `catch_camera_optical_frame`
-- 控制器配置：`config/car_controllers.yaml`
-  - `joint_state_controller`
-  - `arm_controller`
-  - `gripper_controller`
-  - 四个摆臂控制器
-  - `wheel_controller`
-- 网格资源：`meshes/*.STL`
-
-## 使用说明
-
-- `display.launch` 目前引用了仓库中不存在的 `urdf.rviz`；日常建议优先使用 `bringup.launch` 或手动打开 RViz。
-
-## 详细文档索引
-
-- `README.md`：当前维护入口。
-- `docs/README.md`：包内文档索引。
+从仓库根目录使用 `bash tools/build_ros2.sh /tmp/robot24-ros2 full` 构建并 source 安装环境。组件示例须配合整车运行入口，运动需要显式许可。当前架构、完整参数与验证边界见 [根 README](../README.md) 和 [文档索引](../docs/README.md)。历史 ROS1 内容位于 `reference/ros1/`；持续回归源码保留。

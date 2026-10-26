@@ -1,0 +1,23 @@
+<?xml version="1.0"?>
+<package format="3">
+<name>robot_full_system</name><version>0.3.0</version>
+<description>Full ROS2 application dependency set</description>
+<maintainer email="dianhua@example.com">dianhua</maintainer><license>MIT</license>
+<buildtool_depend>ament_cmake</buildtool_depend>
+<exec_depend>robot_bringup</exec_depend><exec_depend>robot_simulation</exec_depend>
+<exec_depend>car_control</exec_depend>
+<exec_depend>flipper_control</exec_depend>
+<exec_depend>host_bridge</exec_depend>
+<exec_depend>vision_pkg</exec_depend>
+<exec_depend>eye_in_hand</exec_depend>
+<exec_depend>senseair_co2</exec_depend>
+<exec_depend>thermal_camera</exec_depend>
+<exec_depend>robot_camera_sdk</exec_depend>
+<exec_depend>realsense2_camera</exec_depend>
+<exec_depend>realsense2_description</exec_depend>
+<exec_depend>orbbec_camera</exec_depend>
+<exec_depend>orbbec_description</exec_depend>
+<exec_depend>aruco_ros</exec_depend>
+<exec_depend>easy_handeye2</exec_depend>
+<export><build_type>ament_cmake</build_type></export>
+</package>

@@ -1,6 +1,6 @@
 # ROS2 双后端硬件运行入口
 
-本包与 `robot_canopen_config`、`robot_safety` 组成 CANopen 迁移后的 ROS2 控制链。目标环境为 ROS2 Humble，使用一个 controller_manager 管理六个 CANopen 轴和七个私有协议轴。六轴机械臂的 JTC 跨两个后端；摆臂 CSV/CSP 控制器互斥。旧 ROS1 包保留供行为对照及实机回退。
+本包与 `robot_canopen_config`、`robot_safety` 组成 CANopen 迁移后的 ROS2 控制链。目标环境为 ROS2 Humble，使用一个 controller_manager 管理六个 CANopen 轴和七个私有协议轴。六轴机械臂的 JTC 跨两个后端；摆臂 CSV/CSP 控制器互斥。旧 ROS1 包已归入 `reference/ros1/`，仅供行为参考，项目不再要求 ROS1 回退。
 
 完整操作及现场出口见 [CANopen 软件交付与实机验收](../docs/28_CANopen软件交付与实机验收.md)。
 
@@ -29,3 +29,5 @@ ros2 launch robot_hardware hardware.launch.py mock:=true journal:=/tmp/mock-main
 项目配置禁用启动 Homing 和自动写限位。原始单轴运动 service/PDO topic 写入在托管模式下关闭；控制器资源切换是模式切换入口。维护 SDO 复用同一主站并单飞，读回失败不会使用缓存值代替设备响应。
 
 `hardware.launch.py` 默认真实插件，但硬件保持 unconfigured；没有现场 `commissioning.yaml` 的完整登记，init 校验不能通过。`mock:=true` 加载专用模拟插件与明确标识的模拟身份，不连接 CAN。单轴实机入口为 `single_axis.launch.py`，只配置目标节点，控制器同样默认 inactive。
+
+整车 `robot_bringup/full_system.launch.py` 默认启用四组策略；本包 `hardware.launch.py` 的空 `group_policy` 使用 ROS2 全局联锁诊断模式。分组 API、关联条件与恢复见 [实施验收 31](../docs/31_分组隔离与局部恢复实施验收.md)。

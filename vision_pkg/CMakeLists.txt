@@ -1,193 +1,35 @@
-cmake_minimum_required(VERSION 3.0.2)
+cmake_minimum_required(VERSION 3.8)
 project(vision_pkg)
-
-set(CMAKE_CXX_STANDARD 14)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-add_compile_options(-Wall)
-
-set(THIRD_PARTY_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third_party)
-
-find_package(catkin REQUIRED COMPONENTS
-  cv_bridge
-  geometry_msgs
-  image_transport
-  message_generation
-  roscpp
-  sensor_msgs
-  std_msgs
-)
-
-find_package(OpenCV REQUIRED COMPONENTS
-  core
-  dnn
-  highgui
-  imgcodecs
-  imgproc
-  objdetect
-)
-
+set(CMAKE_CXX_STANDARD 17)
+find_package(ament_cmake REQUIRED)
+find_package(rosidl_default_generators REQUIRED)
+foreach(dep rclcpp sensor_msgs std_msgs geometry_msgs cv_bridge image_transport)
+ find_package(${dep} REQUIRED)
+endforeach()
+find_package(OpenCV REQUIRED)
 find_package(PkgConfig REQUIRED)
-pkg_check_modules(GSTREAMER QUIET
-  gstreamer-1.0
-  gstreamer-app-1.0
-)
-
-if(NOT GSTREAMER_FOUND)
-  message(WARNING "GStreamer development packages not found; h265_encoder_node and h265_decoder_node will not be built. Install libgstreamer1.0-dev and libgstreamer-plugins-base1.0-dev to enable H.265 support.")
-endif()
-
-add_message_files(
-  FILES
-  Detection.msg
-  DetectedObject3D.msg
-  DetectedObject3DArray.msg
-  ObstacleWarning.msg
-)
-
-add_service_files(
-  FILES
-  SetDetectionEnabled.srv
-)
-
-generate_messages(
-  DEPENDENCIES
-  geometry_msgs
-  std_msgs
-)
-
-catkin_package(
-  INCLUDE_DIRS include
-  CATKIN_DEPENDS
-    cv_bridge
-    geometry_msgs
-    image_transport
-    message_runtime
-    roscpp
-    sensor_msgs
-    std_msgs
-)
-
-include_directories(
-  include
-  ${catkin_INCLUDE_DIRS}
-  ${OpenCV_INCLUDE_DIRS}
-  ${THIRD_PARTY_DIR}/include
-  ${GSTREAMER_INCLUDE_DIRS}
-)
-
-link_directories(
-  ${GSTREAMER_LIBRARY_DIRS}
-)
-
-add_definitions(
-  ${GSTREAMER_CFLAGS_OTHER}
-)
-
-add_library(vision_yolo
-  src/yolov8.cpp
-)
-add_dependencies(vision_yolo ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
-target_link_libraries(vision_yolo
-  ${catkin_LIBRARIES}
-  ${OpenCV_LIBRARIES}
-)
-
-add_library(vision_panorama
-  src/fisheye.cpp
-  src/panorama.cpp
-)
-add_dependencies(vision_panorama ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
-target_link_libraries(vision_panorama
-  ${catkin_LIBRARIES}
-  ${OpenCV_LIBRARIES}
-)
-
-add_executable(vision_display_node
-  src/vision_display_node.cpp
-  src/motion_detector.cpp
-  src/qr_detector.cpp
-)
-add_dependencies(vision_display_node ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
-target_link_libraries(vision_display_node
-  vision_yolo
-  ${catkin_LIBRARIES}
-  ${OpenCV_LIBRARIES}
-)
-
-add_executable(panorama_node
-  src/panorama_node.cpp
-)
-add_dependencies(panorama_node ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
-target_link_libraries(panorama_node
-  vision_panorama
-  ${catkin_LIBRARIES}
-  ${OpenCV_LIBRARIES}
-)
-
-if(GSTREAMER_FOUND)
-  if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/src/h265_encoder_node.cpp)
-    add_executable(h265_encoder_node
-      src/h265_encoder_node.cpp
-    )
-    add_dependencies(h265_encoder_node ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
-    target_link_libraries(h265_encoder_node
-      ${catkin_LIBRARIES}
-      ${OpenCV_LIBRARIES}
-      ${GSTREAMER_LIBRARIES}
-    )
-  endif()
-
-  if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/src/h265_decoder_node.cpp)
-    add_executable(h265_decoder_node
-      src/h265_decoder_node.cpp
-    )
-    add_dependencies(h265_decoder_node ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
-    target_link_libraries(h265_decoder_node
-      ${catkin_LIBRARIES}
-      ${OpenCV_LIBRARIES}
-      ${GSTREAMER_LIBRARIES}
-    )
-  endif()
-endif()
-
-add_executable(object_pose_node
-  src/object_pose_node.cpp
-)
-add_dependencies(object_pose_node ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
-target_link_libraries(object_pose_node
-  ${catkin_LIBRARIES}
-  ${OpenCV_LIBRARIES}
-)
-
-add_executable(distance_display_node
-  src/distance_display_node.cpp
-)
-add_dependencies(distance_display_node ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
-target_link_libraries(distance_display_node
-  ${catkin_LIBRARIES}
-  ${OpenCV_LIBRARIES}
-)
-
-add_executable(obstacle_warning_node
-  src/obstacle_warning_node.cpp
-)
-add_dependencies(obstacle_warning_node ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
-target_link_libraries(obstacle_warning_node
-  ${catkin_LIBRARIES}
-  ${OpenCV_LIBRARIES}
-)
-
-add_executable(yolov8_node
-  src/yolov8_node.cpp
-)
-add_dependencies(yolov8_node ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
-target_link_libraries(yolov8_node
-  vision_yolo
-  ${catkin_LIBRARIES}
-  ${OpenCV_LIBRARIES}
-)
-
-catkin_install_python(PROGRAMS
-  scripts/detect_behind_camera.py
-  DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
-)
+pkg_check_modules(GSTREAMER REQUIRED gstreamer-1.0 gstreamer-app-1.0)
+rosidl_generate_interfaces(${PROJECT_NAME} "msg/Detection.msg" "msg/DetectedObject3D.msg" "msg/DetectedObject3DArray.msg" "msg/ObstacleWarning.msg" "srv/SetDetectionEnabled.srv" DEPENDENCIES std_msgs geometry_msgs)
+rosidl_get_typesupport_target(vision_typesupport ${PROJECT_NAME} rosidl_typesupport_cpp)
+include_directories(include third_party/include ${OpenCV_INCLUDE_DIRS} ${GSTREAMER_INCLUDE_DIRS})
+add_library(vision_yolo src/yolov8.cpp)
+ament_target_dependencies(vision_yolo rclcpp)
+target_link_libraries(vision_yolo ${OpenCV_LIBRARIES})
+add_library(vision_panorama src/fisheye.cpp src/panorama.cpp)
+ament_target_dependencies(vision_panorama rclcpp)
+target_link_libraries(vision_panorama ${OpenCV_LIBRARIES})
+foreach(node vision_display panorama h265_encoder h265_decoder object_pose distance_display obstacle_warning yolov8)
+ add_executable(${node}_node src/${node}_node.cpp)
+ ament_target_dependencies(${node}_node rclcpp sensor_msgs std_msgs geometry_msgs cv_bridge image_transport)
+ target_link_libraries(${node}_node "${vision_typesupport}" ${OpenCV_LIBRARIES} ${GSTREAMER_LIBRARIES})
+ install(TARGETS ${node}_node DESTINATION lib/${PROJECT_NAME})
+endforeach()
+target_sources(vision_display_node PRIVATE src/motion_detector.cpp src/qr_detector.cpp)
+target_link_libraries(vision_display_node vision_yolo)
+target_link_libraries(yolov8_node vision_yolo)
+target_link_libraries(panorama_node vision_panorama)
+install(TARGETS vision_yolo vision_panorama LIBRARY DESTINATION lib ARCHIVE DESTINATION lib)
+install(DIRECTORY launch/ DESTINATION share/${PROJECT_NAME}/launch)
+install(PROGRAMS scripts/usb_camera_node.py scripts/detect_behind_camera.py DESTINATION lib/${PROJECT_NAME})
+ament_export_dependencies(rosidl_default_runtime)
+ament_package()

@@ -1,44 +1,50 @@
-#include <ros/ros.h>
-#include <sensor_msgs/Image.h>
+#include <vision_pkg/depth_image.hpp>
+#include <rclcpp/rclcpp.hpp>
+static rclcpp::Clock & vision_log_clock() { static rclcpp::Clock clock(RCL_STEADY_TIME); return clock; }
+#include <rclcpp/rclcpp.hpp>
+#include <functional>
+#include <chrono>
+#include <sensor_msgs/msg/image.hpp>
 #include <cv_bridge/cv_bridge.h>
 #include <image_transport/image_transport.h>
 #include <opencv2/imgproc.hpp>
 #include <algorithm>
 #include <vector>
-#include "vision_pkg/ObstacleWarning.h"
+#include <vision_pkg/msg/obstacle_warning.hpp>
 
 class ObstacleWarningNode
 {
 public:
-    ObstacleWarningNode() : nh_("~"), it_(nh_), has_depth_(false)
+    rclcpp::Node::SharedPtr node() const { return nh_; }
+    ObstacleWarningNode() : nh_(std::make_shared<rclcpp::Node>("obstacle_warning_node")), has_depth_(false)
     {
         std::string color_topic, depth_topic;
-        nh_.param<std::string>("color_topic", color_topic, "/behind_camera/color/image_raw");
-        nh_.param<std::string>("depth_topic", depth_topic, "/behind_camera/depth/image_rect_raw");
-        nh_.param<double>("warning_distance", warning_distance_, 0.5);
-        nh_.param<double>("use_rows_ratio", use_rows_ratio_, 0.6);
+        color_topic = nh_->declare_parameter<std::string>("color_topic", "/behind_camera/color/image_raw");
+        depth_topic = nh_->declare_parameter<std::string>("depth_topic", "/behind_camera/depth/image_rect_raw");
+        warning_distance_ = nh_->declare_parameter<double>("warning_distance", 0.5);
+        use_rows_ratio_ = nh_->declare_parameter<double>("use_rows_ratio", 0.6);
 
-        warning_pub_ = nh_.advertise<vision_pkg::ObstacleWarning>("obstacle_warning", 10);
-        image_pub_ = it_.advertise("warning_image", 1);
+        warning_pub_ = nh_->create_publisher<vision_pkg::msg::ObstacleWarning>("obstacle_warning", 10);
+        image_pub_ = image_transport::create_publisher(nh_.get(), "warning_image");
 
-        color_sub_ = nh_.subscribe(color_topic, 1, &ObstacleWarningNode::colorCallback, this);
-        depth_sub_ = nh_.subscribe(depth_topic, 1, &ObstacleWarningNode::depthCallback, this);
+        color_sub_ = nh_->create_subscription<sensor_msgs::msg::Image>(color_topic, rclcpp::SensorDataQoS(), std::bind(&ObstacleWarningNode::colorCallback, this, std::placeholders::_1));
+        depth_sub_ = nh_->create_subscription<sensor_msgs::msg::Image>(depth_topic, rclcpp::SensorDataQoS(), std::bind(&ObstacleWarningNode::depthCallback, this, std::placeholders::_1));
 
-        ROS_INFO("obstacle_warning_node started");
-        ROS_INFO("  color_topic: %s", color_topic.c_str());
-        ROS_INFO("  depth_topic: %s", depth_topic.c_str());
-        ROS_INFO("  warning_distance: %.2f m", warning_distance_);
-        ROS_INFO("  use_rows_ratio: %.2f", use_rows_ratio_);
+        RCLCPP_INFO(rclcpp::get_logger("vision_pkg"), "obstacle_warning_node started");
+        RCLCPP_INFO(rclcpp::get_logger("vision_pkg"), "  color_topic: %s", color_topic.c_str());
+        RCLCPP_INFO(rclcpp::get_logger("vision_pkg"), "  depth_topic: %s", depth_topic.c_str());
+        RCLCPP_INFO(rclcpp::get_logger("vision_pkg"), "  warning_distance: %.2f m", warning_distance_);
+        RCLCPP_INFO(rclcpp::get_logger("vision_pkg"), "  use_rows_ratio: %.2f", use_rows_ratio_);
     }
 
 private:
-    void depthCallback(const sensor_msgs::Image::ConstPtr& msg)
+    void depthCallback(const sensor_msgs::msg::Image::ConstSharedPtr& msg)
     {
         try {
-            depth_ptr_ = cv_bridge::toCvShare(msg, sensor_msgs::image_encodings::TYPE_16UC1);
+            depth_ptr_ = vision_pkg::depthMillimetres(msg);
             has_depth_ = true;
         } catch (cv_bridge::Exception& e) {
-            ROS_WARN_THROTTLE(5.0, "depth cv_bridge error: %s", e.what());
+            RCLCPP_WARN_THROTTLE(rclcpp::get_logger("vision_pkg"), vision_log_clock(), static_cast<int>((5.0)*1000), "depth cv_bridge error: %s", e.what());
         }
     }
 
@@ -63,7 +69,7 @@ private:
         return valid[idx] * 0.001;
     }
 
-    void colorCallback(const sensor_msgs::Image::ConstPtr& msg)
+    void colorCallback(const sensor_msgs::msg::Image::ConstSharedPtr& msg)
     {
         if (!has_depth_) return;
 
@@ -83,14 +89,14 @@ private:
         double right_dist  = computeNearDist(depth, third * 2, y0, cols,      y1);
 
         // 发布警告消息
-        vision_pkg::ObstacleWarning warn_msg;
+        vision_pkg::msg::ObstacleWarning warn_msg;
         warn_msg.left_dist   = (left_dist   >= 0) ? left_dist   : 0;
         warn_msg.center_dist = (center_dist >= 0) ? center_dist : 0;
         warn_msg.right_dist  = (right_dist  >= 0) ? right_dist  : 0;
         warn_msg.left_warn   = (left_dist   >= 0 && left_dist   < warning_distance_);
         warn_msg.center_warn = (center_dist >= 0 && center_dist < warning_distance_);
         warn_msg.right_warn  = (right_dist  >= 0 && right_dist  < warning_distance_);
-        warning_pub_.publish(warn_msg);
+        warning_pub_->publish(warn_msg);
 
         // 可视化：在彩色图上画三个区域的状态
         if (image_pub_.getNumSubscribers() == 0) return;
@@ -99,7 +105,7 @@ private:
         try {
             color_ptr = cv_bridge::toCvCopy(msg, sensor_msgs::image_encodings::BGR8);
         } catch (cv_bridge::Exception& e) {
-            ROS_WARN_THROTTLE(5.0, "color cv_bridge error: %s", e.what());
+            RCLCPP_WARN_THROTTLE(rclcpp::get_logger("vision_pkg"), vision_log_clock(), static_cast<int>((5.0)*1000), "color cv_bridge error: %s", e.what());
             return;
         }
 
@@ -165,12 +171,12 @@ private:
         image_pub_.publish(color_ptr->toImageMsg());
     }
 
-    ros::NodeHandle nh_;
-    image_transport::ImageTransport it_;
+    rclcpp::Node::SharedPtr nh_;
+    
     image_transport::Publisher image_pub_;
-    ros::Publisher warning_pub_;
-    ros::Subscriber color_sub_;
-    ros::Subscriber depth_sub_;
+    rclcpp::Publisher<vision_pkg::msg::ObstacleWarning>::SharedPtr warning_pub_;
+    rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr color_sub_;
+    rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr depth_sub_;
 
     cv_bridge::CvImageConstPtr depth_ptr_;
     bool has_depth_;
@@ -181,8 +187,8 @@ private:
 
 int main(int argc, char** argv)
 {
-    ros::init(argc, argv, "obstacle_warning_node");
+    rclcpp::init(argc, argv);
     ObstacleWarningNode node;
-    ros::spin();
+    rclcpp::spin(node.node());
     return 0;
 }

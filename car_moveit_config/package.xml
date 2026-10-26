@@ -1,41 +1,13 @@
-<package>
-
-  <name>car_moveit_config</name>
-  <version>0.3.0</version>
-  <description>
-     An automatically generated package with all the configuration and launch files for using the car_urdf with the MoveIt Motion Planning Framework
-  </description>
-  <author email="2733239989@qq.com">2733239989@qq.com</author>
-  <maintainer email="2733239989@qq.com">2733239989@qq.com</maintainer>
-
-  <license>BSD</license>
-
-  <url type="website">http://moveit.ros.org/</url>
-  <url type="bugtracker">https://github.com/moveit/moveit/issues</url>
-  <url type="repository">https://github.com/moveit/moveit</url>
-
-  <buildtool_depend>catkin</buildtool_depend>
-
-  <run_depend>moveit_ros_move_group</run_depend>
-  <run_depend>moveit_fake_controller_manager</run_depend>
-  <run_depend>moveit_kinematics</run_depend>
-  <run_depend>moveit_planners</run_depend>
-  <run_depend>moveit_ros_visualization</run_depend>
-  <run_depend>moveit_setup_assistant</run_depend>
-  <run_depend>moveit_simple_controller_manager</run_depend>
-  <run_depend>joint_state_publisher</run_depend>
-  <run_depend>joint_state_publisher_gui</run_depend>
-  <run_depend>robot_state_publisher</run_depend>
-  <run_depend>rviz</run_depend>
-  <run_depend>tf2_ros</run_depend>
-  <run_depend>xacro</run_depend>
-  <!-- The next 2 packages are required for the gazebo simulation.
-       We don't include them by default to prevent installing gazebo and all its dependencies. -->
-  <!-- <run_depend>joint_trajectory_controller</run_depend> -->
-  <!-- <run_depend>gazebo_ros_control</run_depend> -->
-  <!-- This package is referenced in the warehouse launch files, but does not build out of the box at the moment. Commented the dependency until this works. -->
-  <!-- <run_depend>warehouse_ros_mongo</run_depend> -->
-  <run_depend>car_urdf</run_depend>
-
-
+<?xml version="1.0"?>
+<package format="3">
+  <name>car_moveit_config</name><version>0.4.0</version>
+  <description>Robot24 MoveIt 2 configuration for the unified six-axis controller.</description>
+  <maintainer email="2733239989@qq.com">dianhua</maintainer><license>BSD</license>
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <depend>rclcpp</depend><depend>moveit_core</depend><depend>pluginlib</depend>
+  <exec_depend>car_urdf</exec_depend><exec_depend>ament_index_python</exec_depend>
+  <exec_depend>launch_ros</exec_depend><exec_depend>xacro</exec_depend><exec_depend>python3-yaml</exec_depend>
+  <exec_depend>moveit_ros_move_group</exec_depend><exec_depend>moveit_planners_ompl</exec_depend>
+  <exec_depend>moveit_kinematics</exec_depend><exec_depend>moveit_simple_controller_manager</exec_depend>
+  <export><build_type>ament_cmake</build_type></export>
 </package>

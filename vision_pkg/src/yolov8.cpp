@@ -1,5 +1,5 @@
 #include "vision_pkg/yolov8.h"
-#include <ros/ros.h>
+#include <rclcpp/rclcpp.hpp>
 #include <algorithm>
 #include <cstdio>
 
@@ -19,7 +19,7 @@ bool Yolov8::ReadModel(cv::dnn::Net& net, const std::string& netPath, bool isCud
         net.enableWinograd(false);
 #endif
     } catch (const std::exception& e) {
-        ROS_ERROR("Error reading model: %s", e.what());
+        RCLCPP_ERROR(rclcpp::get_logger("vision_pkg"), "Error reading model: %s", e.what());
         return false;
     }
 
@@ -27,7 +27,7 @@ bool Yolov8::ReadModel(cv::dnn::Net& net, const std::string& netPath, bool isCud
         net.setPreferableBackend(cv::dnn::DNN_BACKEND_CUDA);
         net.setPreferableTarget(cv::dnn::DNN_TARGET_CUDA);
     } else {
-        ROS_INFO("Inference device: CPU");
+        RCLCPP_INFO(rclcpp::get_logger("vision_pkg"), "Inference device: CPU");
         net.setPreferableBackend(cv::dnn::DNN_BACKEND_DEFAULT);
         net.setPreferableTarget(cv::dnn::DNN_TARGET_CPU);
     }

@@ -46,7 +46,7 @@ void MotionDetector::clearCache()
 }
 
 void MotionDetector::publishDebug(DebugImage kind,
-                                  const std_msgs::Header& header,
+                                  const std_msgs::msg::Header& header,
                                   const cv::Mat& image) const
 {
     if (!config_.debug_images || image.empty() || !debug_publisher_) {
@@ -601,7 +601,7 @@ cv::Mat MotionDetector::buildDepthMask(const cv::Mat& depth, const cv::Size& out
 
 void MotionDetector::process(const cv::Mat& src,
                              const cv::Mat& depth,
-                             const std_msgs::Header& header)
+                             const std_msgs::msg::Header& header)
 {
     if (!config_.enabled || src.empty()) return;
 

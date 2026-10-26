@@ -1,0 +1,11 @@
+uint8 axis_index
+float64 min_position
+float64 max_position
+bool use_urdf_limits
+bool require_current_inside_limits
+---
+bool success
+string message
+float64 current_position
+float64 applied_min_position
+float64 applied_max_position

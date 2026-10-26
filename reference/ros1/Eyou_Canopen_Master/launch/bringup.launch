@@ -1,0 +1,62 @@
+<launch>
+  <arg name="dcf_path" default="$(find Eyou_Canopen_Master)/config/master.dcf"/>
+  <arg name="joints_path" default="$(find Eyou_Canopen_Master)/config/joints.yaml"/>
+  <arg name="controllers_file" default="$(find Eyou_Canopen_Master)/config/ros/controllers.yaml"/>
+  <arg name="loop_hz" default="200.0"/>
+  <arg name="auto_init" default="false"/>
+  <arg name="auto_enable" default="false"/>
+  <arg name="auto_release" default="false"/>
+  <arg name="use_ip_executor" default="true"/>
+  <arg name="ip_executor_action_ns" default="arm_position_controller/follow_joint_trajectory"/>
+  <arg name="ip_executor_joint_name" default="shoulder_yaw_joint"/>
+  <arg name="ip_executor_max_velocity" default="1.0"/>
+  <arg name="ip_executor_max_acceleration" default="2.0"/>
+  <arg name="ip_executor_max_jerk" default="10.0"/>
+  <arg name="ip_executor_goal_tolerance" default="0.001"/>
+
+  <arg name="robot_urdf" default="$(find car_urdf)/urdf/car_urdf.urdf"/>
+  <arg name="use_robot_state_publisher" default="true"/>
+
+  <arg name="start_position_controller" default="true"/>
+  <arg name="start_velocity_controller" default="false"/>
+
+  <rosparam file="$(arg controllers_file)" command="load"/>
+
+  <node name="canopen_hw_node" pkg="Eyou_Canopen_Master" type="canopen_hw_ros_node" output="screen" required="true">
+    <param name="dcf_path" value="$(arg dcf_path)"/>
+    <param name="joints_path" value="$(arg joints_path)"/>
+    <param name="loop_hz" value="$(arg loop_hz)"/>
+    <param name="auto_init" value="$(arg auto_init)"/>
+    <param name="auto_enable" value="$(arg auto_enable)"/>
+    <param name="auto_release" value="$(arg auto_release)"/>
+    <param name="use_ip_executor" value="$(arg use_ip_executor)"/>
+    <param name="ip_executor_action_ns" value="$(arg ip_executor_action_ns)"/>
+    <param name="ip_executor_joint_name" value="$(arg ip_executor_joint_name)"/>
+    <param name="ip_executor_max_velocity" value="$(arg ip_executor_max_velocity)"/>
+    <param name="ip_executor_max_acceleration" value="$(arg ip_executor_max_acceleration)"/>
+    <param name="ip_executor_max_jerk" value="$(arg ip_executor_max_jerk)"/>
+    <param name="ip_executor_goal_tolerance" value="$(arg ip_executor_goal_tolerance)"/>
+  </node>
+
+  <node name="spawner_joint_state_controller" pkg="controller_manager" type="spawner"
+        args="joint_state_controller" output="screen"/>
+
+  <node if="$(eval arg('start_position_controller') and not arg('use_ip_executor'))" name="spawner_arm_position_controller"
+        pkg="controller_manager" type="spawner"
+        args="arm_position_controller" output="screen"/>
+  <node if="$(eval (not arg('start_position_controller')) and (not arg('use_ip_executor')))" name="spawner_arm_position_controller_stopped"
+        pkg="controller_manager" type="spawner"
+        args="--stopped arm_position_controller" output="screen"/>
+
+  <node if="$(arg start_velocity_controller)" name="spawner_arm_velocity_controller"
+        pkg="controller_manager" type="spawner"
+        args="arm_velocity_controller" output="screen"/>
+  <node unless="$(arg start_velocity_controller)" name="spawner_arm_velocity_controller_stopped"
+        pkg="controller_manager" type="spawner"
+        args="--stopped arm_velocity_controller" output="screen"/>
+
+  <group if="$(arg use_robot_state_publisher)">
+    <param name="robot_description" textfile="$(arg robot_urdf)"/>
+    <node name="robot_state_publisher" pkg="robot_state_publisher" type="robot_state_publisher" output="screen"/>
+  </group>
+</launch>

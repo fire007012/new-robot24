@@ -1,5 +1,5 @@
 #include "vision_pkg/fisheye.h"
-#include <ros/ros.h>
+#include <rclcpp/rclcpp.hpp>
 #include <algorithm>
 #include <cmath>
 
@@ -329,7 +329,7 @@ cv::Mat Fisheye::renderAzimuthal(const cv::Mat &equirect, int out_size)
 void Fisheye::processFrames(const cv::Mat &frame1, const cv::Mat &frame2)
 {
     if (frame1.empty() || frame2.empty()) {
-        ROS_ERROR_ONCE("Fisheye: input frame empty");
+        RCLCPP_ERROR_ONCE(rclcpp::get_logger("vision_pkg"), "Fisheye: input frame empty");
         return;
     }
 
@@ -337,7 +337,7 @@ void Fisheye::processFrames(const cv::Mat &frame1, const cv::Mat &frame2)
     cv::Mat back_rect;
     extractConfiguredCrops(frame1, frame2, front_rect, back_rect);
     if (front_rect.empty() || back_rect.empty()) {
-        ROS_ERROR_ONCE("Fisheye: crop rect produced empty image");
+        RCLCPP_ERROR_ONCE(rclcpp::get_logger("vision_pkg"), "Fisheye: crop rect produced empty image");
         return;
     }
 
@@ -345,7 +345,7 @@ void Fisheye::processFrames(const cv::Mat &frame1, const cv::Mat &frame2)
         detected_radius_ = detectFisheyeRadius(front_rect);
         last_input_w_ = front_rect.cols;
         last_input_h_ = front_rect.rows;
-        ROS_INFO("Detected fisheye circle radius: %d (front crop: %dx%d, back crop: %dx%d)",
+        RCLCPP_INFO(rclcpp::get_logger("vision_pkg"), "Detected fisheye circle radius: %d (front crop: %dx%d, back crop: %dx%d)",
                  detected_radius_, front_rect.cols, front_rect.rows, back_rect.cols, back_rect.rows);
         unwarp_maps_ready_ = false;
     }
@@ -353,7 +353,7 @@ void Fisheye::processFrames(const cv::Mat &frame1, const cv::Mat &frame2)
     cv::Mat crop1 = cropFisheyeCircle(front_rect, detected_radius_);
     cv::Mat crop2 = cropFisheyeCircle(back_rect, detected_radius_);
     if (crop1.empty() || crop2.empty()) {
-        ROS_ERROR_ONCE("Fisheye: circle crop produced empty image");
+        RCLCPP_ERROR_ONCE(rclcpp::get_logger("vision_pkg"), "Fisheye: circle crop produced empty image");
         return;
     }
 
@@ -369,7 +369,7 @@ void Fisheye::processFrames(const cv::Mat &frame1, const cv::Mat &frame2)
     if (!unwarp_maps_ready_ || map_radius_ != radius || cached_source_fov_deg_ != source_fov_deg_) {
         buildUnwarpMaps(radius, out_w, out_h);
         cached_source_fov_deg_ = source_fov_deg_;
-        ROS_INFO("Fisheye unwarp maps built: radius=%d, output=%dx%d, source_fov=%.1f",
+        RCLCPP_INFO(rclcpp::get_logger("vision_pkg"), "Fisheye unwarp maps built: radius=%d, output=%dx%d, source_fov=%.1f",
                  radius, out_w, out_h, source_fov_deg_);
     }
 

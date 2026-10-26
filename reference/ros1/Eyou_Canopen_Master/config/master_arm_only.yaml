@@ -1,0 +1,109 @@
+options:
+  dcf_path: .
+  heartbeat_multiplier: 3.0
+
+master:
+  node_id: 127
+  heartbeat_producer: 500
+  sync_period: 5000
+  sync_overflow: 0
+
+shoulder_yaw_joint:
+  node_id: 6
+  dcf: YiyouServo_V1.4.dcfgen.eds
+  heartbeat_producer: 500
+  rpdo:
+    1:
+      cob_id: 0x206
+      transmission: 1
+      mapping:
+        - {index: 0x6040, sub_index: 0, bits: 16}
+        - {index: 0x607A, sub_index: 0, bits: 32}
+        - {index: 0x6060, sub_index: 0, bits: 8}
+    2:
+      cob_id: 0x306
+      transmission: 1
+      mapping:
+        - {index: 0x60C1, sub_index: 1, bits: 32}
+    3:
+      cob_id: 0x80000406
+      transmission: 1
+      mapping: []
+    4:
+      cob_id: 0x80000506
+      transmission: 1
+      mapping: []
+  tpdo:
+    1:
+      cob_id: 0x186
+      transmission: 1
+      mapping:
+        - {index: 0x6041, sub_index: 0, bits: 16}
+        - {index: 0x6064, sub_index: 0, bits: 32}
+        - {index: 0x6061, sub_index: 0, bits: 8}
+    2:
+      cob_id: 0x286
+      transmission: 1
+      mapping:
+        - {index: 0x606C, sub_index: 0, bits: 32}
+        - {index: 0x6077, sub_index: 0, bits: 16}
+    3:
+      cob_id: 0x80000386
+      transmission: 1
+      mapping: []
+    4:
+      cob_id: 0x80000486
+      transmission: 1
+      mapping: []
+  sdo:
+    - {index: 0x6060, sub_index: 0, value: 7}
+
+shoulder_pitch_joint:
+  node_id: 5
+  dcf: YiyouServo_V1.4.dcfgen.eds
+  heartbeat_producer: 500
+  rpdo:
+    1:
+      cob_id: 0x205
+      transmission: 1
+      mapping:
+        - {index: 0x6040, sub_index: 0, bits: 16}
+        - {index: 0x607A, sub_index: 0, bits: 32}
+        - {index: 0x6060, sub_index: 0, bits: 8}
+    2:
+      cob_id: 0x305
+      transmission: 1
+      mapping:
+        - {index: 0x60C1, sub_index: 1, bits: 32}
+    3:
+      cob_id: 0x80000405
+      transmission: 1
+      mapping: []
+    4:
+      cob_id: 0x80000505
+      transmission: 1
+      mapping: []
+  tpdo:
+    1:
+      cob_id: 0x185
+      transmission: 1
+      mapping:
+        - {index: 0x6041, sub_index: 0, bits: 16}
+        - {index: 0x6064, sub_index: 0, bits: 32}
+        - {index: 0x6061, sub_index: 0, bits: 8}
+    2:
+      cob_id: 0x285
+      transmission: 1
+      mapping:
+        - {index: 0x606C, sub_index: 0, bits: 32}
+        - {index: 0x6077, sub_index: 0, bits: 16}
+    3:
+      cob_id: 0x80000385
+      transmission: 1
+      mapping: []
+    4:
+      cob_id: 0x80000485
+      transmission: 1
+      mapping: []
+  sdo:
+    - {index: 0x6060, sub_index: 0, value: 7}

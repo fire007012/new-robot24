@@ -1,67 +1,12 @@
 <?xml version="1.0"?>
-<package format="2">
-  <name>flipper_control</name>
-  <version>0.0.1</version>
-  <description>Upper-layer flipper control package for four-flipper mode management, jog reference generation, and cold switching.</description>
-
-  <maintainer email="dianhua@todo.todo">dianhua</maintainer>
-  <license>MIT</license>
-
-  <buildtool_depend>catkin</buildtool_depend>
-
-  <build_depend>controller_interface</build_depend>
-  <build_depend>controller_manager_msgs</build_depend>
-  <build_depend>control_msgs</build_depend>
-  <build_depend>diagnostic_msgs</build_depend>
-  <build_depend>Eyou_Canopen_Master</build_depend>
-  <build_depend>Eyou_ROS1_Master</build_depend>
-  <build_depend>hardware_interface</build_depend>
-  <build_depend>message_generation</build_depend>
-  <build_depend>pluginlib</build_depend>
-  <build_depend>realtime_tools</build_depend>
-  <build_depend>roscpp</build_depend>
-  <build_depend>sensor_msgs</build_depend>
-  <build_depend>std_msgs</build_depend>
-  <build_depend>std_srvs</build_depend>
-  <build_depend>trajectory_msgs</build_depend>
-  <build_depend>urdf</build_depend>
-
-  <build_export_depend>controller_interface</build_export_depend>
-  <build_export_depend>controller_manager_msgs</build_export_depend>
-  <build_export_depend>control_msgs</build_export_depend>
-  <build_export_depend>diagnostic_msgs</build_export_depend>
-  <build_export_depend>Eyou_Canopen_Master</build_export_depend>
-  <build_export_depend>Eyou_ROS1_Master</build_export_depend>
-  <build_export_depend>hardware_interface</build_export_depend>
-  <build_export_depend>pluginlib</build_export_depend>
-  <build_export_depend>realtime_tools</build_export_depend>
-  <build_export_depend>roscpp</build_export_depend>
-  <build_export_depend>sensor_msgs</build_export_depend>
-  <build_export_depend>std_msgs</build_export_depend>
-  <build_export_depend>std_srvs</build_export_depend>
-  <build_export_depend>trajectory_msgs</build_export_depend>
-  <build_export_depend>urdf</build_export_depend>
-
-  <exec_depend>controller_interface</exec_depend>
-  <exec_depend>controller_manager_msgs</exec_depend>
-  <exec_depend>control_msgs</exec_depend>
-  <exec_depend>diagnostic_msgs</exec_depend>
-  <exec_depend>Eyou_Canopen_Master</exec_depend>
-  <exec_depend>Eyou_ROS1_Master</exec_depend>
-  <exec_depend>hardware_interface</exec_depend>
-  <exec_depend>message_runtime</exec_depend>
-  <exec_depend>pluginlib</exec_depend>
-  <exec_depend>realtime_tools</exec_depend>
-  <exec_depend>roscpp</exec_depend>
-  <exec_depend>sensor_msgs</exec_depend>
-  <exec_depend>std_msgs</exec_depend>
-  <exec_depend>std_srvs</exec_depend>
-  <exec_depend>trajectory_msgs</exec_depend>
-  <exec_depend>urdf</exec_depend>
-
-  <test_depend>rostest</test_depend>
-
-  <export>
-    <controller_interface plugin="${prefix}/flipper_control_plugins.xml"/>
-  </export>
+<package format="3">
+<name>flipper_control</name><version>0.3.0</version>
+<description>ROS2 flipper diagnostic UI; runtime control is owned by robot_hardware</description>
+<maintainer email="dianhua@example.com">dianhua</maintainer><license>MIT</license>
+<buildtool_depend>ament_cmake</buildtool_depend>
+<exec_depend>car_control</exec_depend>
+<exec_depend>rclpy</exec_depend>
+<exec_depend>robot_hardware</exec_depend>
+<exec_depend>launch_ros</exec_depend>
+<export><build_type>ament_cmake</build_type></export>
 </package>

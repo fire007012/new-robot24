@@ -1,28 +1,44 @@
 #!/usr/bin/env python3
+"""Read one axis; route maintenance on a full robot through its existing coordinator."""
 import argparse,json,threading
 from pathlib import Path
 import yaml,rclpy
 from rclpy.node import Node
 from rclpy.executors import MultiThreadedExecutor
 from ament_index_python.packages import get_package_share_directory
+from controller_manager_msgs.srv import ListHardwareComponents
+from robot_hardware.srv import Maintain
 from robot_hardware_runtime.node import Adapter
 from robot_hardware_runtime.policy import Policy,AXES,IDENTITY,MAINTENANCE
-parser=argparse.ArgumentParser(description='Single-axis readback/maintenance/activation through the existing master.')
+parser=argparse.ArgumentParser(description=__doc__)
 parser.add_argument('joint',choices=list(AXES));parser.add_argument('--baseline');parser.add_argument('--activate',action='store_true')
-parser.add_argument('--operation',choices=['set_zero','set_offset','limits','limits_from_urdf','disable_limits','restore']);parser.add_argument('--lower',type=float,default=0);parser.add_argument('--upper',type=float,default=0);parser.add_argument('--save',action='store_true');parser.add_argument('--journal',default=str(Path.home()/'.ros/robot_maintenance.json'))
+parser.add_argument('--operation',choices=['set_zero','set_offset','limits','limits_from_urdf','disable_limits','restore']);parser.add_argument('--lower',type=float,default=0);parser.add_argument('--upper',type=float,default=0);parser.add_argument('--save',action='store_true');parser.add_argument('--journal')
 args=parser.parse_args();rclpy.init();node=Node('axis_commission');executor=MultiThreadedExecutor(3);executor.add_node(node);thread=threading.Thread(target=executor.spin);thread.start()
 try:
- io=Adapter(node);io.hardware('RobotCanopenSystem','inactive')
- nodeid=AXES[args.joint][0];share=Path(get_package_share_directory('robot_canopen_config'))/'config'/f'axis_{nodeid}'
+ io=Adapter(node)
+ hardware=io.call('/controller_manager/list_hardware_components',ListHardwareComponents,ListHardwareComponents.Request()).component
+ single=len(hardware)==1 and hardware[0].name=='RobotCanopenSystem' and len(hardware[0].command_interfaces)==1 and hardware[0].command_interfaces[0].name.startswith(args.joint+'/')
+ if not single and args.activate:raise RuntimeError('single-axis activation requires single_axis.launch.py; use robot_group for the full robot')
+ if not single and args.operation and (args.baseline or args.journal):raise RuntimeError('full-robot maintenance uses the runtime baseline/journal; configure those launch arguments instead')
+ if single:io.hardware('RobotCanopenSystem','inactive')
+ nodeid=AXES[args.joint][0];share=Path(get_package_share_directory('robot_canopen_config'))/'config'
+ if single:share=share/f'axis_{nodeid}'
  baseline=yaml.safe_load(Path(args.baseline).read_text()) if args.baseline else {'commissioned':False}
  limits=yaml.safe_load((Path(get_package_share_directory('robot_hardware'))/'config/joint_limits.yaml').read_text())
- policy=Policy(io,yaml.safe_load((share/'bus.yml').read_text()),baseline,args.journal,limits)
- print(json.dumps({'joint':args.joint,'node_id':nodeid,'identity':policy.read_objects(args.joint,IDENTITY),'persistent':policy.read_objects(args.joint,MAINTENANCE),'save_support':io.read(args.joint,0x1010,1)},indent=2,ensure_ascii=False))
+ policy=Policy(io,yaml.safe_load((share/'bus.yml').read_text()),baseline,args.journal or str(Path.home()/'.ros/robot_maintenance.json'),limits)
+ def readback():
+  return {'joint':args.joint,'node_id':nodeid,'identity':policy.read_objects(args.joint,IDENTITY),
+   'persistent':policy.read_objects(args.joint,MAINTENANCE),'save_support':io.read(args.joint,0x1010,1)}
+ print(json.dumps(readback(),indent=2,ensure_ascii=False))
  if args.operation:
-  policy.verify([args.joint], allow_dirty=args.operation=='restore')
-  io.disable(args.joint)
-  if args.operation=='restore':policy.restore()
-  else:policy.maintain(args.joint,args.operation,args.lower,args.upper,args.save)
+  if single:
+   policy.verify([args.joint],allow_dirty=args.operation=='restore');io.disable(args.joint)
+   if args.operation=='restore':policy.restore()
+   else:policy.maintain(args.joint,args.operation,args.lower,args.upper,args.save)
+  else:
+   response=io.call('/robot_runtime/maintain',Maintain,Maintain.Request(joint=args.joint,operation=args.operation,lower=args.lower,upper=args.upper,save=args.save))
+   if not response.success:raise RuntimeError(response.message)
+  print(json.dumps({'readback':readback()},indent=2,ensure_ascii=False))
  if args.activate:
   policy.verify([args.joint]);io.hardware('RobotCanopenSystem','active');io.controllers(['joint_state_broadcaster','axis_controller'],[])
 finally:

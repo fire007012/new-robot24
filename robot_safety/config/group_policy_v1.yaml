@@ -1,0 +1,59 @@
+# Opt-in grouped runtime contract; default launches keep the legacy global gate.
+# Field release is staged. Physical evidence stays unknown until commissioning.
+version: group-policy-v1
+activation: staged
+axes:
+  shoulder_yaw_joint: {group: arm, backend: RobotCanopenSystem}
+  shoulder_pitch_joint: {group: arm, backend: RobotCanopenSystem}
+  elbow_pitch_joint: {group: arm, backend: CanDriverSystem}
+  wrist_pitch_joint: {group: arm, backend: CanDriverSystem}
+  wrist_yaw_joint: {group: arm, backend: CanDriverSystem}
+  wrist_roll_joint: {group: arm, backend: CanDriverSystem}
+  left_front_arm_joint: {group: flippers, backend: RobotCanopenSystem}
+  right_front_arm_joint: {group: flippers, backend: RobotCanopenSystem}
+  left_rear_arm_joint: {group: flippers, backend: RobotCanopenSystem}
+  right_rear_arm_joint: {group: flippers, backend: RobotCanopenSystem}
+  left_front_wheel_joint: {group: base, backend: CanDriverSystem}
+  right_front_wheel_joint: {group: base, backend: CanDriverSystem}
+  left_gripper_finger_joint: {group: gripper, backend: CanDriverSystem}
+groups:
+  arm:
+    controllers: [arm_position_controller]
+    task: six_axis_trajectory
+  flippers:
+    controllers: [flipper_csv_forward_controller, flipper_csp_controller]
+    controller_selection: exactly_one
+    task: four_flipper_linkage
+  base:
+    controllers: [wheel_controller]
+    task: paired_tracks
+  gripper:
+    controllers: [gripper_controller]
+    task: grasp
+associations:
+  - {source_group: arm, category: '*', dependent_group: base, condition: arm_secured,
+     source: commissioned_arm_pose_and_brake, unknown: block}
+  - {source_group: flippers, category: '*', dependent_group: base, condition: support_trusted,
+     source: commissioned_support_state, unknown: block}
+  - {source_group: gripper, category: '*', dependent_group: arm, condition: payload_retained,
+     source: commissioned_payload_state, unknown: block}
+conditions:
+  arm_secured: {initial: unknown, field_evidence: pending}
+  support_trusted: {initial: unknown, field_evidence: pending}
+  payload_retained: {initial: unknown, field_evidence: pending}
+events:
+  invalid_request: {severity: reject, recovery: corrected_request}
+  velocity_timeout: {severity: warn, action: controller_zero_or_hold, recovery: fresh_command}
+  invalid_running_output: {severity: group_stop, recovery: repair_source_and_explicit_session}
+  feedback_warning: {severity: warn, recovery: stable_window}
+  feedback_expired: {severity: group_stop, recovery: fresh_feedback_ack_arm_start}
+  heartbeat_timeout: {severity: group_stop, additional_delay_ns: 0}
+  unexpected_disable_or_mode: {severity: group_stop, additional_delay_ns: 0}
+  unknown_emcy: {severity: group_stop, preserve_raw_code: true}
+  # No manufacturer/firmware/code mapping has been justified yet.
+  known_emcy: []
+  sdo_read_failure: {severity: reject, scope: dependent_operation, cached_success: forbidden}
+  maintenance_uncertain: {severity: group_stop, scope: target_axis_group_and_associations,
+                          recovery: identity_restore_readback_ack_arm_start}
+  transport_failure: {severity: group_stop, scope: backend_axes_and_associations}
+  emergency_stop: {severity: global_stop, recovery: explicit_global_reset_arm_start}

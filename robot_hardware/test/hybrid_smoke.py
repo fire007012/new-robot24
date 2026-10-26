@@ -4,6 +4,7 @@ No CAN interface is opened. Fails on incomplete lifecycle, shared faults, trajec
 """
 import json
 import os
+import re
 from pathlib import Path
 import signal
 import subprocess
@@ -34,13 +35,14 @@ class HybridSmoke(unittest.TestCase):
         cls.stream=cls.log.open('w')
         env=dict(os.environ,ROS_DOMAIN_ID=cls.DOMAIN,ROS_LOCALHOST_ONLY='1',ROS_LOG_DIR=cls.tmp.name)
         os.environ.update(ROS_DOMAIN_ID=cls.DOMAIN,ROS_LOCALHOST_ONLY='1',ROS_LOG_DIR=cls.tmp.name)
-        arguments=['ros2','launch','robot_hardware',cls.LAUNCH]+cls.ARGUMENTS
+        arguments=['ros2','launch',getattr(cls,'PACKAGE','robot_hardware'),cls.LAUNCH]+cls.ARGUMENTS
         if cls.LAUNCH=='hardware.launch.py':arguments+=['journal:='+cls.tmp.name+'/maintenance.json']
         cls.process=subprocess.Popen(arguments,stdout=cls.stream,stderr=subprocess.STDOUT,env=env,start_new_session=True)
         try: rclpy.init()
         except Exception:
-            os.killpg(cls.process.pid,signal.SIGINT);cls.process.wait(timeout=10);cls.stream.close();cls.tmp.cleanup();raise
+            os.kill(cls.process.pid,signal.SIGINT);cls.process.wait(timeout=10);cls.stream.close();cls.tmp.cleanup();raise
         cls.node=Node('hybrid_smoke');cls.executor=MultiThreadedExecutor(4);cls.executor.add_node(cls.node)
+        cls.clients={}
         cls.thread=threading.Thread(target=cls.executor.spin);cls.thread.start()
         cls.positions={};cls.velocities={};cls.runtime=''
         cls.sub=cls.node.create_subscription(JointState,'/joint_states',cls.joint_state,10)
@@ -48,18 +50,28 @@ class HybridSmoke(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         cls.executor.shutdown();cls.thread.join();cls.node.destroy_node();rclpy.shutdown()
-        os.killpg(cls.process.pid,signal.SIGINT)
+        # Launch forwards this signal to its children. Signalling the whole group
+        # also delivers a second SIGINT during their destructor/handler teardown.
+        os.kill(cls.process.pid,signal.SIGINT)
         try:cls.process.wait(timeout=15)
         except subprocess.TimeoutExpired:os.killpg(cls.process.pid,signal.SIGKILL);cls.process.wait()
         cls.stream.close()
         # Keep the evidence even on failure; do not discard logs with TemporaryDirectory.cleanup().
         target=Path(os.environ.get('ROBOT_OFFLINE_REPORT','/tmp/robot-hybrid-smoke.log'))
-        target.write_text(cls.log.read_text());cls.tmp.cleanup()
+        output=cls.log.read_text()
+        # A single unittest invocation runs HybridSmoke and SingleAxisSmoke.
+        # Retain each launch independently instead of losing the first class's
+        # evidence when the next class writes the shared report path.
+        target.with_name(target.stem+'-'+cls.__name__+target.suffix).write_text(output)
+        target.write_text(output);cls.tmp.cleanup()
+        if re.search(r'\[ERROR\] \[ros2_control_node-\d+\]: process has died',output):
+            raise AssertionError('control manager failed during teardown:\n'+output[-6000:])
     @classmethod
     def joint_state(cls,message):
         cls.positions.update(zip(message.name,message.position));cls.velocities.update(zip(message.name,message.velocity))
     @classmethod
-    def runtime_state(cls,message):cls.runtime=json.loads(message.data)['state']
+    def runtime_state(cls,message):
+        cls.runtime_details=json.loads(message.data);cls.runtime=cls.runtime_details['state']
     def wait(self,predicate,timeout=20):
         deadline=time.monotonic()+timeout
         while time.monotonic()<deadline:
@@ -67,16 +79,19 @@ class HybridSmoke(unittest.TestCase):
             if 'process has died' in self.log.read_text():self.fail(self.log.read_text()[-10000:])
             if predicate():return
             time.sleep(.02)
-        self.fail('condition timeout; runtime='+self.runtime+'\n'+self.log.read_text()[-6000:])
+        self.fail('condition timeout; runtime='+self.runtime+'\n'+json.dumps(getattr(self,'runtime_details',{}),ensure_ascii=False)+'\n'+self.log.read_text()[-6000:])
     def result(self,future,timeout=30):
         event=threading.Event();future.add_done_callback(lambda _:event.set())
         self.assertTrue(event.wait(timeout),'future timeout')
         return future.result()
     def call(self,name,kind,request):
-        client=self.node.create_client(kind,name)
+        # Reuse DDS endpoints as the runtime adapter does; repeated destruction
+        # during backend reconstruction can race service discovery in Humble.
+        client=self.clients.get(name)
+        if client is None:
+            client=self.node.create_client(kind,name);self.clients[name]=client
         self.assertTrue(client.wait_for_service(timeout_sec=30),name+' unavailable\n'+self.log.read_text()[-4000:])
-        try:return self.result(client.call_async(request))
-        finally:self.node.destroy_client(client)
+        return self.result(client.call_async(request))
     def trigger(self,operation):
         result=self.call('/robot_runtime/'+operation,Trigger,Trigger.Request())
         self.assertTrue(result.success,operation+': '+result.message)
@@ -94,7 +109,7 @@ class HybridSmoke(unittest.TestCase):
         def loaded():
             try:
                 response=self.call('/controller_manager/list_controllers',ListControllers,ListControllers.Request())
-                return len(response.controller)==6
+                return len(response.controller)==6 and all(c.state=='inactive' for c in response.controller)
             except Exception:return False
         self.wait(loaded,60)
         self.trigger('init');self.trigger('enable');self.wait(lambda:self.runtime=='Armed')
@@ -112,8 +127,13 @@ class HybridSmoke(unittest.TestCase):
         self.result(handle.get_result_async());client.destroy()
         publisher=self.node.create_publisher(Float64MultiArray,'/flipper_csv_forward_controller/command',1)
         self.wait(lambda:publisher.get_subscription_count()>0)
-        publisher.publish(Float64MultiArray(data=[.1]*4))
-        self.wait(lambda:abs(self.velocities.get('left_front_arm_joint',0))>.05)
+        # Sustain the command until feedback confirms reception, then stop the
+        # publisher to measure the actual controller watchdog behavior.
+        def moving():
+            if abs(self.velocities.get('left_front_arm_joint',0))>.05:return True
+            publisher.publish(Float64MultiArray(data=[.1]*4))
+            return False
+        self.wait(moving)
         self.wait(lambda:abs(self.velocities.get('left_front_arm_joint',1))<1e-6,2)
         response=self.call('/robot_runtime/set_flipper_profile',SetProfile,SetProfile.Request(profile='csp'))
         self.assertTrue(response.success,response.message);self.wait(lambda:self.runtime=='Running')

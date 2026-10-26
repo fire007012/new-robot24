@@ -16,3 +16,15 @@ build/
 # ROS2 generated artifacts
 /install/
 /log/
+
+# Workspace-local third-party SDK binaries
+/.deps/
+
+# Completed validation output belongs outside the source tree.
+/tmp/
+/frames.gv
+/frames.pdf
+/docs/evidence/
+/docs/artifacts/
+*.log
+.pytest_cache/

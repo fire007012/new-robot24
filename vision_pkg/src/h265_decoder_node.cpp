@@ -1,8 +1,10 @@
-#include <ros/ros.h>
-#include <sensor_msgs/CompressedImage.h>
-#include <sensor_msgs/Image.h>
-#include <sensor_msgs/image_encodings.h>
-#include <std_msgs/Header.h>
+#include <rclcpp/rclcpp.hpp>
+#include <functional>
+#include <chrono>
+#include <sensor_msgs/msg/compressed_image.hpp>
+#include <sensor_msgs/msg/image.hpp>
+#include <sensor_msgs/image_encodings.hpp>
+#include <std_msgs/msg/header.hpp>
 #include <cv_bridge/cv_bridge.h>
 #include <opencv2/core.hpp>
 #include <gst/gst.h>
@@ -17,22 +19,23 @@
 class H265DecoderNode
 {
 public:
-    H265DecoderNode() : nh_("~")
+    rclcpp::Node::SharedPtr node() const { return nh_; }
+    H265DecoderNode() : nh_(std::make_shared<rclcpp::Node>("h265_decoder_node"))
     {
         static std::once_flag gst_init_once;
         std::call_once(gst_init_once, []() {
             gst_init(nullptr, nullptr);
         });
 
-        nh_.param<std::string>("input_topic", input_topic_, "/panorama/panorama_image/h265");
-        nh_.param<std::string>("output_topic", output_topic_, "/panorama/panorama_image/h265_decoded");
-        nh_.param<int>("queue_size", queue_size_, 1);
-        nh_.param<int>("pull_timeout_ms", pull_timeout_ms_, 200);
+        input_topic_ = nh_->declare_parameter<std::string>("input_topic", "/panorama/panorama_image/h265");
+        output_topic_ = nh_->declare_parameter<std::string>("output_topic", "/panorama/panorama_image/h265_decoded");
+        queue_size_ = nh_->declare_parameter<int>("queue_size", 1);
+        pull_timeout_ms_ = nh_->declare_parameter<int>("pull_timeout_ms", 200);
 
-        pub_ = nh_.advertise<sensor_msgs::Image>(output_topic_, queue_size_);
-        sub_ = nh_.subscribe(input_topic_, queue_size_, &H265DecoderNode::compressedCallback, this);
+        pub_ = nh_->create_publisher<sensor_msgs::msg::Image>(output_topic_, queue_size_);
+        sub_ = nh_->create_subscription<sensor_msgs::msg::CompressedImage>(input_topic_, rclcpp::SensorDataQoS(), std::bind(&H265DecoderNode::compressedCallback, this, std::placeholders::_1));
 
-        ROS_INFO_STREAM(
+        RCLCPP_INFO_STREAM(rclcpp::get_logger("vision_pkg"), 
             "h265_decoder_node started: input_topic=" << input_topic_
             << " output_topic=" << output_topic_
             << " pull_timeout_ms=" << pull_timeout_ms_);
@@ -44,9 +47,9 @@ public:
     }
 
 private:
-    void compressedCallback(const sensor_msgs::CompressedImageConstPtr& msg)
+    void compressedCallback(const sensor_msgs::msg::CompressedImage::ConstSharedPtr& msg)
     {
-        if (pub_.getNumSubscribers() == 0) {
+        if (pub_->get_subscription_count() == 0) {
             return;
         }
 
@@ -56,7 +59,7 @@ private:
 
         if (msg->format.find("h265") == std::string::npos &&
             msg->format.find("hevc") == std::string::npos) {
-            ROS_WARN_ONCE("h265 decoder received non-h265 format: %s", msg->format.c_str());
+            RCLCPP_WARN_ONCE(rclcpp::get_logger("vision_pkg"), "h265 decoder received non-h265 format: %s", msg->format.c_str());
         }
 
         if (!ensurePipeline()) {
@@ -65,27 +68,27 @@ private:
 
         GstBuffer* buffer = gst_buffer_new_allocate(nullptr, msg->data.size(), nullptr);
         if (!buffer) {
-            ROS_WARN_ONCE("h265 decoder failed to allocate GstBuffer");
+            RCLCPP_WARN_ONCE(rclcpp::get_logger("vision_pkg"), "h265 decoder failed to allocate GstBuffer");
             return;
         }
 
         GstMapInfo map_info;
         if (!gst_buffer_map(buffer, &map_info, GST_MAP_WRITE)) {
             gst_buffer_unref(buffer);
-            ROS_WARN_ONCE("h265 decoder failed to map GstBuffer");
+            RCLCPP_WARN_ONCE(rclcpp::get_logger("vision_pkg"), "h265 decoder failed to map GstBuffer");
             return;
         }
 
         std::memcpy(map_info.data, msg->data.data(), msg->data.size());
         gst_buffer_unmap(buffer, &map_info);
 
-        const ros::Time stamp = msg->header.stamp.isZero() ? ros::Time::now() : msg->header.stamp;
-        GST_BUFFER_PTS(buffer) = stamp.toNSec();
-        GST_BUFFER_DTS(buffer) = stamp.toNSec();
+        const rclcpp::Time stamp = rclcpp::Time(msg->header.stamp).nanoseconds()==0 ? nh_->now() : rclcpp::Time(msg->header.stamp);
+        GST_BUFFER_PTS(buffer) = stamp.nanoseconds();
+        GST_BUFFER_DTS(buffer) = stamp.nanoseconds();
 
         GstFlowReturn flow = gst_app_src_push_buffer(GST_APP_SRC(appsrc_), buffer);
         if (flow != GST_FLOW_OK) {
-            ROS_WARN_ONCE("h265 decoder push buffer failed: %d", static_cast<int>(flow));
+            RCLCPP_WARN_ONCE(rclcpp::get_logger("vision_pkg"), "h265 decoder push buffer failed: %d", static_cast<int>(flow));
             return;
         }
 
@@ -112,7 +115,7 @@ private:
         GError* error = nullptr;
         pipeline_ = gst_parse_launch(pipeline_desc.c_str(), &error);
         if (!pipeline_) {
-            ROS_ERROR_ONCE("h265 decoder failed to create pipeline: %s", error ? error->message : "unknown error");
+            RCLCPP_ERROR_ONCE(rclcpp::get_logger("vision_pkg"), "h265 decoder failed to create pipeline: %s", error ? error->message : "unknown error");
             if (error) {
                 g_error_free(error);
             }
@@ -122,7 +125,7 @@ private:
         appsrc_ = gst_bin_get_by_name(GST_BIN(pipeline_), "src");
         appsink_ = gst_bin_get_by_name(GST_BIN(pipeline_), "sink");
         if (!appsrc_ || !appsink_) {
-            ROS_ERROR_ONCE("h265 decoder failed to get appsrc/appsink");
+            RCLCPP_ERROR_ONCE(rclcpp::get_logger("vision_pkg"), "h265 decoder failed to get appsrc/appsink");
             shutdownPipelineLocked();
             return false;
         }
@@ -131,16 +134,16 @@ private:
         gst_app_src_set_max_bytes(GST_APP_SRC(appsrc_), 0);
 
         if (gst_element_set_state(pipeline_, GST_STATE_PLAYING) == GST_STATE_CHANGE_FAILURE) {
-            ROS_ERROR_ONCE("h265 decoder failed to set pipeline to PLAYING");
+            RCLCPP_ERROR_ONCE(rclcpp::get_logger("vision_pkg"), "h265 decoder failed to set pipeline to PLAYING");
             shutdownPipelineLocked();
             return false;
         }
 
-        ROS_INFO("h265 decoder pipeline ready");
+        RCLCPP_INFO(rclcpp::get_logger("vision_pkg"), "h265 decoder pipeline ready");
         return true;
     }
 
-    void publishAvailableFrame(const std_msgs::Header& source_header)
+    void publishAvailableFrame(const std_msgs::msg::Header& source_header)
     {
         GstSample* sample = gst_app_sink_try_pull_sample(
             GST_APP_SINK(appsink_),
@@ -176,19 +179,19 @@ private:
         if (map_info.size < expected_size) {
             gst_buffer_unmap(buffer, &map_info);
             gst_sample_unref(sample);
-            ROS_WARN_ONCE("h265 decoder output buffer is smaller than expected");
+            RCLCPP_WARN_ONCE(rclcpp::get_logger("vision_pkg"), "h265 decoder output buffer is smaller than expected");
             return;
         }
 
         cv::Mat bgr(height, width, CV_8UC3, const_cast<guint8*>(map_info.data));
         cv_bridge::CvImage out;
         out.header = source_header;
-        if (out.header.stamp.isZero()) {
-            out.header.stamp = ros::Time::now();
+        if (rclcpp::Time(out.header.stamp).nanoseconds()==0) {
+            out.header.stamp = nh_->now();
         }
         out.encoding = sensor_msgs::image_encodings::BGR8;
         out.image = bgr.clone();
-        pub_.publish(out.toImageMsg());
+        pub_->publish(*out.toImageMsg());
 
         gst_buffer_unmap(buffer, &map_info);
         gst_sample_unref(sample);
@@ -224,9 +227,9 @@ private:
         }
     }
 
-    ros::NodeHandle nh_;
-    ros::Subscriber sub_;
-    ros::Publisher pub_;
+    rclcpp::Node::SharedPtr nh_;
+    rclcpp::Subscription<sensor_msgs::msg::CompressedImage>::SharedPtr sub_;
+    rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr pub_;
 
     std::string input_topic_;
     std::string output_topic_;
@@ -241,8 +244,8 @@ private:
 
 int main(int argc, char** argv)
 {
-    ros::init(argc, argv, "h265_decoder_node");
+    rclcpp::init(argc, argv);
     H265DecoderNode node;
-    ros::spin();
+    rclcpp::spin(node.node());
     return 0;
 }

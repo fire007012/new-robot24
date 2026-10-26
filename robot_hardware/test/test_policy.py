@@ -148,3 +148,20 @@ class MaintenanceRecovery(unittest.TestCase):
             with self.assertRaises(TimeoutError):policy.restore()
             self.assertTrue(policy.dirty)
             self.assertTrue(Policy(transport,BUS,baseline,policy.journal).dirty)
+
+class ScopedMaintenance(unittest.TestCase):
+    def test_uncertain_target_does_not_block_other_group_identity_reads(self):
+        with tempfile.TemporaryDirectory() as directory:
+            transport=IO();policy=Policy(transport,BUS,copy.deepcopy(BASELINE),Path(directory)/'journal.json')
+            transport.fail_at=2
+            with self.assertRaises(RuntimeError):policy.maintain('shoulder_yaw_joint','set_offset',.1,save=True)
+            self.assertEqual(policy.dirty_axes,{'shoulder_yaw_joint'})
+            self.assertTrue(policy.verify(['left_front_arm_joint']))
+            with self.assertRaisesRegex(RuntimeError,'unresolved'):policy.verify(['shoulder_yaw_joint'])
+    def test_unscoped_legacy_dirty_journal_remains_conservative(self):
+        import json
+        with tempfile.TemporaryDirectory() as directory:
+            journal=Path(directory)/'journal.json';journal.write_text(json.dumps({'dirty':True}))
+            policy=Policy(IO(),BUS,copy.deepcopy(BASELINE),journal)
+            self.assertEqual(policy.dirty_axes,set(AXES))
+            with self.assertRaisesRegex(RuntimeError,'unresolved'):policy.verify(['left_front_arm_joint'])

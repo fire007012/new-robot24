@@ -1,14 +1,15 @@
 <?xml version="1.0"?>
-<package format="2">
-  <name>thermal_camera</name>
-  <version>1.0.0</version>
-  <description>ROS driver for Xtherm T2S+ thermal camera using IRPyThermal</description>
-  <maintainer email="dev@todo.todo">dev</maintainer>
-  <license>MIT</license>
-
-  <buildtool_depend>catkin</buildtool_depend>
-
-  <exec_depend>rospy</exec_depend>
-  <exec_depend>sensor_msgs</exec_depend>
-  <exec_depend>cv_bridge</exec_depend>
+<package format="3">
+<name>thermal_camera</name><version>0.3.0</version>
+<description>ROS2 thermal camera and image publisher</description>
+<maintainer email="dianhua@example.com">dianhua</maintainer><license>MIT</license>
+<buildtool_depend>ament_cmake</buildtool_depend>
+<exec_depend>rclpy</exec_depend>
+<exec_depend>sensor_msgs</exec_depend>
+<exec_depend>cv_bridge</exec_depend>
+<exec_depend>python3-numpy</exec_depend>
+<exec_depend>python3-opencv</exec_depend>
+<exec_depend>python3-matplotlib</exec_depend>
+<exec_depend>launch_ros</exec_depend>
+<export><build_type>ament_cmake</build_type></export>
 </package>

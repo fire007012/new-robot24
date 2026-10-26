@@ -1,36 +1,22 @@
 <?xml version="1.0"?>
-<package format="2">
-  <name>vision_pkg</name>
-  <version>1.0.0</version>
-  <description>Vision module for obstacle-crossing vehicle (migrated from Qt)</description>
-  <maintainer email="dev@todo.todo">dev</maintainer>
-  <license>MIT</license>
-
-  <buildtool_depend>catkin</buildtool_depend>
-
-  <build_depend>roscpp</build_depend>
-  <build_depend>std_msgs</build_depend>
-  <build_depend>sensor_msgs</build_depend>
-  <build_depend>cv_bridge</build_depend>
-  <build_depend>image_transport</build_depend>
-  <build_depend>geometry_msgs</build_depend>
-  <build_depend>message_generation</build_depend>
-  <build_depend>libgstreamer1.0-dev</build_depend>
-  <build_depend>libgstreamer-plugins-base1.0-dev</build_depend>
-
-  <exec_depend>roscpp</exec_depend>
-  <exec_depend>std_msgs</exec_depend>
-  <exec_depend>sensor_msgs</exec_depend>
-  <exec_depend>cv_bridge</exec_depend>
-  <exec_depend>image_transport</exec_depend>
-  <exec_depend>compressed_image_transport</exec_depend>
-  <exec_depend>compressed_depth_image_transport</exec_depend>
-  <exec_depend>geometry_msgs</exec_depend>
-  <exec_depend>message_runtime</exec_depend>
-  <exec_depend>realsense2_camera</exec_depend>
-  <exec_depend>orbbec_camera</exec_depend>
-  <exec_depend>gstreamer1.0-tools</exec_depend>
-  <exec_depend>gstreamer1.0-plugins-base</exec_depend>
-  <exec_depend>gstreamer1.0-plugins-good</exec_depend>
-  <exec_depend>gstreamer1.0-plugins-bad</exec_depend>
+<package format="3">
+<name>vision_pkg</name><version>0.3.0</version>
+<description>ROS2 vision processing, depth geometry, panorama and H265 nodes</description>
+<maintainer email="dianhua@example.com">dianhua</maintainer><license>MIT</license>
+<buildtool_depend>ament_cmake</buildtool_depend>
+<exec_depend>launch_ros</exec_depend>
+<exec_depend>ament_index_python</exec_depend>
+<exec_depend>python3-opencv</exec_depend>
+<exec_depend>python3-numpy</exec_depend>
+<depend>rclcpp</depend>
+<depend>sensor_msgs</depend>
+<depend>std_msgs</depend>
+<depend>geometry_msgs</depend>
+<depend>cv_bridge</depend>
+<depend>image_transport</depend>
+<buildtool_depend>rosidl_default_generators</buildtool_depend>
+<exec_depend>rosidl_default_runtime</exec_depend>
+<member_of_group>rosidl_interface_packages</member_of_group>
+<exec_depend>rclpy</exec_depend><exec_depend>python3-opencv</exec_depend><exec_depend>python3-numpy</exec_depend>
+<export><build_type>ament_cmake</build_type></export>
 </package>

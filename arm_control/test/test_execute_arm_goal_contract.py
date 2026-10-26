@@ -1,49 +1,14 @@
 #!/usr/bin/env python3
 
-import importlib
 import unittest
 
 
 def _try_import_action_symbols():
-    """Import generated ROS action/message symbols if they are available."""
-    try:
-        action_module = importlib.import_module("arm_control.msg")
-    except ImportError as exc:
-        raise unittest.SkipTest(
-            "arm_control.msg is not importable yet. Build the catkin workspace "
-            "so ExecuteArmGoal action messages are generated before running "
-            "this contract test. Original error: %s" % exc
-        )
-
-    required = [
-        "ExecuteArmGoalAction",
-        "ExecuteArmGoalGoal",
-        "ExecuteArmGoalResult",
-        "ExecuteArmGoalFeedback",
-    ]
-    missing = [name for name in required if not hasattr(action_module, name)]
-    if missing:
-        raise unittest.SkipTest(
-            "Generated arm_control action symbols are incomplete: missing %s"
-            % ", ".join(missing)
-        )
-
-    try:
-        geometry_module = importlib.import_module("geometry_msgs.msg")
-    except ImportError as exc:
-        raise unittest.SkipTest(
-            "geometry_msgs.msg is not importable in this environment. "
-            "Source the workspace before running the contract test. "
-            "Original error: %s" % exc
-        )
-
-    return (
-        action_module.ExecuteArmGoalAction,
-        action_module.ExecuteArmGoalGoal,
-        action_module.ExecuteArmGoalResult,
-        action_module.ExecuteArmGoalFeedback,
-        geometry_module.PoseStamped,
-    )
+    """The built ROS2 action must expose the preserved public contract."""
+    from arm_control.action import ExecuteArmGoal
+    from geometry_msgs.msg import PoseStamped
+    return (ExecuteArmGoal, ExecuteArmGoal.Goal, ExecuteArmGoal.Result,
+            ExecuteArmGoal.Feedback, PoseStamped)
 
 
 class ExecuteArmGoalContractTest(unittest.TestCase):
@@ -58,7 +23,7 @@ class ExecuteArmGoalContractTest(unittest.TestCase):
         ) = _try_import_action_symbols()
 
     def test_action_messages_are_constructible(self):
-        self.assertIsNotNone(self.ExecuteArmGoalAction())
+        self.assertIs(self.ExecuteArmGoalAction.Goal, self.ExecuteArmGoalGoal)
         self.assertIsNotNone(self.ExecuteArmGoalGoal())
         self.assertIsNotNone(self.ExecuteArmGoalResult())
         self.assertIsNotNone(self.ExecuteArmGoalFeedback())
@@ -122,7 +87,8 @@ class ExecuteArmGoalContractTest(unittest.TestCase):
             "ERROR_PREEMPTED",
         ]
 
-        for name in expected:
+        for value, name in enumerate(expected):
+            self.assertEqual(getattr(result, name), value)
             self.assertTrue(
                 hasattr(result, name),
                 "missing ExecuteArmGoalResult constant %s" % name,

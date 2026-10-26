@@ -1,0 +1,53 @@
+<launch>
+  <param name="robot_description" textfile="$(find car_urdf)/urdf/car_urdf.urdf"/>
+
+  <!-- 配置文件路径（4 摆臂模式） -->
+  <arg name="dcf_path" default="$(find Eyou_Canopen_Master)/config/master_flipper_4axis.dcf"/>
+  <arg name="joints_path" default="$(find Eyou_Canopen_Master)/config/joints_flipper_4axis.yaml"/>
+  <arg name="controllers_file" default="$(find Eyou_Canopen_Master)/config/ros/controllers_flipper_4axis.yaml"/>
+  <arg name="loop_hz" default="200.0"/>
+  <arg name="auto_init" default="false"/>
+  <arg name="auto_enable" default="false"/>
+  <arg name="auto_release" default="false"/>
+  <arg name="use_ip_executor" default="false"/>
+  <arg name="ip_executor_action_ns" default="flipper_csp_controller/follow_joint_trajectory"/>
+
+  <!-- 旧 2 轴机械臂 executor 参数保留作参考，4 摆臂模式默认不用。 -->
+  <!--
+  <arg name="ip_executor_joint_name" default="shoulder_yaw_joint"/>
+  <arg name="ip_executor_max_velocity" default="1.0"/>
+  <arg name="ip_executor_max_acceleration" default="2.0"/>
+  <arg name="ip_executor_max_jerk" default="10.0"/>
+  <arg name="ip_executor_goal_tolerance" default="0.001"/>
+  -->
+
+  <!-- 加载 controller 参数 -->
+  <rosparam file="$(arg controllers_file)" command="load"/>
+
+  <!-- CANopen 硬件节点 -->
+  <node name="canopen_hw_node" pkg="Eyou_Canopen_Master" type="canopen_hw_ros_node" output="screen">
+    <param name="dcf_path" value="$(arg dcf_path)"/>
+    <param name="joints_path" value="$(arg joints_path)"/>
+    <param name="loop_hz" value="$(arg loop_hz)"/>
+    <param name="auto_init" value="$(arg auto_init)"/>
+    <param name="auto_enable" value="$(arg auto_enable)"/>
+    <param name="auto_release" value="$(arg auto_release)"/>
+    <param name="use_ip_executor" value="$(arg use_ip_executor)"/>
+    <param name="ip_executor_action_ns" value="$(arg ip_executor_action_ns)"/>
+  </node>
+
+  <!-- 启动 controllers: joint_state 始终启动，默认运行 CSV forward controller，CSP 仅保留为 stopped -->
+  <node unless="$(arg use_ip_executor)" name="controller_spawner" pkg="controller_manager" type="spawner"
+        args="joint_state_controller flipper_csv_forward_controller" output="screen"/>
+  <node if="$(arg use_ip_executor)" name="controller_spawner_ip" pkg="controller_manager" type="spawner"
+        args="joint_state_controller" output="screen"/>
+
+  <node name="controller_spawner_stopped" pkg="controller_manager" type="spawner"
+        args="--stopped flipper_csp_controller" output="screen"/>
+
+  <!-- 旧 2 轴机械臂 controller 启动方式保留作参考，当前 4 摆臂模式不再使用。 -->
+  <!-- 旧配置参考：
+       1. joint_state_controller + arm_position_controller
+       2. arm_velocity_controller 以 stopped 方式加载
+  -->
+</launch>

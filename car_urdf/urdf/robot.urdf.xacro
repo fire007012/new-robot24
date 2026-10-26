@@ -1,0 +1,595 @@
+<?xml version="1.0"?>
+<robot name="car_urdf">
+  <link name="base_link">
+    <inertial>
+      <origin xyz="-0.00722672875113273 -0.000104719885171654 0.0735986679476475" rpy="0 0 0" />
+      <mass value="18.2147755600028" />
+      <inertia ixx="0.0356811351637089" ixy="-3.30703606727007E-06" ixz="1.73140581507926E-05" iyy="0.060568796439748" iyz="-6.6672149590014E-06" izz="0.0785360308707043" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://car_urdf/meshes/base_link.STL" />
+      </geometry>
+      <material name="mat_auto_1">
+        <color rgba="0.298039215686275 0.298039215686275 0.298039215686275 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0.105" rpy="0 0 0" />
+      <geometry>
+        <box size="0.58 0.34 0.18" />
+      </geometry>
+    </collision>
+  </link>
+  <link name="left_ahead_wheel">
+    <inertial>
+      <origin xyz="0 0.000176599813181244 0" rpy="0 0 0" />
+      <mass value="0.5" />
+      <inertia ixx="1.2e-04" ixy="0" ixz="0" iyy="2.1e-04" iyz="0" izz="1.2e-04" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://car_urdf/meshes/left_ahead_wheel.STL" />
+      </geometry>
+      <material name="mat_auto_2">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="1.57079632679 0 0" />
+      <geometry>
+        <cylinder radius="0.029" length="0.02" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="left_front_wheel_joint" type="continuous">
+    <origin xyz="-0.155999999999997 -0.219000195879134 0" rpy="0 0 0" />
+    <parent link="base_link" />
+    <child link="left_ahead_wheel" />
+    <axis xyz="0 1 0" />
+    <dynamics damping="0.05" friction="0.0" />
+  </joint>
+  <link name="left_back_wheel">
+    <inertial>
+      <origin xyz="0 0.0001765998131813 -1.73472347597681E-18" rpy="0 0 0" />
+      <mass value="0.5" />
+      <inertia ixx="1.2e-04" ixy="0" ixz="0" iyy="2.1e-04" iyz="0" izz="1.2e-04" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://car_urdf/meshes/left_back_wheel.STL" />
+      </geometry>
+      <material name="mat_auto_3">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="1.57079632679 0 0" />
+      <geometry>
+        <cylinder radius="0.029" length="0.02" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="left_rear_wheel_joint" type="continuous">
+    <origin xyz="0.156000000000004 -0.219000195879131 0" rpy="0 0 0" />
+    <parent link="base_link" />
+    <child link="left_back_wheel" />
+    <axis xyz="0 1 0" />
+    <mimic joint="left_front_wheel_joint" multiplier="1.0" offset="0.0" />
+    <dynamics damping="0.05" friction="0.0" />
+  </joint>
+  <link name="right_ahead_wheel">
+    <inertial>
+      <origin xyz="0 -0.000176599813181272 1.73472347597681E-18" rpy="0 0 0" />
+      <mass value="0.5" />
+      <inertia ixx="1.2e-04" ixy="0" ixz="0" iyy="2.1e-04" iyz="0" izz="1.2e-04" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://car_urdf/meshes/right_ahead_wheel.STL" />
+      </geometry>
+      <material name="mat_auto_4">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="1.57079632679 0 0" />
+      <geometry>
+        <cylinder radius="0.029" length="0.02" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="right_front_wheel_joint" type="continuous">
+    <origin xyz="-0.155999999999997 0.219000195879134 0" rpy="0 0 0" />
+    <parent link="base_link" />
+    <child link="right_ahead_wheel" />
+    <axis xyz="0 1 0" />
+    <dynamics damping="0.05" friction="0.0" />
+  </joint>
+  <link name="right_back_wheel">
+    <inertial>
+      <origin xyz="-5.55111512312578E-17 -0.0001765998131813 0" rpy="0 0 0" />
+      <mass value="0.5" />
+      <inertia ixx="1.2e-04" ixy="0" ixz="0" iyy="2.1e-04" iyz="0" izz="1.2e-04" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://car_urdf/meshes/right_back_wheel.STL" />
+      </geometry>
+      <material name="mat_auto_5">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="1.57079632679 0 0" />
+      <geometry>
+        <cylinder radius="0.029" length="0.02" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="right_rear_wheel_joint" type="continuous">
+    <origin xyz="0.156000000000004 0.219000195879132 0" rpy="0 0 0" />
+    <parent link="base_link" />
+    <child link="right_back_wheel" />
+    <axis xyz="0 1 0" />
+    <mimic joint="right_front_wheel_joint" multiplier="1.0" offset="0.0" />
+    <dynamics damping="0.05" friction="0.0" />
+  </joint>
+  <link name="left_ahead_arm">
+    <inertial>
+      <origin xyz="8.51004323329518E-08 0.00550753511779561 0.166867745732429" rpy="0 0 0" />
+      <mass value="1.58786786548102" />
+      <inertia ixx="0.0101203073694154" ixy="-2.4734825792818E-12" ixz="6.46656692175558E-09" iyy="0.0114564870751773" iyz="-8.66733028934063E-08" izz="0.00151495709722863" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://car_urdf/meshes/left_ahead_arm.STL" />
+      </geometry>
+      <material name="mat_auto_6">
+        <color rgba="0.752941176470588 0.752941176470588 0.752941176470588 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0.01245 0.16425" rpy="0 0 0" />
+      <geometry>
+        <cylinder radius="0.022" length="0.32" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="left_front_arm_joint" type="revolute">
+    <origin xyz="-0.277600000000002 -0.241000195879134 0.0551000000000096" rpy="0 0 0" />
+    <parent link="base_link" />
+    <child link="left_ahead_arm" />
+    <axis xyz="0 1 0" />
+    <limit lower="-3.665" upper="0.524" effort="50" velocity="1.57" />
+  </joint>
+  <link name="left_back_arm">
+    <inertial>
+      <origin xyz="8.51004331448024E-08 0.00550753511779317 0.166867745732428" rpy="0 0 0" />
+      <mass value="1.58786786548102" />
+      <inertia ixx="0.0101203073694154" ixy="-2.47348285991948E-12" ixz="6.46656686100875E-09" iyy="0.0114564870751773" iyz="-8.66733026505325E-08" izz="0.00151495709722865" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://car_urdf/meshes/left_back_arm.STL" />
+      </geometry>
+      <material name="mat_auto_7">
+        <color rgba="0.752941176470588 0.752941176470588 0.752941176470588 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0.01245 0.16425" rpy="0 0 0" />
+      <geometry>
+        <cylinder radius="0.022" length="0.32" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="left_rear_arm_joint" type="revolute">
+    <origin xyz="0.277599999999999 -0.241000195879128 0.0551000000000025" rpy="0 0 0" />
+    <parent link="base_link" />
+    <child link="left_back_arm" />
+    <axis xyz="0 1 0" />
+    <limit lower="-0.524" upper="3.665" effort="50" velocity="1.57" />
+  </joint>
+  <link name="right_ahead_arm">
+    <inertial>
+      <origin xyz="-8.51007762245337E-08 -0.00550753511778806 0.166867745732428" rpy="0 0 0" />
+      <mass value="1.58786786548102" />
+      <inertia ixx="0.0101203073694157" ixy="-2.47348335366673E-12" ixz="-6.46654918710766E-09" iyy="0.0114564870751773" iyz="8.66733026516663E-08" izz="0.0015149570972289" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://car_urdf/meshes/right_ahead_arm.STL" />
+      </geometry>
+      <material name="mat_auto_8">
+        <color rgba="0.752941176470588 0.752941176470588 0.752941176470588 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 -0.01245 0.16425" rpy="0 0 0" />
+      <geometry>
+        <cylinder radius="0.022" length="0.32" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="right_front_arm_joint" type="revolute">
+    <origin xyz="-0.277600000000005 0.24100019587914 0.0551000000000029" rpy="0 0 0" />
+    <parent link="base_link" />
+    <child link="right_ahead_arm" />
+    <axis xyz="0 1 0" />
+    <limit lower="-3.665" upper="0.524" effort="50" velocity="1.57" />
+  </joint>
+  <link name="right_back_arm">
+    <inertial>
+      <origin xyz="-8.51007770918955E-08 -0.00550753511778787 0.166867745732428" rpy="0 0 0" />
+      <mass value="1.58786786548102" />
+      <inertia ixx="0.0101203073694157" ixy="-2.47348331988548E-12" ixz="-6.46654912698323E-09" iyy="0.0114564870751773" iyz="8.66733026512719E-08" izz="0.0015149570972289" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://car_urdf/meshes/right_back_arm.STL" />
+      </geometry>
+      <material name="mat_auto_9">
+        <color rgba="0.752941176470588 0.752941176470588 0.752941176470588 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 -0.01245 0.16425" rpy="0 0 0" />
+      <geometry>
+        <cylinder radius="0.022" length="0.32" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="right_rear_arm_joint" type="revolute">
+    <origin xyz="0.277599999999996 0.241000195879143 0.0551000000000005" rpy="0 0 0" />
+    <parent link="base_link" />
+    <child link="right_back_arm" />
+    <axis xyz="0 1 0" />
+    <limit lower="-0.524" upper="3.665" effort="50" velocity="1.57" />
+  </joint>
+  <link name="big_course_part">
+    <inertial>
+      <origin xyz="-3.89091000418951E-07 -0.000840655594497246 -0.000626755979201477" rpy="0 0 0" />
+      <mass value="4.058247002138" />
+      <inertia ixx="0.00215393279764293" ixy="7.58591199427594E-08" ixz="3.93372022304389E-08" iyy="0.00241219360465986" iyz="-2.17404141773653E-07" izz="0.00317731381306234" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://car_urdf/meshes/big_course_part.STL" />
+      </geometry>
+      <material name="mat_auto_10">
+        <color rgba="0.898039215686275 0.917647058823529 0.929411764705882 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://car_urdf/meshes/big_course_part.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="shoulder_yaw_joint" type="revolute">
+    <origin xyz="0.120249999999999 -0.00100019587899608 0.199849999999992" rpy="0 0 0" />
+    <parent link="base_link" />
+    <child link="big_course_part" />
+    <axis xyz="0 0 1" />
+    <limit lower="-1" upper="1" effort="66" velocity="1.57" />
+  </joint>
+  <link name="big_pitch_part">
+    <inertial>
+      <origin xyz="0.000688436238987844 -0.00351787295254657 0.273450135960469" rpy="0 0 0" />
+      <mass value="1.11922784486201" />
+      <inertia ixx="0.00568894059773445" ixy="-1.36527157950928E-07" ixz="-4.73588926530085E-07" iyy="0.0057290895379401" iyz="-2.99304417499778E-07" izz="0.000293741782906926" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://car_urdf/meshes/big_pitch_part.STL" />
+      </geometry>
+      <material name="mat_auto_11">
+        <color rgba="0.898039215686275 0.917647058823529 0.929411764705882 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://car_urdf/meshes/big_pitch_part.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="shoulder_pitch_joint" type="revolute">
+    <origin xyz="0 0.00320000000000144 0.0614876897975586" rpy="0 0 0" />
+    <parent link="big_course_part" />
+    <child link="big_pitch_part" />
+    <axis xyz="0 1 0" />
+    <limit lower="-0.960" upper="1.571" effort="66" velocity="1.57" />
+  </joint>
+  <link name="small_pitch_part">
+    <inertial>
+      <origin xyz="-0.000478562561522289 0.00702848851035884 0.161325810486218" rpy="0 0 0" />
+      <mass value="1.16129891011756" />
+      <inertia ixx="0.00249381888344272" ixy="1.7378284855352E-07" ixz="1.50375460740457E-08" iyy="0.00212433704863664" iyz="-4.69965810105982E-06" izz="0.000707884980998508" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://car_urdf/meshes/small_pitch_part.STL" />
+      </geometry>
+      <material name="mat_auto_12">
+        <color rgba="0.898039215686275 0.917647058823529 0.929411764705882 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://car_urdf/meshes/small_pitch_part.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="elbow_pitch_joint" type="revolute">
+    <origin xyz="0 -0.00980000000004102 0.515300000000048" rpy="0 0 0" />
+    <parent link="big_pitch_part" />
+    <child link="small_pitch_part" />
+    <axis xyz="0 1 0" />
+    <limit lower="-1.0" upper="3.05" effort="18" velocity="1.57" />
+  </joint>
+  <link name="hands_pitch_part">
+    <inertial>
+      <origin xyz="-0.0111211829585571 0.0245556141058408 7.49702637747873E-08" rpy="0 0 0" />
+      <mass value="0.198490718521714" />
+      <inertia ixx="3.96854415731617E-05" ixy="2.25690275527636E-06" ixz="-4.0594887569679E-10" iyy="6.48873453550079E-05" iyz="-3.93944365084069E-07" izz="6.68874608279776E-05" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://car_urdf/meshes/hands_pitch_part.STL" />
+      </geometry>
+      <material name="mat_auto_13">
+        <color rgba="0.898039215686275 0.917647058823529 0.929411764705882 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://car_urdf/meshes/hands_pitch_part.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="wrist_pitch_joint" type="revolute">
+    <origin xyz="0 0.0435999999999104 0.427999999999999" rpy="0 0 0" />
+    <parent link="small_pitch_part" />
+    <child link="hands_pitch_part" />
+    <axis xyz="0 1 0" />
+    <limit lower="-1.57" upper="2.356" effort="6" velocity="1.57" />
+  </joint>
+  <link name="hands_roll_part">
+    <inertial>
+      <origin xyz="-0.0236906632209935 7.25738848253443E-08 0.0112273224435504" rpy="0 0 0" />
+      <mass value="0.20602863354353" />
+      <inertia ixx="6.90541665876817E-05" ixy="-3.95703419621254E-07" ixz="2.86210079276017E-06" iyy="7.03217179878435E-05" iyz="4.07501680376003E-10" izz="4.11534286606825E-05" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://car_urdf/meshes/hands_roll_part.STL" />
+      </geometry>
+      <material name="mat_auto_14">
+        <color rgba="0.898039215686275 0.917647058823529 0.929411764705882 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://car_urdf/meshes/hands_roll_part.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="wrist_yaw_joint" type="revolute">
+    <origin xyz="-0.0330007142673656 -0.0330000000000009 0.0530007142674829" rpy="0 0 0" />
+    <parent link="hands_pitch_part" />
+    <child link="hands_roll_part" />
+    <axis xyz="-1 0 0" />
+    <limit lower="-2.356" upper="2.356" effort="6" velocity="1.57" />
+  </joint>
+  <link name="handshands_course_part">
+    <inertial>
+      <origin xyz="-0.00324296594721979 2.01121179365001E-05 0.0529867208681547" rpy="0 0 0" />
+      <mass value="0.174467256244225" />
+      <inertia ixx="0.000133821589051488" ixy="7.06507401612226E-08" ixz="2.72507755517067E-06" iyy="6.9143325437916E-05" iyz="-7.35002424755338E-09" izz="0.00015434388850302" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://car_urdf/meshes/handshands_course_part.STL" />
+      </geometry>
+      <material name="mat_auto_15">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0.04" rpy="0 0 0" />
+      <geometry>
+        <cylinder radius="0.02" length="0.08" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="wrist_roll_joint" type="revolute">
+    <origin xyz="0.0330007142675045 0 0.0474000000000001" rpy="0 0 0" />
+    <parent link="hands_roll_part" />
+    <child link="handshands_course_part" />
+    <axis xyz="0 0 1" />
+    <limit lower="-7.069" upper="7.069" effort="6" velocity="1.57" />
+  </joint>
+  <link name="catch_camera">
+    <inertial>
+      <origin xyz="-0.0039769318444467 -0.000923469734682825 -0.0106782498598019" rpy="0 0 0" />
+      <mass value="0.05" />
+      <inertia ixx="0.000209400343015509" ixy="-1.32038119144182E-07" ixz="3.3176460852731E-05" iyy="0.000197188399368554" iyz="-3.95621659167261E-07" izz="0.00028939929124546" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://car_urdf/meshes/catch-camera.STL" />
+      </geometry>
+      <material name="mat_auto_16">
+        <color rgba="1 0.941176470588235 0.67843137254902 1" />
+      </material>
+    </visual>
+  </link>
+  <joint name="gripper_camera_mount_joint" type="fixed">
+    <origin xyz="-0.04630692 0.0013445 -0.033789" rpy="0 -1.5708 0" />
+    <parent link="tool0" />
+    <child link="catch_camera" />
+  </joint>
+  <link name="tool0" />
+  <joint name="tool0_joint" type="fixed">
+    <origin xyz="0.00008392 0 0.1075" rpy="0 0 0" />
+    <parent link="handshands_course_part" />
+    <child link="tool0" />
+  </joint>
+  <link name="grasp_tcp" />
+  <joint name="grasp_tcp_joint" type="fixed">
+    <origin xyz="0 0 0" rpy="0 0 0" />
+    <parent link="tool0" />
+    <child link="grasp_tcp" />
+  </joint>
+  <link name="catch_camera_optical_frame" />
+  <joint name="catch_camera_optical_joint" type="fixed">
+    <origin xyz="0 0 0" rpy="-1.5707963 0 -1.5707963" />
+    <parent link="catch_camera" />
+    <child link="catch_camera_optical_frame" />
+  </joint>
+  <link name="zhua2">
+    <inertial>
+      <origin xyz="0.00102628622541312 -0.00780526162014256 0.00746574903517194" rpy="0 0 0" />
+      <mass value="0.0276512162867832" />
+      <inertia ixx="8.62898035063974E-06" ixy="2.73869970431526E-07" ixz="-2.0594906318841E-07" iyy="6.62147473212607E-06" iyz="-5.13082391394941E-07" izz="6.41734046482244E-06" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://car_urdf/meshes/zhuaright.STL" />
+      </geometry>
+      <material name="mat_auto_17">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 -0.008 0.007" rpy="0 0 0" />
+      <geometry>
+        <box size="0.001 0.0005 0.0025" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="right_gripper_finger_joint" type="prismatic">
+    <origin xyz="-0.00008392 0.023039 -0.007" rpy="0 0 0" />
+    <parent link="tool0" />
+    <child link="zhua2" />
+    <axis xyz="0 1 0" />
+    <limit lower="-0.05" upper="0.0710" effort="20" velocity="0.2" />
+    <dynamics damping="0.2" friction="0.02" />
+    <mimic joint="left_gripper_finger_joint" multiplier="1" offset="0" />
+  </joint>
+  <link name="zhua1">
+    <inertial>
+      <origin xyz="0.00291027333251825 0.00780526162014254 0.00746574903517194" rpy="0 0 0" />
+      <mass value="0.0276512162867833" />
+      <inertia ixx="8.62898035063976E-06" ixy="2.73869970431535E-07" ixz="2.05949063188403E-07" iyy="6.6214747321261E-06" iyz="5.13082391394944E-07" izz="6.41734046482247E-06" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://car_urdf/meshes/zhualeft.STL" />
+      </geometry>
+      <material name="mat_auto_18">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 -0.008 0.007" rpy="0 0 0" />
+      <geometry>
+        <box size="0.001 0.0005 0.0025" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="left_gripper_finger_joint" type="prismatic">
+    <origin xyz="0.00008392 -0.023039 -0.007" rpy="0 0 0" />
+    <parent link="tool0" />
+    <child link="zhua1" />
+    <axis xyz="0 -1 0" />
+    <limit lower="-0.05" upper="0.0710" effort="20" velocity="0.2" />
+    <dynamics damping="0.2" friction="0.02" />
+  </joint>
+  <link name="lidar">
+    <inertial>
+      <origin xyz="1.59594559789866E-15 -3.33066907387547E-16 -4.44089209850063E-16" rpy="0 0 0" />
+      <mass value="0.742920987579563" />
+      <inertia ixx="0.000937798449134027" ixy="1.03077101557214E-34" ixz="-4.61708918612271E-19" iyy="0.000937798449134027" iyz="-2.78475796235466E-20" izz="0.0010632127983498" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://car_urdf/meshes/lidar.STL" />
+      </geometry>
+      <material name="mat_auto_19">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://car_urdf/meshes/lidar.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="lidar_joint" type="fixed">
+    <origin xyz="-0.1555 0.0010002 0.3007" rpy="0 0 0" />
+    <parent link="base_link" />
+    <child link="lidar" />
+    <axis xyz="0 0 0" />
+  </joint>
+  <link name="camera">
+    <inertial>
+      <origin xyz="0.00422507049806123 -0.0032377510365096 -0.00209736042516037" rpy="0 0 3.14159" />
+      <mass value="0.0491654266514403" />
+      <inertia ixx="2.79392843654149E-05" ixy="-4.34509658882138E-07" ixz="-7.7002490330317E-09" iyy="3.41762421577894E-06" iyz="-2.15842945493236E-09" izz="2.71851885152032E-05" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://car_urdf/meshes/camera.STL" />
+      </geometry>
+      <material name="mat_auto_20">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://car_urdf/meshes/camera.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="camera_joint" type="fixed">
+    <origin xyz="-0.254895203624053 0.00376119017118452 0.228826235475407" rpy="0 0 0" />
+    <parent link="base_link" />
+    <child link="camera" />
+    <axis xyz="0 0 0" />
+  </joint>
+  <link name="camera_optical_frame" />
+  <joint name="camera_optical_joint" type="fixed">
+    <origin xyz="0 0 0" rpy="-1.5707963 0 -1.5707963" />
+    <parent link="camera" />
+    <child link="camera_optical_frame" />
+  </joint>
+</robot>

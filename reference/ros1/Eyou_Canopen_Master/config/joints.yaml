@@ -1,0 +1,123 @@
+# 每个关节的运行时参数配置。
+
+canopen:
+  interface: "canable0"      # CAN 总线接口名
+  master_node_id: 127     # 主站 CANopen 节点 ID
+  loop_hz: 200.0          # 控制循环频率（Hz）
+  auto_write_soft_limits_from_urdf: true  # 每次 init 后按 URDF 自动写 0x2003/0x607D
+
+joints:
+  # 摆臂 4 轴当前按 node_id 1~4 接入。
+  # 若现场拨码与此不一致，需同步修改本文件与 master.yaml/master.dcf。
+  - name: left_front_arm_joint
+    canopen:
+      node_id: 1
+      verify_pdo_mapping: false
+      default_mode: 9         # 默认进入 CSV，供 flipper_csv_forward_controller 使用
+    counts_per_rev: 19857408  # 6619136 * 3
+    rated_torque_nm: 1.0
+    position_lock_threshold: 15000
+    max_fault_resets: 3
+    fault_reset_hold_cycles: 5
+    ip_interpolation_period_ms: 5
+    max_velocity_for_clamp: 500000
+    velocity_scale: 1.0
+    torque_scale: 1.0
+    ip_max_velocity: 0.5
+    ip_max_acceleration: 0.5
+    ip_max_jerk: 5.0
+    ip_goal_tolerance: 0.001
+  - name: right_front_arm_joint
+    canopen:
+      node_id: 2
+      verify_pdo_mapping: false
+      default_mode: 9
+    counts_per_rev: 19857408  # 6619136 * 3
+    rated_torque_nm: 1.0
+    position_lock_threshold: 15000
+    max_fault_resets: 3
+    fault_reset_hold_cycles: 5
+    ip_interpolation_period_ms: 5
+    max_velocity_for_clamp: 500000
+    velocity_scale: 1.0
+    torque_scale: 1.0
+    ip_max_velocity: 0.5
+    ip_max_acceleration: 0.5
+    ip_max_jerk: 5.0
+    ip_goal_tolerance: 0.001
+  - name: left_rear_arm_joint
+    canopen:
+      node_id: 3
+      verify_pdo_mapping: false
+      default_mode: 9
+    counts_per_rev: 19857408  # 6619136 * 3
+    rated_torque_nm: 1.0
+    position_lock_threshold: 15000
+    max_fault_resets: 3
+    fault_reset_hold_cycles: 5
+    ip_interpolation_period_ms: 5
+    max_velocity_for_clamp: 500000
+    velocity_scale: 1.0
+    torque_scale: 1.0
+    ip_max_velocity: 0.5
+    ip_max_acceleration: 0.5
+    ip_max_jerk: 5.0
+    ip_goal_tolerance: 0.001
+  - name: right_rear_arm_joint
+    canopen:
+      node_id: 4
+      verify_pdo_mapping: false
+      default_mode: 9
+    counts_per_rev: 19857408  # 6619136 * 3
+    rated_torque_nm: 1.0
+    position_lock_threshold: 15000
+    max_fault_resets: 3
+    fault_reset_hold_cycles: 5
+    ip_interpolation_period_ms: 5
+    max_velocity_for_clamp: 500000
+    velocity_scale: 1.0
+    torque_scale: 1.0
+    ip_max_velocity: 0.5
+    ip_max_acceleration: 0.5
+    ip_max_jerk: 5.0
+    ip_goal_tolerance: 0.001
+  - name: shoulder_yaw_joint
+    canopen:
+      node_id: 6              # 从站 CANopen 节点 ID
+      verify_pdo_mapping: false  # 启动时是否校验 PDO 映射
+      default_mode: 7         # 默认控制模式（7=IP 插补位置模式）
+    counts_per_rev: 6619136   # 编码器每圈计数值
+    # counts_per_meter: 20000 # 线性关节每米计数值（仅 prismatic 软限位换算使用）
+    rated_torque_nm: 1.0      # 额定力矩（Nm），用于力矩换算
+    position_lock_threshold: 15000  # 位置锁定判定阈值（counts）
+    max_fault_resets: 3       # 故障自动复位最大次数
+    fault_reset_hold_cycles: 5  # 故障复位保持周期数
+    ip_interpolation_period_ms: 5   # IP 模式插补周期（ms），通常与 loop_hz 匹配
+    max_velocity_for_clamp: 500000  # 速度限幅上限（counts/s），防止硬件超速
+    velocity_scale: 1.0       # 速度指令缩放系数
+    torque_scale: 1.0         # 力矩指令缩放系数
+    # IP executor 运动约束（Ruckig 在线轨迹生成参数，每轴独立）
+    ip_max_velocity: 0.5      # 最大速度（rad/s）
+    ip_max_acceleration: 0.5  # 最大加速度（rad/s²）
+    ip_max_jerk: 5.0         # 最大加加速度/jerk（rad/s³）
+    ip_goal_tolerance: 0.001  # 终点到位判定误差（rad）
+  - name: shoulder_pitch_joint
+    canopen:
+      node_id: 5              # 从站 CANopen 节点 ID
+      verify_pdo_mapping: false  # 启动时是否校验 PDO 映射
+      default_mode: 7         # 默认控制模式（7=IP 插补位置模式）
+    counts_per_rev: 6619136   # 编码器每圈计数值
+    # counts_per_meter: 20000 # 线性关节每米计数值（仅 prismatic 软限位换算使用）
+    rated_torque_nm: 1.0      # 额定力矩（Nm），用于力矩换算
+    position_lock_threshold: 15000  # 位置锁定判定阈值（counts）
+    max_fault_resets: 3       # 故障自动复位最大次数
+    fault_reset_hold_cycles: 5  # 故障复位保持周期数
+    ip_interpolation_period_ms: 5   # IP 模式插补周期（ms），通常与 loop_hz 匹配
+    max_velocity_for_clamp: 500000  # 速度限幅上限（counts/s），防止硬件超速
+    velocity_scale: 1.0       # 速度指令缩放系数
+    torque_scale: 1.0         # 力矩指令缩放系数
+    # IP executor 运动约束（Ruckig 在线轨迹生成参数，每轴独立）
+    ip_max_velocity: 0.5      # 最大速度（rad/s）
+    ip_max_acceleration: 0.5  # 最大加速度（rad/s²）
+    ip_max_jerk: 5.0         # 最大加加速度/jerk（rad/s³）
+    ip_goal_tolerance: 0.001  # 终点到位判定误差（rad）

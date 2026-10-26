@@ -1,70 +1,25 @@
-cmake_minimum_required(VERSION 3.0.2)
+cmake_minimum_required(VERSION 3.8)
 project(arm_control)
-
-find_package(catkin REQUIRED COMPONENTS
-  actionlib
-  actionlib_msgs
-  control_msgs
-  controller_manager_msgs
-  geometry_msgs
-  message_generation
-  roscpp
-  rospy
-  sensor_msgs
-  std_msgs
-  std_srvs
-  tf2_geometry_msgs
-  tf2_ros
-  trajectory_msgs
-)
-
-add_action_files(
-  FILES
-  ExecuteArmGoal.action
-)
-
-generate_messages(
-  DEPENDENCIES
-  actionlib_msgs
-  geometry_msgs
-  std_msgs
-)
-
-catkin_package(
-  CATKIN_DEPENDS
-    actionlib
-    actionlib_msgs
-    control_msgs
-    controller_manager_msgs
-    geometry_msgs
-    message_runtime
-    roscpp
-    rospy
-    sensor_msgs
-    std_msgs
-    std_srvs
-    tf2_geometry_msgs
-    tf2_ros
-    trajectory_msgs
-)
-
-include_directories(
-  ${catkin_INCLUDE_DIRS}
-)
-
-catkin_install_python(PROGRAMS
-  scripts/arm_goal_executor_node.py
-  scripts/gripper_cmd_node.py
-  scripts/send_execute_arm_goal.py
-  scripts/servo_twist_frame_bridge_node.py
-  scripts/wrist_roll_service_node.py
-  DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
-)
-
-if(CATKIN_ENABLE_TESTING)
-  catkin_add_nosetests(test/test_execute_arm_goal_contract.py)
+find_package(ament_cmake REQUIRED)
+find_package(rosidl_default_generators REQUIRED)
+find_package(geometry_msgs REQUIRED)
+set(CMAKE_CXX_STANDARD 17)
+foreach(dep rclcpp rclcpp_action moveit_ros_planning_interface tf2_ros tf2_geometry_msgs controller_manager_msgs sensor_msgs std_msgs control_msgs robot_hardware yaml_cpp_vendor)
+  find_package(${dep} REQUIRED)
+endforeach()
+rosidl_generate_interfaces(${PROJECT_NAME} "action/ExecuteArmGoal.action" DEPENDENCIES geometry_msgs)
+install(PROGRAMS scripts/wrist_roll_service_node.py DESTINATION lib/${PROJECT_NAME} RENAME wrist_roll_service_node)
+install(PROGRAMS scripts/gripper_cmd_node.py DESTINATION lib/${PROJECT_NAME} RENAME gripper_cmd_node)
+install(PROGRAMS scripts/send_execute_arm_goal.py DESTINATION lib/${PROJECT_NAME} RENAME send_execute_arm_goal)
+install(DIRECTORY launch/ DESTINATION share/${PROJECT_NAME}/launch)
+add_executable(arm_goal_executor src/arm_goal_executor.cpp)
+ament_target_dependencies(arm_goal_executor rclcpp rclcpp_action moveit_ros_planning_interface tf2_ros tf2_geometry_msgs controller_manager_msgs sensor_msgs std_msgs control_msgs robot_hardware yaml_cpp_vendor)
+rosidl_get_typesupport_target(arm_action_typesupport ${PROJECT_NAME} rosidl_typesupport_cpp)
+target_link_libraries(arm_goal_executor "${arm_action_typesupport}" yaml-cpp)
+install(TARGETS arm_goal_executor DESTINATION lib/${PROJECT_NAME})
+ament_export_dependencies(rosidl_default_runtime)
+if(BUILD_TESTING)
+  find_package(Python3 REQUIRED COMPONENTS Interpreter)
+  add_test(NAME execute_arm_goal_contract COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test/test_execute_arm_goal_contract.py)
 endif()
-
-install(DIRECTORY launch config docs
-  DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}
-)
+ament_package()

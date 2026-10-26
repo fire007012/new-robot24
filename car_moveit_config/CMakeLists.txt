@@ -1,10 +1,15 @@
-cmake_minimum_required(VERSION 3.1.3)
+cmake_minimum_required(VERSION 3.8)
 project(car_moveit_config)
-
-find_package(catkin REQUIRED)
-
-catkin_package()
-
-install(DIRECTORY launch DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}
-  PATTERN "setup_assistant.launch" EXCLUDE)
-install(DIRECTORY config DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION})
+find_package(ament_cmake REQUIRED)
+set(CMAKE_CXX_STANDARD 17)
+find_package(rclcpp REQUIRED)
+find_package(moveit_core REQUIRED)
+find_package(pluginlib REQUIRED)
+add_library(robot24_planning_controller SHARED src/planning_only_controller_manager.cpp)
+ament_target_dependencies(robot24_planning_controller rclcpp moveit_core pluginlib)
+target_link_libraries(robot24_planning_controller ${CMAKE_DL_LIBS})
+pluginlib_export_plugin_description_file(moveit_core planning_controller.xml)
+install(TARGETS robot24_planning_controller LIBRARY DESTINATION lib)
+install(DIRECTORY launch/ DESTINATION share/${PROJECT_NAME}/launch)
+install(DIRECTORY config/ DESTINATION share/${PROJECT_NAME}/config)
+ament_package()

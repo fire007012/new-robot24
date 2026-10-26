@@ -8,8 +8,16 @@ class Coordinator:
         self.lock = threading.RLock()
         self.state = 'Stopped'
         self.profile = 'csv'
+        self.session_generation = 0
+
+    def generation(self, group):
+        return self.session_generation
+
+    def group_state(self, group):
+        return self.state
 
     def stop(self):
+        self.session_generation += 1
         errors = []
         for action in (lambda: self.io.running(False), lambda: self.io.controllers([], self.io.active_controllers())):
             try: action()

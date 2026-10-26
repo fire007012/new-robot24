@@ -1,63 +1,26 @@
 <?xml version="1.0"?>
-<package format="2">
-  <name>arm_control</name>
-  <version>0.0.1</version>
-  <description>Upper-layer arm control package for MoveIt goal execution, gripper commands, and Servo input bridges.</description>
-
-  <maintainer email="dianhua@todo.todo">dianhua</maintainer>
+<package format="3">
+  <name>arm_control</name><version>0.2.0</version>
+  <description>ROS2 arm action contract and gripper command adapter</description>
+  <maintainer email="dianhua@example.com">dianhua</maintainer>
   <license>MIT</license>
-
-  <buildtool_depend>catkin</buildtool_depend>
-
-  <build_depend>actionlib</build_depend>
-  <build_depend>actionlib_msgs</build_depend>
-  <build_depend>control_msgs</build_depend>
-  <build_depend>controller_manager_msgs</build_depend>
-  <build_depend>geometry_msgs</build_depend>
-  <build_depend>message_generation</build_depend>
-  <build_depend>roscpp</build_depend>
-  <build_depend>rospy</build_depend>
-  <build_depend>sensor_msgs</build_depend>
-  <build_depend>std_msgs</build_depend>
-  <build_depend>std_srvs</build_depend>
-  <build_depend>tf2_geometry_msgs</build_depend>
-  <build_depend>tf2_ros</build_depend>
-  <build_depend>trajectory_msgs</build_depend>
-
-  <build_export_depend>actionlib</build_export_depend>
-  <build_export_depend>actionlib_msgs</build_export_depend>
-  <build_export_depend>control_msgs</build_export_depend>
-  <build_export_depend>controller_manager_msgs</build_export_depend>
-  <build_export_depend>geometry_msgs</build_export_depend>
-  <build_export_depend>message_generation</build_export_depend>
-  <build_export_depend>roscpp</build_export_depend>
-  <build_export_depend>rospy</build_export_depend>
-  <build_export_depend>sensor_msgs</build_export_depend>
-  <build_export_depend>std_msgs</build_export_depend>
-  <build_export_depend>std_srvs</build_export_depend>
-  <build_export_depend>tf2_geometry_msgs</build_export_depend>
-  <build_export_depend>tf2_ros</build_export_depend>
-  <build_export_depend>trajectory_msgs</build_export_depend>
-
-  <exec_depend>actionlib</exec_depend>
-  <exec_depend>actionlib_msgs</exec_depend>
-  <exec_depend>control_msgs</exec_depend>
-  <exec_depend>controller_manager_msgs</exec_depend>
-  <exec_depend>geometry_msgs</exec_depend>
-  <exec_depend>message_runtime</exec_depend>
-  <exec_depend>roscpp</exec_depend>
-  <exec_depend>rospy</exec_depend>
-  <exec_depend>sensor_msgs</exec_depend>
-  <exec_depend>std_msgs</exec_depend>
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <exec_depend>rclpy</exec_depend>
+  <depend>std_msgs</depend>
   <exec_depend>std_srvs</exec_depend>
-  <exec_depend>tf2_geometry_msgs</exec_depend>
-  <exec_depend>tf2_ros</exec_depend>
+  <depend>control_msgs</depend>
+  <depend>sensor_msgs</depend>
+  <depend>controller_manager_msgs</depend>
   <exec_depend>trajectory_msgs</exec_depend>
-
+  <exec_depend>action_msgs</exec_depend>
+  <exec_depend>launch_ros</exec_depend><exec_depend>ament_index_python</exec_depend><exec_depend>python3-yaml</exec_depend>
+  <buildtool_depend>rosidl_default_generators</buildtool_depend>
+  <depend>geometry_msgs</depend>
+  <exec_depend>rosidl_default_runtime</exec_depend>
+  <member_of_group>rosidl_interface_packages</member_of_group>
+  <depend>rclcpp</depend><depend>rclcpp_action</depend>
+  <depend>moveit_ros_planning_interface</depend><depend>tf2_ros</depend><depend>tf2_geometry_msgs</depend>
+  <depend>yaml_cpp_vendor</depend><depend>robot_hardware</depend>
   <exec_depend>car_moveit_config</exec_depend>
-  <exec_depend>moveit_commander</exec_depend>
-  <exec_depend>moveit_msgs</exec_depend>
-  <exec_depend>moveit_servo</exec_depend>
-
-  <export/>
+  <export><build_type>ament_cmake</build_type></export>
 </package>

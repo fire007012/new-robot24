@@ -1,0 +1,127 @@
+# 每个关节的运行时参数配置（4 摆臂模式）。
+# 说明：
+# - 当前实机仅启用 4 个摆臂电机（node_id 1~4）。
+# - 机械臂 2 轴保留为注释参考，不参与本次启动。
+
+canopen:
+  interface: "canable0"      # CAN 总线接口名
+  master_node_id: 127     # 主站 CANopen 节点 ID
+  loop_hz: 200.0          # 控制循环频率（Hz）
+  auto_write_soft_limits_from_urdf: true  # 每次 init 后按 URDF 自动写 0x2003/0x607D
+
+joints:
+  # 摆臂 4 轴当前按 node_id 1~4 接入。
+  # 若现场拨码与此不一致，需同步修改本文件与 master_flipper_4axis.yaml / master_flipper_4axis.dcf。
+  - name: left_front_arm_joint
+    canopen:
+      node_id: 1
+      verify_pdo_mapping: false
+      default_mode: 9         # 默认进入 CSV，供 flipper_csv_forward_controller 使用
+    counts_per_rev: 19857408  # 6619136 * 3
+    rated_torque_nm: 1.0
+    position_lock_threshold: 15000
+    max_fault_resets: 3
+    fault_reset_hold_cycles: 5
+    ip_interpolation_period_ms: 5
+    max_velocity_for_clamp: 500000
+    velocity_scale: 1.0
+    torque_scale: 1.0
+    ip_max_velocity: 0.5
+    ip_max_acceleration: 0.5
+    ip_max_jerk: 5.0
+    ip_goal_tolerance: 0.001
+  - name: right_front_arm_joint
+    canopen:
+      node_id: 2
+      verify_pdo_mapping: false
+      default_mode: 9
+    counts_per_rev: 19857408  # 6619136 * 3
+    rated_torque_nm: 1.0
+    position_lock_threshold: 15000
+    max_fault_resets: 3
+    fault_reset_hold_cycles: 5
+    ip_interpolation_period_ms: 5
+    max_velocity_for_clamp: 500000
+    velocity_scale: 1.0
+    torque_scale: 1.0
+    ip_max_velocity: 0.5
+    ip_max_acceleration: 0.5
+    ip_max_jerk: 5.0
+    ip_goal_tolerance: 0.001
+  - name: left_rear_arm_joint
+    canopen:
+      node_id: 3
+      verify_pdo_mapping: false
+      default_mode: 9
+    counts_per_rev: 19857408  # 6619136 * 3
+    rated_torque_nm: 1.0
+    position_lock_threshold: 15000
+    max_fault_resets: 3
+    fault_reset_hold_cycles: 5
+    ip_interpolation_period_ms: 5
+    max_velocity_for_clamp: 500000
+    velocity_scale: 1.0
+    torque_scale: 1.0
+    ip_max_velocity: 0.5
+    ip_max_acceleration: 0.5
+    ip_max_jerk: 5.0
+    ip_goal_tolerance: 0.001
+  - name: right_rear_arm_joint
+    canopen:
+      node_id: 4
+      verify_pdo_mapping: false
+      default_mode: 9
+    counts_per_rev: 19857408  # 6619136 * 3
+    rated_torque_nm: 1.0
+    position_lock_threshold: 15000
+    max_fault_resets: 3
+    fault_reset_hold_cycles: 5
+    ip_interpolation_period_ms: 5
+    max_velocity_for_clamp: 500000
+    velocity_scale: 1.0
+    torque_scale: 1.0
+    ip_max_velocity: 0.5
+    ip_max_acceleration: 0.5
+    ip_max_jerk: 5.0
+    ip_goal_tolerance: 0.001
+
+  # 机械臂 2 轴当前停用，仅保留原配置作参考。
+  # 恢复时请取消注释，并同步恢复 master_flipper_4axis.yaml 中对应从站段后重新生成 DCF。
+  # - name: shoulder_yaw_joint
+  #   canopen:
+  #     node_id: 6              # 原 joints.yaml 运行时配置
+  #     verify_pdo_mapping: false
+  #     default_mode: 7
+  #   counts_per_rev: 6619136
+  #   # counts_per_meter: 20000
+  #   rated_torque_nm: 1.0
+  #   position_lock_threshold: 15000
+  #   max_fault_resets: 3
+  #   fault_reset_hold_cycles: 5
+  #   ip_interpolation_period_ms: 5
+  #   max_velocity_for_clamp: 500000
+  #   velocity_scale: 1.0
+  #   torque_scale: 1.0
+  #   ip_max_velocity: 0.5
+  #   ip_max_acceleration: 0.5
+  #   ip_max_jerk: 5.0
+  #   ip_goal_tolerance: 0.001
+  # - name: shoulder_pitch_joint
+  #   canopen:
+  #     node_id: 5              # 原 joints.yaml 运行时配置
+  #     verify_pdo_mapping: false
+  #     default_mode: 7
+  #   counts_per_rev: 6619136
+  #   # counts_per_meter: 20000
+  #   rated_torque_nm: 1.0
+  #   position_lock_threshold: 15000
+  #   max_fault_resets: 3
+  #   fault_reset_hold_cycles: 5
+  #   ip_interpolation_period_ms: 5
+  #   max_velocity_for_clamp: 500000
+  #   velocity_scale: 1.0
+  #   torque_scale: 1.0
+  #   ip_max_velocity: 0.5
+  #   ip_max_acceleration: 0.5
+  #   ip_max_jerk: 5.0
+  #   ip_goal_tolerance: 0.001

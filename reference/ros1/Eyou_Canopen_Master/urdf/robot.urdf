@@ -1,0 +1,61 @@
+<?xml version="1.0"?>
+<!--
+  Deprecated runtime URDF.
+
+  This file is kept only for historical reference and lightweight local tests.
+  Runtime launch defaults should use car_urdf/urdf/car_urdf.urdf so the whole
+  system shares one canonical robot_description and joint naming set.
+-->
+<robot name="canopen_robot">
+  <link name="base_link"/>
+  <link name="joint_1_link"/>
+  <link name="joint_2_link"/>
+  <link name="joint_3_link"/>
+  <link name="joint_4_link"/>
+  <link name="joint_5_link"/>
+  <link name="joint_6_link"/>
+
+<joint name="shoulder_yaw_joint" type="revolute">
+    <parent link="base_link"/>
+    <child link="joint_1_link"/>
+    <axis xyz="0 0 1"/>
+<!-- 修改后 -->
+    <limit lower="-31.416" upper="31.416" effort="100" velocity="3.14"/>
+  <!-- ±10π ≈ ±5 整圈，足够覆盖绝大多数使用场景 -->
+</joint>
+
+<joint name="shoulder_pitch_joint" type="revolute">
+    <parent link="joint_1_link"/>
+    <child link="joint_2_link"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-31.416" upper="31.416" effort="100" velocity="3.14"/>
+  </joint>
+
+<joint name="elbow_pitch_joint" type="revolute">
+    <parent link="joint_2_link"/>
+    <child link="joint_3_link"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-31.416" upper="31.416" effort="100" velocity="3.14"/>
+  </joint>
+
+<joint name="wrist_pitch_joint" type="revolute">
+    <parent link="joint_3_link"/>
+    <child link="joint_4_link"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-31.416" upper="31.416" effort="100" velocity="3.14"/>
+  </joint>
+
+<joint name="wrist_roll_joint" type="revolute">
+    <parent link="joint_4_link"/>
+    <child link="joint_5_link"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-31.416" upper="31.416" effort="100" velocity="3.14"/>  
+  </joint>
+
+<joint name="wrist_yaw_joint" type="revolute">
+    <parent link="joint_5_link"/>
+    <child link="joint_6_link"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-31.416" upper="31.416" effort="100" velocity="3.14"/>
+  </joint>
+</robot>

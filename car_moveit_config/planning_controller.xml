@@ -1,0 +1,5 @@
+<library path="robot24_planning_controller">
+  <class name="robot24/PlanningOnlyControllerManager" type="robot24::PlanningOnlyControllerManager" base_class_type="moveit_controller_manager::MoveItControllerManager">
+    <description>Planning-only MoveIt process. Execution is owned by the project action gate.</description>
+  </class>
+</library>

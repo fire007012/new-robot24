@@ -7,8 +7,8 @@ ROS1 bus map, DCF, and both EDS variants, then generates a `ros2_canopen` `bus.y
 The archived `config/legacy_master.yaml` and `config/legacy_joints.yaml` are
 source snapshots, not ROS2 runtime configurations. `scripts/generate_bus.py`
 cross-checks their six node IDs, modes, counts/rev, and PDO mappings before
-conversion. The generated `bus.yml` contains the configured
-installation path, so it must be regenerated for each install prefix.
+conversion. The generated `bus.yml` uses `dcf_path: .`, resolved against its installed
+configuration directory, so the installed configuration can be relocated.
 The build runs `dcfchk` and compares the common DCF sections against the archived
 DCF. It also checks that each `UploadFile` is relative to the installed config
 directory and that all six bin files exist.
@@ -25,8 +25,7 @@ colcon test --packages-select robot_canopen_config
 
 Inspect the generated DCF, each node binary, and `bus.yml` under
 `install/robot_canopen_config/share/robot_canopen_config/config/`. The
-`urdf/canopen.ros2_control.xacro` macro is an integration fragment. It is not
-part of the active ROS1 bringup.
+`urdf/canopen.ros2_control.xacro` macro is an integration fragment. It is used by the active ROS2 hardware description.
 
 ## Axis contract
 
@@ -47,5 +46,5 @@ direction, actual angle, and any device offset on each physical axis.
 
 The startup SDO map writes `0x6060` and `0x60C2:01=5`. The latter matches the
 old driver's interpolation-period write. It does not write zero, limits, or
-persisted settings. Do not enable motion until the checks in
-`../docs/27_CANopen迁移执行记录.md` are complete.
+persisted settings. Do not enable motion until the physical-device checks in
+[the CANopen acceptance guide](../docs/28_CANopen软件交付与实机验收.md) are complete.

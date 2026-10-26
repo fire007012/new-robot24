@@ -1,8 +1,10 @@
-#include <ros/ros.h>
+#include <rclcpp/rclcpp.hpp>
+#include <functional>
+#include <chrono>
 #include <image_transport/image_transport.h>
 #include <cv_bridge/cv_bridge.h>
-#include <sensor_msgs/image_encodings.h>
-#include <std_msgs/Header.h>
+#include <sensor_msgs/image_encodings.hpp>
+#include <std_msgs/msg/header.hpp>
 #include <mutex>
 #include <string>
 #include "vision_pkg/panorama.h"
@@ -10,7 +12,8 @@
 class PanoramaNode
 {
 public:
-    PanoramaNode() : nh_("~"), it_(nh_)
+    rclcpp::Node::SharedPtr node() const { return nh_; }
+    PanoramaNode() : nh_(std::make_shared<rclcpp::Node>("panorama_node"))
     {
         int output_queue_size;
         std::string cam1_topic;
@@ -37,33 +40,33 @@ public:
         bool back_rotate_180;
         bool tcp_nodelay;
 
-        nh_.param<std::string>("cam1_topic", cam1_topic, "/forward_camera/image_raw");
-        nh_.param<std::string>("cam2_topic", cam2_topic, "/back_camera/image_raw");
-        nh_.param<std::string>("display_mode", display_mode, "azimuthal");
-        nh_.param<std::string>("input_transport", input_transport, "raw");
-        nh_.param<double>("fisheye_source_fov_deg", fisheye_source_fov_deg, 180.0);
-        nh_.param<double>("operator_view_fov_deg", operator_view_fov_deg, 120.0);
-        nh_.param<int>("operator_view_width", operator_view_width, 640);
-        nh_.param<int>("operator_view_height", operator_view_height, 360);
-        nh_.param<bool>("front_rotate_180", front_rotate_180, false);
-        nh_.param<bool>("back_rotate_180", back_rotate_180, true);
-        nh_.param<int>("front_crop_ref_width", front_crop_ref_width, 1920);
-        nh_.param<int>("front_crop_ref_height", front_crop_ref_height, 1080);
-        nh_.param<int>("front_crop_x", front_crop_x, 525);
-        nh_.param<int>("front_crop_y", front_crop_y, 276);
-        nh_.param<int>("front_crop_width", front_crop_width, 876);
-        nh_.param<int>("front_crop_height", front_crop_height, 538);
-        nh_.param<int>("back_crop_ref_width", back_crop_ref_width, 1920);
-        nh_.param<int>("back_crop_ref_height", back_crop_ref_height, 1080);
-        nh_.param<int>("back_crop_x", back_crop_x, 558);
-        nh_.param<int>("back_crop_y", back_crop_y, 250);
-        nh_.param<int>("back_crop_width", back_crop_width, 876);
-        nh_.param<int>("back_crop_height", back_crop_height, 538);
-        nh_.param<bool>("tcp_nodelay", tcp_nodelay, true);
-        nh_.param<int>("output_queue_size", output_queue_size, 1);
+        cam1_topic = nh_->declare_parameter<std::string>("cam1_topic", "/forward_camera/image_raw");
+        cam2_topic = nh_->declare_parameter<std::string>("cam2_topic", "/back_camera/image_raw");
+        display_mode = nh_->declare_parameter<std::string>("display_mode", "azimuthal");
+        input_transport = nh_->declare_parameter<std::string>("input_transport", "raw");
+        fisheye_source_fov_deg = nh_->declare_parameter<double>("fisheye_source_fov_deg", 180.0);
+        operator_view_fov_deg = nh_->declare_parameter<double>("operator_view_fov_deg", 120.0);
+        operator_view_width = nh_->declare_parameter<int>("operator_view_width", 640);
+        operator_view_height = nh_->declare_parameter<int>("operator_view_height", 360);
+        front_rotate_180 = nh_->declare_parameter<bool>("front_rotate_180", false);
+        back_rotate_180 = nh_->declare_parameter<bool>("back_rotate_180", true);
+        front_crop_ref_width = nh_->declare_parameter<int>("front_crop_ref_width", 1920);
+        front_crop_ref_height = nh_->declare_parameter<int>("front_crop_ref_height", 1080);
+        front_crop_x = nh_->declare_parameter<int>("front_crop_x", 525);
+        front_crop_y = nh_->declare_parameter<int>("front_crop_y", 276);
+        front_crop_width = nh_->declare_parameter<int>("front_crop_width", 876);
+        front_crop_height = nh_->declare_parameter<int>("front_crop_height", 538);
+        back_crop_ref_width = nh_->declare_parameter<int>("back_crop_ref_width", 1920);
+        back_crop_ref_height = nh_->declare_parameter<int>("back_crop_ref_height", 1080);
+        back_crop_x = nh_->declare_parameter<int>("back_crop_x", 558);
+        back_crop_y = nh_->declare_parameter<int>("back_crop_y", 250);
+        back_crop_width = nh_->declare_parameter<int>("back_crop_width", 876);
+        back_crop_height = nh_->declare_parameter<int>("back_crop_height", 538);
+        tcp_nodelay = nh_->declare_parameter<bool>("tcp_nodelay", true);
+        output_queue_size = nh_->declare_parameter<int>("output_queue_size", 1);
 
-        pub_ = it_.advertise("panorama_image", output_queue_size);
-        equirect_pub_ = it_.advertise("panorama_equirect", output_queue_size);
+        pub_ = image_transport::create_publisher(nh_.get(), "panorama_image");
+        equirect_pub_ = image_transport::create_publisher(nh_.get(), "panorama_equirect");
 
         panorama_.setFisheyeSourceFovDeg(static_cast<float>(fisheye_source_fov_deg));
         panorama_.setFrontRotate180(front_rotate_180);
@@ -75,38 +78,32 @@ public:
         panorama_.setDisplayMode(display_mode);
         panorama_.setOperatorViewFovDeg(static_cast<float>(operator_view_fov_deg));
         panorama_.setOperatorViewSize(operator_view_width, operator_view_height);
-
-        ros::TransportHints transport_hints;
-        if (tcp_nodelay) {
-            transport_hints = ros::TransportHints().tcpNoDelay();
-        }
-        image_transport::TransportHints image_hints(input_transport, transport_hints, nh_);
-        sub_cam1_ = it_.subscribe(cam1_topic, 1, &PanoramaNode::cam1Callback, this, image_hints);
-        sub_cam2_ = it_.subscribe(cam2_topic, 1, &PanoramaNode::cam2Callback, this, image_hints);
+        sub_cam1_ = image_transport::create_subscription(nh_.get(), cam1_topic, std::bind(&PanoramaNode::cam1Callback, this, std::placeholders::_1), input_transport, rmw_qos_profile_sensor_data);
+        sub_cam2_ = image_transport::create_subscription(nh_.get(), cam2_topic, std::bind(&PanoramaNode::cam2Callback, this, std::placeholders::_1), input_transport, rmw_qos_profile_sensor_data);
 
         panorama_.setPanoramaReadyCallback(
             [this](const cv::Mat &primary_view, const cv::Mat &equirect) {
-                ros::Time stamp;
+                rclcpp::Time stamp{0, 0, RCL_ROS_TIME};
                 {
                     std::lock_guard<std::mutex> lock(frame_mutex_);
                     stamp = last_output_stamp_;
                 }
-                if (stamp.isZero()) {
-                    stamp = ros::Time::now();
+                if ((stamp.nanoseconds()==0)) {
+                    stamp = nh_->now();
                 }
                 if (!primary_view.empty()) {
-                    auto msg = cv_bridge::CvImage(std_msgs::Header(), "bgr8", primary_view).toImageMsg();
+                    auto msg = cv_bridge::CvImage(std_msgs::msg::Header(), "bgr8", primary_view).toImageMsg();
                     msg->header.stamp = stamp;
                     pub_.publish(msg);
                 }
                 if (!equirect.empty() && equirect_pub_.getNumSubscribers() > 0) {
-                    auto msg = cv_bridge::CvImage(std_msgs::Header(), "bgr8", equirect).toImageMsg();
+                    auto msg = cv_bridge::CvImage(std_msgs::msg::Header(), "bgr8", equirect).toImageMsg();
                     msg->header.stamp = stamp;
                     equirect_pub_.publish(msg);
                 }
             });
 
-        ROS_INFO_STREAM(
+        RCLCPP_INFO_STREAM(rclcpp::get_logger("vision_pkg"), 
             "panorama_node started: cam1=" << cam1_topic
             << " cam2=" << cam2_topic
             << " mode=" << display_mode
@@ -132,7 +129,7 @@ private:
         return pub_.getNumSubscribers() > 0 || equirect_pub_.getNumSubscribers() > 0;
     }
 
-    void cam1Callback(const sensor_msgs::ImageConstPtr& msg)
+    void cam1Callback(const sensor_msgs::msg::Image::ConstSharedPtr& msg)
     {
         try {
             const auto image = cv_bridge::toCvShare(msg, sensor_msgs::image_encodings::BGR8);
@@ -145,11 +142,11 @@ private:
             }
             tryProcess();
         } catch (const cv_bridge::Exception& e) {
-            ROS_WARN_ONCE("panorama cam1 decode error: %s", e.what());
+            RCLCPP_WARN_ONCE(rclcpp::get_logger("vision_pkg"), "panorama cam1 decode error: %s", e.what());
         }
     }
 
-    void cam2Callback(const sensor_msgs::ImageConstPtr& msg)
+    void cam2Callback(const sensor_msgs::msg::Image::ConstSharedPtr& msg)
     {
         try {
             const auto image = cv_bridge::toCvShare(msg, sensor_msgs::image_encodings::BGR8);
@@ -162,7 +159,7 @@ private:
             }
             tryProcess();
         } catch (const cv_bridge::Exception& e) {
-            ROS_WARN_ONCE("panorama cam2 decode error: %s", e.what());
+            RCLCPP_WARN_ONCE(rclcpp::get_logger("vision_pkg"), "panorama cam2 decode error: %s", e.what());
         }
     }
 
@@ -174,7 +171,7 @@ private:
 
         cv_bridge::CvImageConstPtr cam1;
         cv_bridge::CvImageConstPtr cam2;
-        ros::Time output_stamp;
+        rclcpp::Time output_stamp{0, 0, RCL_ROS_TIME};
         {
             std::lock_guard<std::mutex> lock(frame_mutex_);
             if (!latest_cam1_ || !latest_cam2_) {
@@ -193,15 +190,15 @@ private:
             last_processed_cam1_stamp_ = cam1->header.stamp;
             last_processed_cam2_stamp_ = cam2->header.stamp;
             output_stamp =
-                (cam1->header.stamp >= cam2->header.stamp) ? cam1->header.stamp : cam2->header.stamp;
+                (rclcpp::Time(cam1->header.stamp) >= rclcpp::Time(cam2->header.stamp)) ? cam1->header.stamp : cam2->header.stamp;
             last_output_stamp_ = output_stamp;
         }
 
         panorama_.processFrames(cam1->image, cam2->image);
     }
 
-    ros::NodeHandle nh_;
-    image_transport::ImageTransport it_;
+    rclcpp::Node::SharedPtr nh_;
+    
     image_transport::Publisher pub_;
     image_transport::Publisher equirect_pub_;
     image_transport::Subscriber sub_cam1_;
@@ -211,15 +208,15 @@ private:
     std::mutex frame_mutex_;
     cv_bridge::CvImageConstPtr latest_cam1_;
     cv_bridge::CvImageConstPtr latest_cam2_;
-    ros::Time last_processed_cam1_stamp_;
-    ros::Time last_processed_cam2_stamp_;
-    ros::Time last_output_stamp_;
+    rclcpp::Time last_processed_cam1_stamp_{0, 0, RCL_ROS_TIME};
+    rclcpp::Time last_processed_cam2_stamp_{0, 0, RCL_ROS_TIME};
+    rclcpp::Time last_output_stamp_{0, 0, RCL_ROS_TIME};
 };
 
 int main(int argc, char** argv)
 {
-    ros::init(argc, argv, "panorama_node");
+    rclcpp::init(argc, argv);
     PanoramaNode node;
-    ros::spin();
+    rclcpp::spin(node.node());
     return 0;
 }

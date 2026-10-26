@@ -1,0 +1,79 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-20.04
+    strategy:
+      fail-fast: false
+      matrix:
+        build_type: [Debug, Release]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Add Lely PPA
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y software-properties-common
+          sudo add-apt-repository -y ppa:lely/ppa
+          sudo apt-get update
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get install -y --no-install-recommends \
+            build-essential \
+            cmake \
+            ninja-build \
+            pkg-config \
+            libyaml-cpp-dev \
+            libgtest-dev \
+            liblely-coapp-dev \
+            liblely-io2-dev \
+            liblely-ev-dev \
+            liblely-co-dev \
+            clang-tidy
+
+      - name: Configure (${{ matrix.build_type }})
+        run: |
+          cmake -S . -B build/${{ matrix.build_type }} \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} \
+            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+
+      - name: Build (${{ matrix.build_type }})
+        run: cmake --build build/${{ matrix.build_type }} --parallel
+
+      - name: Test (${{ matrix.build_type }})
+        working-directory: build/${{ matrix.build_type }}
+        run: ctest --output-on-failure
+
+      - name: Clang-Tidy (Debug only)
+        if: matrix.build_type == 'Debug'
+        run: |
+          clang-tidy \
+            -p build/Debug \
+            --warnings-as-errors='*' \
+            --checks='-*,bugprone-*,performance-*,readability-braces-around-statements' \
+            --header-filter='include/canopen_hw/.*' \
+            src/*.cpp
+
+      - name: Upload CTest logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ctest-logs-${{ matrix.build_type }}
+          path: |
+            build/${{ matrix.build_type }}/Testing/**
+          if-no-files-found: ignore

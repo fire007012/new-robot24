@@ -1,0 +1,155 @@
+# Placeholder poses: replace with measured, collision-checked values before enabling.
+commissioned: false
+joint_names:
+- shoulder_yaw_joint
+- shoulder_pitch_joint
+- elbow_pitch_joint
+- wrist_pitch_joint
+- wrist_yaw_joint
+- wrist_roll_joint
+home_positions:
+- 0.0
+- 0.6
+- 1.0
+- 0.9
+- 0.0
+- 0.0
+settle_time: 1.5
+marker_timeout: 2.0
+poses:
+- name: p00_home
+  delta:
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+- name: p01_yaw_pos
+  delta:
+  - 0.25
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+- name: p02_yaw_neg
+  delta:
+  - -0.25
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+- name: p03_pitch_up
+  delta:
+  - 0.0
+  - -0.15
+  - 0.0
+  - 0.15
+  - 0.0
+  - 0.0
+- name: p04_pitch_down
+  delta:
+  - 0.0
+  - 0.15
+  - 0.0
+  - -0.15
+  - 0.0
+  - 0.0
+- name: p05_roll_pos
+  delta:
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.4
+- name: p06_roll_neg
+  delta:
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - -0.4
+- name: p07_yaw_pitch_a
+  delta:
+  - 0.2
+  - -0.1
+  - 0.1
+  - 0.1
+  - 0.0
+  - 0.2
+- name: p08_yaw_pitch_b
+  delta:
+  - -0.2
+  - -0.1
+  - 0.1
+  - 0.1
+  - 0.0
+  - -0.2
+- name: p09_yaw_pitch_c
+  delta:
+  - 0.2
+  - 0.1
+  - -0.1
+  - -0.1
+  - 0.0
+  - 0.2
+- name: p10_yaw_pitch_d
+  delta:
+  - -0.2
+  - 0.1
+  - -0.1
+  - -0.1
+  - 0.0
+  - -0.2
+- name: p11_closer
+  delta:
+  - 0.0
+  - 0.15
+  - -0.2
+  - 0.05
+  - 0.0
+  - 0.0
+- name: p12_farther
+  delta:
+  - 0.0
+  - -0.1
+  - 0.15
+  - -0.05
+  - 0.0
+  - 0.0
+- name: p13_mix_a
+  delta:
+  - 0.3
+  - -0.1
+  - 0.15
+  - 0.2
+  - 0.3
+  - 0.3
+- name: p14_mix_b
+  delta:
+  - -0.3
+  - 0.1
+  - -0.15
+  - -0.2
+  - -0.3
+  - -0.3
+- name: p15_mix_c
+  delta:
+  - 0.15
+  - 0.2
+  - -0.25
+  - 0.1
+  - -0.4
+  - 0.5
+- name: p16_mix_d
+  delta:
+  - -0.15
+  - -0.2
+  - 0.25
+  - -0.1
+  - 0.4
+  - -0.5

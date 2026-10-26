@@ -1,0 +1,7 @@
+cmake_minimum_required(VERSION 3.8)
+project(eye_in_hand)
+find_package(ament_cmake REQUIRED)
+install(PROGRAMS scripts/auto_sample.py DESTINATION lib/${PROJECT_NAME})
+install(DIRECTORY launch/ DESTINATION share/${PROJECT_NAME}/launch)
+install(FILES config/auto_poses_ros2.yaml DESTINATION share/${PROJECT_NAME}/config)
+ament_package()

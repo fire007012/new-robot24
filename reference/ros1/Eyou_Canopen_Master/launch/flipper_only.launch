@@ -1,0 +1,21 @@
+<launch>
+  <arg name="dcf_path" default="$(find Eyou_Canopen_Master)/config/master_flipper_4axis.dcf"/>
+  <arg name="joints_path" default="$(find Eyou_Canopen_Master)/config/joints_flipper_4axis.yaml"/>
+  <arg name="controllers_file" default="$(find Eyou_Canopen_Master)/config/ros/controllers_flipper_4axis.yaml"/>
+  <arg name="loop_hz" default="200.0"/>
+  <arg name="auto_init" default="false"/>
+  <arg name="auto_enable" default="false"/>
+  <arg name="auto_release" default="false"/>
+  <arg name="robot_urdf" default="$(find car_urdf)/urdf/car_urdf.urdf"/>
+
+  <include file="$(find Eyou_Canopen_Master)/launch/bringup_flipper_4axis.launch">
+    <arg name="dcf_path" value="$(arg dcf_path)"/>
+    <arg name="joints_path" value="$(arg joints_path)"/>
+    <arg name="controllers_file" value="$(arg controllers_file)"/>
+    <arg name="loop_hz" value="$(arg loop_hz)"/>
+    <arg name="auto_init" value="$(arg auto_init)"/>
+    <arg name="auto_enable" value="$(arg auto_enable)"/>
+    <arg name="auto_release" value="$(arg auto_release)"/>
+    <arg name="robot_urdf" value="$(arg robot_urdf)"/>
+  </include>
+</launch>

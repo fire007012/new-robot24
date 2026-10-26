@@ -1,14 +1,6 @@
-cmake_minimum_required(VERSION 2.8.3)
-
+cmake_minimum_required(VERSION 3.8)
 project(car_urdf)
-
-find_package(catkin REQUIRED)
-
-catkin_package()
-
-find_package(roslaunch)
-
-foreach(dir config launch meshes urdf)
-	install(DIRECTORY ${dir}/
-		DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}/${dir})
-endforeach(dir)
+find_package(ament_cmake REQUIRED)
+install(DIRECTORY meshes DESTINATION share/${PROJECT_NAME})
+install(FILES urdf/robot.urdf.xacro DESTINATION share/${PROJECT_NAME}/urdf)
+ament_package()

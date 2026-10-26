@@ -1,0 +1,8 @@
+uint8 axis_index
+float64 zero_offset_rad
+bool use_current_position_as_zero
+---
+bool success
+string message
+float64 current_position
+float64 applied_zero_offset

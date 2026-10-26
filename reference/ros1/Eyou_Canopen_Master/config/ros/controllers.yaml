@@ -1,0 +1,32 @@
+# ros_control controller 配置。
+
+joint_state_controller:
+  type: joint_state_controller/JointStateController
+  publish_rate: 100
+
+# CSP 模式: JointTrajectoryController（供 MoveIt FollowJointTrajectory action 使用）。
+arm_position_controller:
+  type: position_controllers/JointTrajectoryController
+  joints:
+    - shoulder_yaw_joint
+    - shoulder_pitch_joint
+
+
+# CSV 模式: 速度前馈轨迹控制器。
+# 使用前需先通过 ~set_mode service 切换到 CSV（halt → set_mode → recover）。
+arm_velocity_controller:
+  type: velocity_controllers/JointTrajectoryController
+  joints:
+    - shoulder_yaw_joint
+    - shoulder_pitch_joint
+  gains:
+    shoulder_yaw_joint:
+      p: 1.0
+      i: 0.0
+      d: 0.0
+      i_clamp: 1.0
+    shoulder_pitch_joint:
+      p: 1.0
+      i: 0.0
+      d: 0.0
+      i_clamp: 1.0

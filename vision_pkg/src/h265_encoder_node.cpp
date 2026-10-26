@@ -1,7 +1,9 @@
-#include <ros/ros.h>
-#include <sensor_msgs/Image.h>
-#include <sensor_msgs/CompressedImage.h>
-#include <sensor_msgs/image_encodings.h>
+#include <rclcpp/rclcpp.hpp>
+#include <functional>
+#include <chrono>
+#include <sensor_msgs/msg/image.hpp>
+#include <sensor_msgs/msg/compressed_image.hpp>
+#include <sensor_msgs/image_encodings.hpp>
 #include <cv_bridge/cv_bridge.h>
 #include <gst/gst.h>
 #include <gst/app/gstappsrc.h>
@@ -18,25 +20,26 @@
 class H265EncoderNode
 {
 public:
-    H265EncoderNode() : nh_("~")
+    rclcpp::Node::SharedPtr node() const { return nh_; }
+    H265EncoderNode() : nh_(std::make_shared<rclcpp::Node>("h265_encoder_node"))
     {
         static std::once_flag gst_init_once;
         std::call_once(gst_init_once, []() {
             gst_init(nullptr, nullptr);
         });
 
-        nh_.param<std::string>("input_topic", input_topic_, "/panorama/panorama_image");
-        nh_.param<std::string>("output_topic", output_topic_, "/panorama/panorama_image/h265");
-        nh_.param<int>("queue_size", queue_size_, 1);
-        nh_.param<int>("bitrate_kbps", bitrate_kbps_, 1200);
-        nh_.param<int>("fps", fps_, 15);
-        nh_.param<int>("gop", gop_, 15);
-        nh_.param<double>("max_input_fps", max_input_fps_, 15.0);
+        input_topic_ = nh_->declare_parameter<std::string>("input_topic", "/panorama/panorama_image");
+        output_topic_ = nh_->declare_parameter<std::string>("output_topic", "/panorama/panorama_image/h265");
+        queue_size_ = nh_->declare_parameter<int>("queue_size", 1);
+        bitrate_kbps_ = nh_->declare_parameter<int>("bitrate_kbps", 1200);
+        fps_ = nh_->declare_parameter<int>("fps", 15);
+        gop_ = nh_->declare_parameter<int>("gop", 15);
+        max_input_fps_ = nh_->declare_parameter<double>("max_input_fps", 15.0);
 
-        pub_ = nh_.advertise<sensor_msgs::CompressedImage>(output_topic_, queue_size_);
-        sub_ = nh_.subscribe(input_topic_, queue_size_, &H265EncoderNode::imageCallback, this);
+        pub_ = nh_->create_publisher<sensor_msgs::msg::CompressedImage>(output_topic_, queue_size_);
+        sub_ = nh_->create_subscription<sensor_msgs::msg::Image>(input_topic_, rclcpp::SensorDataQoS(), std::bind(&H265EncoderNode::imageCallback, this, std::placeholders::_1));
 
-        ROS_INFO_STREAM(
+        RCLCPP_INFO_STREAM(rclcpp::get_logger("vision_pkg"), 
             "h265_encoder_node started: input_topic=" << input_topic_
             << " output_topic=" << output_topic_
             << " bitrate_kbps=" << bitrate_kbps_
@@ -51,16 +54,16 @@ public:
     }
 
 private:
-    void imageCallback(const sensor_msgs::ImageConstPtr& msg)
+    void imageCallback(const sensor_msgs::msg::Image::ConstSharedPtr& msg)
     {
-        if (pub_.getNumSubscribers() == 0) {
+        if (pub_->get_subscription_count() == 0) {
             return;
         }
 
-        const ros::Time stamp = msg->header.stamp.isZero() ? ros::Time::now() : msg->header.stamp;
-        if (max_input_fps_ > 0.0 && !last_input_stamp_.isZero()) {
+        const rclcpp::Time stamp = rclcpp::Time(msg->header.stamp).nanoseconds()==0 ? nh_->now() : rclcpp::Time(msg->header.stamp);
+        if (max_input_fps_ > 0.0 && !(last_input_stamp_.nanoseconds()==0)) {
             const double min_dt = 1.0 / max_input_fps_;
-            if ((stamp - last_input_stamp_).toSec() < min_dt) {
+            if ((stamp - last_input_stamp_).seconds() < min_dt) {
                 return;
             }
         }
@@ -70,7 +73,7 @@ private:
         try {
             image = cv_bridge::toCvShare(msg, sensor_msgs::image_encodings::BGR8);
         } catch (const cv_bridge::Exception& e) {
-            ROS_WARN_ONCE("h265 cv_bridge error: %s", e.what());
+            RCLCPP_WARN_ONCE(rclcpp::get_logger("vision_pkg"), "h265 cv_bridge error: %s", e.what());
             return;
         }
 
@@ -82,7 +85,7 @@ private:
             return;
         }
 
-        const uint64_t pts_ns = stamp.toNSec();
+        const uint64_t pts_ns = stamp.nanoseconds();
         {
             std::lock_guard<std::mutex> lock(meta_mutex_);
             pending_frame_ids_[pts_ns] = msg->header.frame_id;
@@ -94,14 +97,14 @@ private:
         const size_t bytes = image->image.total() * image->image.elemSize();
         GstBuffer* buffer = gst_buffer_new_allocate(nullptr, bytes, nullptr);
         if (!buffer) {
-            ROS_WARN_ONCE("h265 failed to allocate GstBuffer");
+            RCLCPP_WARN_ONCE(rclcpp::get_logger("vision_pkg"), "h265 failed to allocate GstBuffer");
             return;
         }
 
         GstMapInfo map_info;
         if (!gst_buffer_map(buffer, &map_info, GST_MAP_WRITE)) {
             gst_buffer_unref(buffer);
-            ROS_WARN_ONCE("h265 failed to map GstBuffer");
+            RCLCPP_WARN_ONCE(rclcpp::get_logger("vision_pkg"), "h265 failed to map GstBuffer");
             return;
         }
 
@@ -114,7 +117,7 @@ private:
 
         GstFlowReturn flow = gst_app_src_push_buffer(GST_APP_SRC(appsrc_), buffer);
         if (flow != GST_FLOW_OK) {
-            ROS_WARN_ONCE("h265 push buffer failed: %d", static_cast<int>(flow));
+            RCLCPP_WARN_ONCE(rclcpp::get_logger("vision_pkg"), "h265 push buffer failed: %d", static_cast<int>(flow));
         }
     }
 
@@ -148,7 +151,7 @@ private:
         GError* error = nullptr;
         pipeline_ = gst_parse_launch(pipeline_desc.c_str(), &error);
         if (!pipeline_) {
-            ROS_ERROR_ONCE("h265 failed to create pipeline: %s", error ? error->message : "unknown error");
+            RCLCPP_ERROR_ONCE(rclcpp::get_logger("vision_pkg"), "h265 failed to create pipeline: %s", error ? error->message : "unknown error");
             if (error) {
                 g_error_free(error);
             }
@@ -158,7 +161,7 @@ private:
         appsrc_ = gst_bin_get_by_name(GST_BIN(pipeline_), "src");
         appsink_ = gst_bin_get_by_name(GST_BIN(pipeline_), "sink");
         if (!appsrc_ || !appsink_) {
-            ROS_ERROR_ONCE("h265 failed to get appsrc/appsink");
+            RCLCPP_ERROR_ONCE(rclcpp::get_logger("vision_pkg"), "h265 failed to get appsrc/appsink");
             shutdownPipelineLocked();
             return false;
         }
@@ -167,14 +170,14 @@ private:
         gst_app_src_set_max_bytes(GST_APP_SRC(appsrc_), 0);
 
         if (gst_element_set_state(pipeline_, GST_STATE_PLAYING) == GST_STATE_CHANGE_FAILURE) {
-            ROS_ERROR_ONCE("h265 failed to set pipeline to PLAYING");
+            RCLCPP_ERROR_ONCE(rclcpp::get_logger("vision_pkg"), "h265 failed to set pipeline to PLAYING");
             shutdownPipelineLocked();
             return false;
         }
 
         running_.store(true);
         output_thread_ = std::thread(&H265EncoderNode::outputLoop, this);
-        ROS_INFO_STREAM("h265 pipeline ready: " << width << "x" << height);
+        RCLCPP_INFO_STREAM(rclcpp::get_logger("vision_pkg"), "h265 pipeline ready: " << width << "x" << height);
         return true;
     }
 
@@ -199,7 +202,7 @@ private:
                 continue;
             }
 
-            sensor_msgs::CompressedImage msg;
+            sensor_msgs::msg::CompressedImage msg;
             msg.format = "h265";
 
             const uint64_t pts_ns =
@@ -207,7 +210,7 @@ private:
                     ? static_cast<uint64_t>(GST_BUFFER_PTS(buffer))
                     : 0ULL;
             if (pts_ns != 0ULL) {
-                msg.header.stamp.fromNSec(pts_ns);
+                msg.header.stamp = rclcpp::Time(pts_ns, RCL_ROS_TIME);
                 std::lock_guard<std::mutex> lock(meta_mutex_);
                 auto it = pending_frame_ids_.find(pts_ns);
                 if (it != pending_frame_ids_.end()) {
@@ -215,11 +218,11 @@ private:
                     pending_frame_ids_.erase(it);
                 }
             } else {
-                msg.header.stamp = ros::Time::now();
+                msg.header.stamp = nh_->now();
             }
 
             msg.data.assign(map_info.data, map_info.data + map_info.size);
-            pub_.publish(msg);
+            pub_->publish(msg);
 
             gst_buffer_unmap(buffer, &map_info);
             gst_sample_unref(sample);
@@ -267,9 +270,9 @@ private:
         pending_frame_ids_.clear();
     }
 
-    ros::NodeHandle nh_;
-    ros::Subscriber sub_;
-    ros::Publisher pub_;
+    rclcpp::Node::SharedPtr nh_;
+    rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr sub_;
+    rclcpp::Publisher<sensor_msgs::msg::CompressedImage>::SharedPtr pub_;
 
     std::string input_topic_;
     std::string output_topic_;
@@ -278,7 +281,7 @@ private:
     int fps_{15};
     int gop_{15};
     double max_input_fps_{15.0};
-    ros::Time last_input_stamp_;
+    rclcpp::Time last_input_stamp_{0, 0, RCL_ROS_TIME};
 
     std::mutex pipeline_mutex_;
     GstElement* pipeline_{nullptr};
@@ -295,8 +298,8 @@ private:
 
 int main(int argc, char** argv)
 {
-    ros::init(argc, argv, "h265_encoder_node");
+    rclcpp::init(argc, argv);
     H265EncoderNode node;
-    ros::spin();
+    rclcpp::spin(node.node());
     return 0;
 }

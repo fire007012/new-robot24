@@ -1,8 +1,10 @@
+#include "robot_hardware/plugin_lifetime.hpp"
 #include "robot_hardware/timed_velocity_controller.hpp"
 #include "pluginlib/class_list_macros.hpp"
 namespace robot_hardware {
 controller_interface::CallbackReturn TimedVelocityController::on_init() {
  try {
+  retainPluginCode();
   auto_declare<std::vector<std::string>>("joints", {});
   auto_declare<std::string>("interface_name", "velocity");
   auto_declare<double>("command_timeout", 0.25);

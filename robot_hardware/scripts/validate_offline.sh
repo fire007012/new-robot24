@@ -18,5 +18,7 @@ for robot_test_package in robot_safety can_driver canopen_core canopen_base_driv
  ctest --test-dir "${robot_validation_prefix}-build/$robot_test_package" --output-on-failure --timeout 60
 done
 ROBOT_OFFLINE_REPORT="${robot_validation_prefix}-hybrid.log" python3 "$robot_source_root/robot_hardware/test/hybrid_smoke.py"
+ROBOT_OFFLINE_REPORT="${robot_validation_prefix}-groups.log" python3 "$robot_source_root/robot_hardware/test/group_smoke.py"
+bash "$robot_source_root/robot_hardware/test/relocation_smoke.sh" "${robot_validation_prefix}-install"
 colcon test-result --test-result-base "${robot_validation_prefix}-build" --verbose
 python3 "$robot_source_root/robot_hardware/scripts/offline_manifest.py" "$robot_source_root" "${robot_validation_prefix}-install" "${robot_validation_prefix}-report.json"

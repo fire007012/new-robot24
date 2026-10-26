@@ -23,3 +23,11 @@ TEST(Domain, RecordsRunningPeriodWithoutCountingArmedAsMotion) {
  d.observePeriod(5000000);d.observePeriod(10000000);
  EXPECT_NE(d.diagnostics().find("\"period_over_7_5ms\":1"),std::string::npos);
 }
+TEST(Domain, AggregateDiagnosticsRemainCorrectBeforeGroupMigration) {
+ robot_safety::Domain d;
+ d.report("RobotCanopenSystem", true); d.report("CanDriverSystem", true);
+ ASSERT_TRUE(d.arm()); ASSERT_TRUE(d.run());
+ EXPECT_NE(d.diagnostics().find("\"aggregate_state\":\"Running\""), std::string::npos);
+ d.fault("legacy failure");
+ EXPECT_NE(d.diagnostics().find("\"aggregate_state\":\"Restricted\""), std::string::npos);
+}

@@ -1,7 +1,7 @@
 #ifndef VISION_PKG_MOTION_DETECTOR_H
 #define VISION_PKG_MOTION_DETECTOR_H
 
-#include <std_msgs/Header.h>
+#include <std_msgs/msg/header.hpp>
 #include <opencv2/core.hpp>
 #include <functional>
 #include <mutex>
@@ -61,14 +61,14 @@ public:
     };
 
     using DebugPublisher =
-        std::function<void(DebugImage, const std_msgs::Header&, const cv::Mat&)>;
+        std::function<void(DebugImage, const std_msgs::msg::Header&, const cv::Mat&)>;
 
     MotionDetector(const Config& config, DebugPublisher debug_publisher);
 
     bool enabled() const;
     void clearCache();
     bool hasCachedResults() const;
-    void process(const cv::Mat& src, const cv::Mat& depth, const std_msgs::Header& header);
+    void process(const cv::Mat& src, const cv::Mat& depth, const std_msgs::msg::Header& header);
     void drawCached(cv::Mat& dst) const;
 
 private:
@@ -123,7 +123,7 @@ private:
     std::vector<MotionBox> smoothTrackedBoxes(const std::vector<MotionBox>& boxes,
                                               const cv::Size& image_size);
     cv::Mat buildDepthMask(const cv::Mat& depth, const cv::Size& output_size) const;
-    void publishDebug(DebugImage kind, const std_msgs::Header& header, const cv::Mat& image) const;
+    void publishDebug(DebugImage kind, const std_msgs::msg::Header& header, const cv::Mat& image) const;
 
     Config config_;
     DebugPublisher debug_publisher_;

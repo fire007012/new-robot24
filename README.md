@@ -1,151 +1,63 @@
-# Robot24 Catkin Workspace
+# Robot24 · ROS2 整车工作区
 
-基于 ROS Noetic 的机器人工作空间，当前主链路覆盖底盘、摆臂、夹抓、MoveIt、Gazebo 全机仿真与实机统一 bringup。
+本项目使用 **Ubuntu 22.04 / ROS2 Humble**，通过一个 `controller_manager` 管理 CANopen 与私有 CAN 两个硬件组件，提供六轴机械臂、履带、四摆臂、夹爪，以及 MoveIt 2、Fortress 仿真、相机视觉、手眼标定和上位机接口。
 
-当前工作区处于 ROS2 迁移准备阶段：手眼标定子模块已由 ROS1 `easy_handeye` 替换为 ROS2 [`easy_handeye2`](easy_handeye2/README.md)，其余主控制链仍为 ROS1。`Eye_in_hand` 的旧调用端尚待迁移；当前目录不能直接整体作为纯 Catkin 或纯 ROS2 工作空间构建。迁移任务见 [ROS1 迁移 ROS2 实施计划](docs/25_ROS1迁移ROS2实施计划.md)。
+ROS1 代码已集中到 [reference/ros1](reference/ros1/README.md)，仅供参考；项目不再安排 ROS1 基线回退。参考目录含 `COLCON_IGNORE`，活动包统一使用 ament。
 
-## 当前主链路
+## 目录与职责
 
-核心包：
-
-| 包 | 说明 |
+| 目录 | 当前职责 |
 | --- | --- |
-| `robot_bringup` | 顶层启动入口，统一组织实机与仿真链路 |
-| `Eyou_ROS1_Master` | 实机统一硬件外观层与 controller manager bringup |
-| `Eyou_Canopen_Master` | CANopen 后端与 ROS 控制适配 |
-| `can_driver` | SocketCAN 电机驱动与底盘/夹抓后端 |
-| `car_moveit_config` | MoveIt 配置、Move Group、Gazebo 仿真链路 |
-| `car_urdf` | 整机 URDF、ros_control 接口与模型配置 |
-| `mobility_control` | `/cmd_vel` 到底盘控制器的桥接与限幅 |
-| `flipper_control` | 摆臂控制管理节点 |
-| `arm_control` | 夹抓/机械臂上行控制接口 |
+| robot_bringup / robot_full_system | 整车 launch、模型状态转发、就绪检查 / 全量依赖集合 |
+| robot_hardware / robot_safety | 唯一控制管理器、控制器、生命周期、维护、分组运行许可与输入会话 |
+| can_driver / ros2_canopen / robot_canopen_config | 私有 CAN 后端 / CANopen 后端 / 六轴总线配置生成与校验 |
+| car_urdf / car_moveit_config / arm_control | 模型 / MoveIt 2 规划 / ExecuteArmGoal 和腕部、夹爪适配 |
+| mobility_control / car_control / flipper_control | 底盘 Ruckig / Servo、遥控与监控 / 原生 Qt 摆臂调试界面 |
+| robot_simulation | Gazebo Fortress 物理仿真与传感器 |
+| vision_pkg / robot_camera_sdk | 图像、深度、检测、H265 与相机启动 / 安装本地固定版本 SDK |
+| realsense-ros / OrbbecSDK_ROS2 | ROS2 相机驱动子模块；后者为支持 Astra+ 的 SDK v1 分支 |
+| eye_in_hand / aruco_ros / easy_handeye2 | 手眼采样与启动 / marker 检测 / 求解、保存和外参发布 |
+| host_bridge | TCP/JSON 上位机协议、视频管理、ROS2 图像转 RTSP |
+| senseair_co2 / thermal_camera | CO₂ 与热成像外围接口 |
+| tools / docs / reference | 依赖与回归工具 / 当前架构和现场操作 / 历史参考 |
 
-辅助与历史包：
+`host_bridge` 是原目录 `ros1_bridge` 的 ROS2 业务包；`eye_in_hand` 是原 `Eye_in_hand`。源码布局统一使用 `launch/`、`src/`、`scripts/` 和 `config/`。
 
-| 包 | 说明 |
-| --- | --- |
-| `can_driver_ui` | 驱动相关可视化与调试 UI |
-| `vision_pkg` | 视觉感知与拼接/检测节点 |
-| `vision_opencv` | OpenCV 相关 ROS 包，上游代码 |
-| `realsense-ros` | RealSense ROS 包，上游代码 |
+## 构建与验证
 
-## 包文档入口
-
-- `robot_bringup`: [robot_bringup/README.md](robot_bringup/README.md)
-- `Eyou_ROS1_Master`: [Eyou_ROS1_Master/README.md](Eyou_ROS1_Master/README.md)
-- `Eyou_Canopen_Master`: [Eyou_Canopen_Master/README.md](Eyou_Canopen_Master/README.md)
-- `can_driver`: [can_driver/README.md](can_driver/README.md)
-- `mobility_control`: [mobility_control/README.md](mobility_control/README.md)
-- `flipper_control`: [flipper_control/README.md](flipper_control/README.md)
-- `arm_control`: [arm_control/README.md](arm_control/README.md)
-- `car_control`: [car_control/README.md](car_control/README.md)
-- `car_moveit_config`: [car_moveit_config/README.md](car_moveit_config/README.md)
-- `car_urdf`: [car_urdf/README.md](car_urdf/README.md)
-- `vision_pkg`: [vision_pkg/README.md](vision_pkg/README.md)
-- `can_driver_ui`: [can_driver_ui/README.md](can_driver_ui/README.md)
-
-## 启动入口
-
-实机入口：
+从本仓库根目录（工作区的 `src`）执行，先初始化 [6 个活动子模块](docs/git_submodule_workflow.md)。构建脚本使用系统安装的 Lely，首次环境准备如下：
 
 ```bash
-roslaunch robot_bringup full_system.launch
+bash tools/install_ros2_dependencies.sh --dry-run
+bash tools/install_ros2_dependencies.sh
+# 仅全量相机集合需要；固定 librealsense 2.58.4 解包到 .deps/，不覆盖系统 SDK。
+bash tools/prepare_camera_sdk.sh
+
+# core 默认构建主控制链；full 构建完整的 37 个 ROS2 包。
+bash tools/build_ros2.sh /tmp/robot24-ros2 full
+source /tmp/robot24-ros2-install/setup.bash
+bash tools/validate_ros2.sh /tmp/robot24-ros2 full
 ```
 
-全机仿真入口：
+构建、安装、CTest 和 ROS 日志均写入指定的 `/tmp` 前缀。集成测试需要本机回环 DDS/TCP；Fortress 软件渲染需要 X display。`test/`、`tests/` 和 `tools/test/` 是持续回归源码，应保留；完成批次的日志、截图、evidence 和缓存不放在源码树。
+
+## 启动
 
 ```bash
-roslaunch robot_bringup full_system_simulate.launch
+source /tmp/robot24-ros2-install/setup.bash
+ros2 launch robot_bringup full_system_mock.launch.py
+# 原生 Qt 界面和 Servo 按需打开：enable_servo:=true ui:=keyboard
+ros2 launch robot_simulation full_system_simulate.launch.py gui:=false
+# 实机入口：先完成设备登记与单轴验收，再在独立终端运行。
+# ros2 launch robot_bringup full_system.launch.py baseline:=/实际路径/commissioning.yaml
 ```
 
-说明：
+三个入口择一运行。整车入口默认启用 `robot_safety/config/group_policy_v1.yaml`，启动后硬件与运动控制器不会自动进入运行。mock 示例的显式操作见 [主控制链说明](docs/33_ROS2主控制链与MoveIt2实施记录.md)；实机操作见 [现场验收](docs/28_CANopen软件交付与实机验收.md) 和 [分组操作](docs/31_分组隔离与局部恢复实施验收.md)。`init → enable (Armed) → resume (Running)` 建立新会话；故障恢复后也需要显式放行并发送新目标。
 
-- `full_system.launch` 当前是实机链路
-- `full_system_simulate.launch` 当前是 Gazebo 全机仿真链路
-- `hardware_damiao_system.launch` 已不再作为正式入口
+六轴规划统一经 `arm_control/ExecuteArmGoal` 发往同一个 JTC；MoveIt 的 `move_group` 仅提供规划，JTC 与 Servo 互斥。模型 TF 使用过滤后的 `/robot_model/joint_states`，安全与就绪检查仍消费原始测量。
 
-## 目录结构
+## 当前完成范围
 
-```text
-.
-├── Eyou_Canopen_Master/
-├── Eyou_ROS1_Master/
-├── arm_control/
-├── can_driver/
-├── can_driver_ui/
-├── car_moveit_config/
-├── car_urdf/
-├── docs/
-├── flipper_control/
-├── mobility_control/
-├── realsense-ros/
-├── robot_bringup/
-├── vision_opencv/
-├── vision_pkg/
-└── ...
-```
+37 包全量构建、11 包的 41 个 CTest 入口，以及控制、MoveIt、Servo/UI、合成视觉、上位机/视频控制、模拟 CO₂、合成 TF 标定、Fortress 集成已通过软件验收，见 [记录 34](docs/34_ROS2全量软件集成与验收.md)。本次目录整理的复测结果与连续回归限制见 [整理说明 35](docs/35_ROS2工作区整理说明.md)。实机 CAN 时序/制动/参数、真实相机与 marker、YOLO 权重、真实 RTSP 拉流及外围设备尚待验收；标定自动采样配置保持 `commissioned: false`。
 
-## 依赖与迁移
-
-基础环境：
-
-- Ubuntu 20.04
-- ROS Noetic
-- Catkin
-
-迁移设备时，优先参考完整依赖清单：
-
-- [docs/24_迁移设备外部依赖清单_2026-04-19.md](docs/24_迁移设备外部依赖清单_2026-04-19.md)
-
-常见核心依赖包括：
-
-- `ros-noetic-roscpp`
-- `ros-noetic-rospy`
-- `ros-noetic-controller-manager`
-- `ros-noetic-diff-drive-controller`
-- `ros-noetic-joint-state-controller`
-- `ros-noetic-moveit-commander`
-- `ros-noetic-moveit-ros-move-group`
-- `ros-noetic-rviz`
-- `gazebo11`
-- `libyaml-cpp-dev`
-- `libspdlog-dev`
-- Lely CANopen 开发库
-
-推荐先使用 `rosdep`：
-
-```bash
-sudo apt-get update
-sudo apt-get install -y python3-rosdep
-sudo rosdep init || true
-rosdep update
-rosdep install --from-paths src --ignore-src -r -y --rosdistro noetic
-```
-
-注意：
-
-- 当前仓库混有视觉上游包与 vendor 示例目录，`rosdep` 结果会比正式主链路更宽
-- `Eyou_Canopen_Master` 和 `Eyou_ROS1_Master` 额外需要系统可用的 Lely `pkg-config` 条目
-- `can_driver/lib/myactuator_rmd-main` 与 `can_driver/lib/myactuator_rmd_ros-main` 是 vendor 进来的 ROS2/ament 示例树，已通过 `CATKIN_IGNORE` 排除，不参与当前 ROS1 工作空间发现
-
-## 编译
-
-```bash
-cd ~/Robot24_catkin_ws
-catkin_make
-source devel/setup.bash
-```
-
-## 测试
-
-```bash
-cd ~/Robot24_catkin_ws
-catkin_make run_tests -j2
-catkin_test_results build
-```
-
-## 文档
-
-设计、bringup、修复与迁移说明见：
-
-- [docs/README.md](docs/README.md)
+[文档索引](docs/README.md) · [系统架构](docs/06_项目架构图与数据流向图.md) · [实施计划与待办](docs/25_ROS1迁移ROS2实施计划.md)

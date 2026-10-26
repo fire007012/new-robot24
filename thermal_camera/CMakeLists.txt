@@ -1,21 +1,7 @@
-cmake_minimum_required(VERSION 3.0.2)
+cmake_minimum_required(VERSION 3.8)
 project(thermal_camera)
-
-find_package(catkin REQUIRED COMPONENTS
-  rospy
-  sensor_msgs
-  cv_bridge
-)
-
-catkin_python_setup()
-
-catkin_package()
-
-catkin_install_python(PROGRAMS
-  scripts/thermal_camera_node.py
-  DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
-)
-
-install(DIRECTORY launch/
-  DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}/launch
-)
+find_package(ament_cmake REQUIRED)
+install(PROGRAMS scripts/thermal_camera_node.py DESTINATION lib/${PROJECT_NAME})
+install(FILES src/irpythermal.py src/utils.py DESTINATION lib/${PROJECT_NAME})
+install(DIRECTORY launch/ DESTINATION share/${PROJECT_NAME}/launch)
+ament_package()
