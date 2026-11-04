@@ -1,9 +1,36 @@
 #include <gtest/gtest.h>
 #include "robot_safety/domain.hpp"
+#include "robot_safety/axis_session.hpp"
 #include <stdexcept>
 #include <thread>
 #include <atomic>
 using D = robot_safety::Domain;
+TEST(AxisSession, RunBetweenPermissionCheckAndCleanupPreservesPreparation) {
+  D domain;
+  domain.configure({{"joint", {"arm", "backend"}}, {"wheel", {"base", "backend"}},
+                    {"flipper", {"flippers", "backend"}}, {"finger", {"gripper", "backend"}}},
+                   {}, "session-race");
+  for (const auto & axis : {"joint", "wheel", "flipper", "finger"}) domain.reportAxis(axis, true);
+  robot_safety::AxisSession session;
+  session.group = "arm";
+  session.prepared_epoch->store(domain.epoch("arm"));
+  session.prepared->store(true);
+  ASSERT_TRUE(domain.arm("arm"));
+  session.epoch = domain.epoch("arm");
+  session.permission_lost = false;
+  ASSERT_FALSE(domain.permits("arm", session.epoch));
+  // A service callback runs after the write loop's failed permission check.
+  ASSERT_TRUE(domain.run("arm"));
+  EXPECT_FALSE(robot_safety::preparationRevoked(domain, session));
+  domain.halt("arm");
+  EXPECT_TRUE(robot_safety::preparationRevoked(domain, session));
+  ASSERT_TRUE(domain.arm("arm"));
+  ASSERT_TRUE(domain.run("arm"));
+  EXPECT_TRUE(robot_safety::preparationRevoked(domain, session)); // Old session.
+  session.epoch = domain.epoch("arm");
+  domain.globalStop("test emergency");
+  EXPECT_TRUE(robot_safety::preparationRevoked(domain, session));
+}
 class GroupDomain : public ::testing::Test {
 protected:
   int64_t now = 1000;

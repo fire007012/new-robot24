@@ -1,11 +1,24 @@
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument
+from launch.actions import DeclareLaunchArgument, OpaqueFunction
 from launch.substitutions import LaunchConfiguration, Command
 from launch_ros.actions import Node
 from launch.conditions import IfCondition
 from launch_ros.parameter_descriptions import ParameterValue
 from ament_index_python.packages import get_package_share_directory
 from pathlib import Path
+
+
+def spawn_controllers(context):
+    # One spawner loads/configures sequentially. Concurrent spawners can time out
+    # and retry a load that already succeeded while other requests are queued.
+    controllers = ['joint_state_broadcaster', 'arm_position_controller', 'flipper_csp_controller',
+                   'flipper_csv_forward_controller', 'gripper_controller', 'wheel_controller']
+    if LaunchConfiguration('enable_servo').perform(context).lower() == 'true':
+        controllers.append('arm_servo_controller')
+    return [Node(package='controller_manager', executable='spawner',
+                 arguments=controllers + ['--inactive', '--controller-manager-timeout', '60',
+                                          '--service-call-timeout', '30'], output='screen')]
+
 
 def generate_launch_description():
     share = Path(get_package_share_directory('robot_hardware'))
@@ -26,9 +39,5 @@ def generate_launch_description():
              'group_policy': ParameterValue(LaunchConfiguration('group_policy'), value_type=str),
              'simulation': ParameterValue(LaunchConfiguration('mock'), value_type=bool), 'bus_config': str(canopen/'config/bus.yml'), 'baseline':LaunchConfiguration('baseline'),
              'journal':LaunchConfiguration('journal')}], output='screen')]
-    for controller in ['joint_state_broadcaster','arm_position_controller','flipper_csp_controller',
-                       'flipper_csv_forward_controller','gripper_controller','wheel_controller']:
-        actions.append(Node(package='controller_manager', executable='spawner',
-            arguments=[controller,'--inactive','--controller-manager-timeout','60'], output='screen'))
-    actions.append(Node(package='controller_manager',executable='spawner',arguments=['arm_servo_controller','--inactive','--controller-manager-timeout','60'],condition=IfCondition(LaunchConfiguration('enable_servo')),output='screen'))
+    actions.append(OpaqueFunction(function=spawn_controllers))
     return LaunchDescription(actions)

@@ -58,7 +58,10 @@ class Adapter:
                            timeout=self.node.get_parameter('prepare_timeout').value, mutation=True)
         if not result.success: raise RuntimeError(result.message)
     def status(self):
-        result = self.call('/robot_runtime/status', Trigger, Trigger.Request())
+        # Read-only discovery/status failures must not hold the startup monitor
+        # for the 30-second mutation deadline; publish unreadable and retry on
+        # its next tick. Never apply this retry policy to device mutations.
+        result = self.call('/robot_runtime/status', Trigger, Trigger.Request(), timeout=2.0)
         if not result.success: raise RuntimeError(result.message)
         return json.loads(result.message)
     def hardware_state(self, name):
@@ -87,6 +90,8 @@ class Adapter:
                 with self.pending_lock:
                     self.pending.setdefault(group, []).append(future)
                     if resource: self.pending.setdefault(resource, []).append(future)
+            else:
+                future.cancel()
             raise RuntimeError(f'{service}: timeout; outcome unknown')
         result = future.result()
         if result is None: raise RuntimeError(f'{service}: no response')
@@ -109,6 +114,31 @@ class Adapter:
         if not response.ok or response.state.id != request.target_state.id:
             raise RuntimeError(f'{name}: transition to {state} failed; state={response.state.label}')
     def controllers(self, start, stop):
+        # Controller spawners are launched concurrently with the runtime node.
+        # A client can therefore reach init/resume after the runtime service is
+        # ready but before one of the mutually exclusive profile controllers has
+        # finished loading/configuring. A loaded controller is advertised while
+        # still unconfigured; activation must also wait for configure to finish.
+        # Keep the strict switch as the final authority after that startup wait.
+        expected = set(start) | set(stop)
+        if expected:
+            deadline = time.monotonic() + self.timeout
+            while True:
+                try:
+                    response = self.call('/controller_manager/list_controllers',
+                                         ListControllers, ListControllers.Request(),
+                                         timeout=min(2.0, max(0.1, deadline-time.monotonic())))
+                    loaded = {controller.name: controller.state for controller in response.controller}
+                    missing = expected - loaded.keys()
+                    missing |= {name + '(' + loaded[name] + ')' for name in start
+                                if name in loaded and loaded[name] not in ('inactive', 'active')}
+                    if not missing:
+                        break
+                except Exception:
+                    missing = expected
+                if time.monotonic() >= deadline:
+                    raise RuntimeError('controllers not ready: ' + ', '.join(sorted(missing)))
+                time.sleep(.05)
         request = SwitchController.Request(activate_controllers=start, deactivate_controllers=stop,
                                           strictness=SwitchController.Request.STRICT, activate_asap=False)
         request.timeout.sec = 15

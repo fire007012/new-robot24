@@ -14,7 +14,7 @@ git submodule status --recursive
 git status --short
 ```
 
-有本地修改时先查看各子模块 `git status`/`git diff` 并保存，不能用强制 checkout/update 丢弃补丁。此工作区两个驱动子模块仍有配套安全与退出修复，父仓库旧 gitlink 无法代表未提交改动。
+有本地修改时先查看各子模块 `git status`/`git diff` 并保存，不能用强制 checkout/update 丢弃补丁。2026-11-04 的 `can_driver`、`ros2_canopen` 会话修复，以及 `easy_handeye2`、`realsense-ros` 节点迁移修改已整理成本地提交，尚未完成远程推送；匹配版本见 [清单 36](36_ROS2迁移剩余事项清单.md)。后两个模块目前仍指向第三方上游，需将本地提交发布到可写 fork 并更新 `.gitmodules`，才能从远程完整复现本次验证状态。
 
 ## 修改与匹配发布
 
@@ -24,4 +24,4 @@ git status --short
 
 `.github/workflows/ci.yml` 使用 Humble/Ubuntu 22.04，递归检出子模块并执行核心构建与回归，不再使用 Noetic/Catkin 或临时克隆替换驱动。私有子模块可通过仓库 secret `SUBMODULE_TOKEN` 提供读取权限；CI 会将 GitHub SSH 来源映射为 HTTPS，默认 GITHUB_TOKEN 必须拥有相应访问权限。CI 核心检查不代替需 SDK 和显示服务的全量 `tools/validate_ros2.sh ... full`。
 
-当前相机依赖版本和实际设备边界见 [全量实施记录](34_ROS2全量软件集成与验收.md)。
+当前相机依赖版本见 [迁移总计划](25_ROS1迁移ROS2实施计划.md)，设备参数与复核边界见 [参数说明](37_ROS1实机参数迁入ROS2.md)；历史软件验收批次见 [全量实施记录](archive/34_ROS2全量软件集成与验收.md)。

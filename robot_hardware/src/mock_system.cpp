@@ -245,10 +245,7 @@ public:
     if(grouped_) {
      if(!active_||!safety_->permits(sessions_[i].group,sessions_[i].epoch)) {
       physical_[i][1]=0;commands_[i]={NAN,NAN,NAN};
-      const auto state=safety_->group(sessions_[i].group).state;
-      if((state!=robot_safety::Domain::State::Armed&&!sessions_[i].permission_lost)||
-         (sessions_[i].prepared->load()&&(safety_->globallyInhibited()||
-          (state!=robot_safety::Domain::State::Armed&&sessions_[i].prepared_epoch->load()!=safety_->epoch(sessions_[i].group))))) {
+      if(robot_safety::preparationRevoked(*safety_,sessions_[i])) {
        sessions_[i].permission_lost=true;sessions_[i].prepared->store(false);claimed_[i]=false;
       }
       continue;

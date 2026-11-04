@@ -37,13 +37,21 @@ def main():
                [(ListControllers, 'list_controllers'), (ListHardwareComponents, 'list_hardware_components')]]
     deadline = time.monotonic() + node.get_parameter('timeout').value
     pending = [None, None]
+    requested_at = [0.0, 0.0]
+    observed = {}
     result = 1
     try:
         while rclpy.ok() and time.monotonic() < deadline:
             rclpy.spin_once(node, timeout_sec=0.05)
             for i, client in enumerate(clients):
+                # These queries are read-only. A lost startup reply must not
+                # consume the whole readiness deadline without another attempt.
+                if pending[i] is not None and not pending[i].done() and time.monotonic() - requested_at[i] > 2.0:
+                    pending[i].cancel()
+                    pending[i] = None
                 if pending[i] is None and client.service_is_ready():
                     pending[i] = client.call_async(ListControllers.Request() if i == 0 else ListHardwareComponents.Request())
+                    requested_at[i] = time.monotonic()
             if not all(f is not None and f.done() for f in pending):
                 continue
             controllers = pending[0].result().controller
@@ -59,6 +67,9 @@ def main():
             running = running and trajectory.server_is_ready() and all(h.state.id == 3 for h in hardware) and {
                 'joint_state_broadcaster', ('arm_servo_controller' if latest['runtime'].get('arm_profile')=='servo' else 'arm_position_controller'), 'wheel_controller', 'gripper_controller', flipper} <= active
             action_ready = not node.get_parameter('require_moveit').value or project.server_is_ready()
+            observed = {'controllers': {c.name: c.state for c in controllers},
+                        'hardware': {h.name: h.state.label for h in hardware},
+                        'fresh_runtime': fresh, 'running': running, 'action_ready': action_ready}
             if action_ready and required <= known and components == {'RobotCanopenSystem', 'CanDriverSystem'} and fresh:
                 if not node.get_parameter('require_running').value or (running and time.monotonic() - latest['joint'] < 0.2):
                     node.get_logger().info('Ready: ' + json.dumps({'runtime': latest['runtime'].get('state'),
@@ -68,8 +79,12 @@ def main():
                     break
             pending = [None, None]
         if result:
-            node.get_logger().error('Readiness timeout; init/enable/resume remain explicit operations')
+            node.get_logger().error('Readiness timeout; init/enable/resume remain explicit operations: ' +
+                json.dumps({'observed': observed, 'runtime': latest['runtime'].get('state'),
+                            'pending_queries': [f is not None and not f.done() for f in pending]}))
     finally:
+        for future in pending:
+            if future is not None and not future.done(): future.cancel()
         node.destroy_node()
         rclpy.shutdown()
     return result

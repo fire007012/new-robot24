@@ -7,3 +7,5 @@ ros2 launch vision_pkg cameras.launch.py
 ```
 
 从仓库根目录使用 `bash tools/build_ros2.sh /tmp/robot24-ros2 full` 构建并 source 安装环境。组件示例须配合整车运行入口，运动需要显式许可。当前架构、完整参数与验证边界见 [根 README](../README.md) 和 [文档索引](../docs/README.md)。历史 ROS1 内容位于 `reference/ros1/`；持续回归源码保留。
+
+相机默认序列号与 D405 流参数已按 ROS1 实机配置继承；双相机启动使用 `ros2 launch vision_pkg cameras.launch.py enable_paw:=true`。参数来源、覆盖方式与 ROS2 实机复核边界见 [参数迁移记录](../docs/37_ROS1实机参数迁入ROS2.md)。

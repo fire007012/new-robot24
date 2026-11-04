@@ -52,12 +52,12 @@ ros2 launch robot_simulation full_system_simulate.launch.py gui:=false
 # ros2 launch robot_bringup full_system.launch.py baseline:=/实际路径/commissioning.yaml
 ```
 
-三个入口择一运行。整车入口默认启用 `robot_safety/config/group_policy_v1.yaml`，启动后硬件与运动控制器不会自动进入运行。mock 示例的显式操作见 [主控制链说明](docs/33_ROS2主控制链与MoveIt2实施记录.md)；实机操作见 [现场验收](docs/28_CANopen软件交付与实机验收.md) 和 [分组操作](docs/31_分组隔离与局部恢复实施验收.md)。`init → enable (Armed) → resume (Running)` 建立新会话；故障恢复后也需要显式放行并发送新目标。
+三个入口择一运行。整车入口默认启用 `robot_safety/config/group_policy_v1.yaml`，启动后硬件与运动控制器不会自动进入运行。mock 示例的显式操作见 [主控制链说明](docs/archive/33_ROS2主控制链与MoveIt2实施记录.md)；实机操作见 [现场验收](docs/28_CANopen软件交付与实机验收.md) 和 [分组操作](docs/31_分组隔离与局部恢复实施验收.md)。`init → enable (Armed) → resume (Running)` 建立新会话；故障恢复后也需要显式放行并发送新目标。
 
 六轴规划统一经 `arm_control/ExecuteArmGoal` 发往同一个 JTC；MoveIt 的 `move_group` 仅提供规划，JTC 与 Servo 互斥。模型 TF 使用过滤后的 `/robot_model/joint_states`，安全与就绪检查仍消费原始测量。
 
 ## 当前完成范围
 
-37 包全量构建、11 包的 41 个 CTest 入口，以及控制、MoveIt、Servo/UI、合成视觉、上位机/视频控制、模拟 CO₂、合成 TF 标定、Fortress 集成已通过软件验收，见 [记录 34](docs/34_ROS2全量软件集成与验收.md)。本次目录整理的复测结果与连续回归限制见 [整理说明 35](docs/35_ROS2工作区整理说明.md)。实机 CAN 时序/制动/参数、真实相机与 marker、YOLO 权重、真实 RTSP 拉流及外围设备尚待验收；标定自动采样配置保持 `commissioned: false`。
+2026-11-04 当前工作树的 37 包全量构建、11 包的 43 个 CTest 入口，以及控制、MoveIt、Servo/UI、合成视觉、上位机/视频控制、模拟 CO₂、合成 TF 标定、自动采样流程、Fortress 集成和只读启动检查已通过脱机验证，结果、修复及运行方法见 [清单 36](docs/36_ROS2迁移剩余事项清单.md)。历史验收批次见 [记录 34](docs/archive/34_ROS2全量软件集成与验收.md) 和 [整理说明 35](docs/archive/35_ROS2工作区整理说明.md)。实机 CAN 时序/制动/参数、真实相机与 marker、YOLO 权重、完整 RTSP 发布/拉流及外围设备尚待验收；标定自动采样配置保持 `commissioned: false`。
 
 [文档索引](docs/README.md) · [系统架构](docs/06_项目架构图与数据流向图.md) · [实施计划与待办](docs/25_ROS1迁移ROS2实施计划.md)
