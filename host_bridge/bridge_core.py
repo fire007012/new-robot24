@@ -111,7 +111,9 @@ class BridgeCore:
             last_flipper=self.zero_flipper_command("startup"),
             flipper_profile_target=flipper_target_profile,
         )
+        self.robot_id = "loopback_robot"
         self.state_lock = threading.Lock()
+        self.last_valid_input_monotonic = 0.0
         self.operator_input_clock_offset_ms: Optional[int] = None
 
     @staticmethod
@@ -152,12 +154,14 @@ class BridgeCore:
             "timestamp_ms": now_ms(),
             "bridge_name": "host_bridge_node",
             "bridge_version": "loopback-mvp",
-            "robot_id": "loopback_robot",
+            "robot_id": self.robot_id,
         }
 
     def make_capabilities(self) -> Dict[str, Any]:
         arm_named_targets_supported = bool(self.output.supports_arm_named_targets())
         supports = [
+            "control_v2",
+            "legacy_readonly",
             "operator_input",
             "heartbeat_ack",
             "critical_ack",
@@ -168,6 +172,9 @@ class BridgeCore:
             "camera_stream_request",
             "emergency_state",
             "watchdog",
+            "monotonic_watchdog",
+            "connection_control_owner",
+            "readonly_monitor",
             "keyboard_base_arm_mapping",
             "arm_servo_output",
             "gripper_velocity_output",
@@ -189,6 +196,9 @@ class BridgeCore:
             "timestamp_ms": now_ms(),
             "supports": supports,
             "arm_named_targets_supported": arm_named_targets_supported,
+            "control_protocol_version": 2,
+            "control_capabilities": __import__("control_v2").CAPABILITIES,
+            "legacy_control_allowed": False,
             "max_frame_bytes": MAX_FRAME_BYTES,
             "watchdog_ms": self.watchdog_ms,
             "gamepad_deadzone_percent": self.gamepad_deadzone * 100.0,
@@ -406,6 +416,7 @@ class BridgeCore:
         with self.state_lock:
             self.state.last_operator_seq = 0
             self.state.last_valid_input_ms = 0
+            self.last_valid_input_monotonic = 0.0
             self.state.watchdog_active = False
             self.state.last_pressed_keys = []
             self.state.last_gamepad_buttons = []
@@ -813,6 +824,7 @@ class BridgeCore:
 
         with self.state_lock:
             self.state.last_valid_input_ms = current_ms
+            self.last_valid_input_monotonic = time.monotonic()
             mode = self.state.control_mode
             speed_level = self.state.speed_level
             pressed_snapshot = list(self.state.last_pressed_keys)
@@ -1319,10 +1331,10 @@ class BridgeCore:
         emit_status = False
         with self.state_lock:
             if (
-                self.state.last_valid_input_ms > 0
+                self.last_valid_input_monotonic > 0
                 and not self.state.emergency_active
                 and not self.state.watchdog_active
-                and now_ms() - self.state.last_valid_input_ms > self.watchdog_ms
+                and (time.monotonic() - self.last_valid_input_monotonic) * 1000 > self.watchdog_ms
             ):
                 self.state.watchdog_active = True
                 emit_status = True

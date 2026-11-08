@@ -62,6 +62,25 @@ class ControllerStartupTests(unittest.TestCase):
         future.set_result(SimpleNamespace(ok=True))
         adapter.ensure_settled('base')
 
+    def test_lost_controller_read_does_not_stall_monitor_for_mutation_budget(self):
+        adapter = Adapter(Mock())
+        lost, fresh = Future(), Future()
+        fresh.set_result(listed(wheel_controller='active'))
+        adapter.node.create_client.return_value.call_async.side_effect = [lost, fresh]
+        now = [0.0]
+        def tick():
+            now[0] += .1
+            return now[0]
+        with patch('robot_hardware_runtime.node.time.monotonic', side_effect=tick), \
+                patch('robot_hardware_runtime.node.threading.Event.wait'), \
+                patch('robot_hardware_runtime.node.rclpy.ok', return_value=True):
+            with self.assertRaisesRegex(RuntimeError, 'timeout'):
+                adapter.active_controllers()
+            self.assertLess(now[0], 3.0)
+            self.assertTrue(lost.cancelled())
+            self.assertEqual(adapter.pending, {})
+            self.assertEqual(adapter.active_controllers(), ['wheel_controller'])
+
 
 if __name__ == '__main__':
     unittest.main()

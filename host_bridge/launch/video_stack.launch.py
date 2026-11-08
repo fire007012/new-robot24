@@ -14,7 +14,9 @@ def generate_launch_description():
     value = LaunchConfiguration
     return LaunchDescription([
         DeclareLaunchArgument('video_config', description='Absolute path to commissioned video sources YAML'),
+        DeclareLaunchArgument('robot_id', default_value='robot24'),
         DeclareLaunchArgument('host', default_value='0.0.0.0'),
+        DeclareLaunchArgument('control_state_dir', default_value='/tmp/robot24-control-9090'),
         DeclareLaunchArgument('port', default_value='9090'),
         DeclareLaunchArgument('manager_host', default_value='127.0.0.1'),
         DeclareLaunchArgument('manager_port', default_value='18081'),
@@ -36,7 +38,7 @@ def generate_launch_description():
              arguments=[value('video_config')],
              condition=IfCondition(value('start_ros_image_rtsp')), output='screen'),
         ExecuteProcess(cmd=['python3', str(executable_dir / 'host_bridge_node.py'),
-                            '--ros', '--host', value('host'), '--port', value('port'),
+                            '--ros', '--control-state-dir', value('control_state_dir'), '--robot-id', value('robot_id'), '--host', value('host'), '--port', value('port'),
                             '--no-camera-config', '--video-manager',
                             '--video-manager-host', value('manager_host'),
                             '--video-manager-port', value('manager_port')], output='screen'),

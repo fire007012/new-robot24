@@ -1,0 +1,12 @@
+{
+  "profile_id": "mock",
+  "config_revision": "1",
+  "mode": "mock",
+  "build_version": "robot24-release-1",
+  "video": false,
+  "video_required": false,
+  "required_modules": ["core", "bridge"],
+  "optional_modules": [],
+  "devices": [],
+  "startup_timeout": 90
+}

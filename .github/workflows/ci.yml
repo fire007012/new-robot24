@@ -20,6 +20,6 @@ jobs:
         shell: bash
         run: bash tools/install_ros2_dependencies.sh
 
-      - name: Build and validate core
+      - name: Build and validate core with bridge and management unit suites
         shell: bash
         run: bash tools/validate_ros2.sh /tmp/robot24-ci core

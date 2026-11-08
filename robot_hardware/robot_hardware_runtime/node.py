@@ -65,7 +65,7 @@ class Adapter:
         if not result.success: raise RuntimeError(result.message)
         return json.loads(result.message)
     def hardware_state(self, name):
-        result = self.call('/controller_manager/list_hardware_components', ListHardwareComponents, ListHardwareComponents.Request())
+        result = self.call('/controller_manager/list_hardware_components', ListHardwareComponents, ListHardwareComponents.Request(), timeout=2.0)
         return next(c.state.label for c in result.component if c.name == name)
     def call(self, service, kind, request, timeout=None, resource=None, mutation=False):
         with self.client_lock:
@@ -145,10 +145,10 @@ class Adapter:
         if not self.call('/controller_manager/switch_controller', SwitchController, request, mutation=True).ok:
             raise RuntimeError('controller switch failed')
     def active_controllers(self):
-        response = self.call('/controller_manager/list_controllers', ListControllers, ListControllers.Request())
+        response = self.call('/controller_manager/list_controllers', ListControllers, ListControllers.Request(), timeout=2.0)
         return [c.name for c in response.controller if c.state == 'active' and c.name != 'joint_state_broadcaster']
     def active_resources(self):
-        response = self.call('/controller_manager/list_controllers', ListControllers, ListControllers.Request())
+        response = self.call('/controller_manager/list_controllers', ListControllers, ListControllers.Request(), timeout=2.0)
         return {c.name: set(c.claimed_interfaces) for c in response.controller if c.state == 'active'}
     def running(self, value):
         response = self.call('/robot_runtime/set_running', SetBool, SetBool.Request(data=value))
@@ -201,6 +201,8 @@ class RuntimeNode(Node):
         self.csv_pub = self.create_publisher(Float64MultiArray, '/flipper_csv_forward_controller/command', 1)
         self.csp_pub = self.create_publisher(JointTrajectory, '/flipper_csp_controller/joint_trajectory', 1)
         self.joint_sub = self.create_subscription(JointState, '/joint_states', self.joint_state, 1)
+        self.retired_subscription_errors = 0
+        self.last_subscription_retirement = 0.0
         self.jog_sub = self.trajectory_sub = None
         self.sync_flipper_session()
         self.flipper_timer = self.create_timer(0.02, self.flipper_step)
@@ -328,8 +330,14 @@ class RuntimeNode(Node):
                  self.coordinator.generation('flippers'))
         if state != self.last_profile:
             self.reference.reset(); self.jog_active = False; self.last_profile = state
-            if self.jog_sub is not None: self.destroy_subscription(self.jog_sub)
-            if self.trajectory_sub is not None: self.destroy_subscription(self.trajectory_sub)
+            for subscription in (self.jog_sub, self.trajectory_sub):
+                if subscription is not None:
+                    # Humble may already have scheduled a take for this handle.
+                    # Its InvalidHandle is consumed at the spin boundary below;
+                    # the retired callback retains its old session fence.
+                    self.retired_subscription_errors = min(8, self.retired_subscription_errors + 1)
+                    self.last_subscription_retirement = time.monotonic()
+                    self.destroy_subscription(subscription)
             # Fence callbacks already queued by the retired subscriptions, too.
             self.jog_sub = self.create_subscription(JointJog, '/flipper_control/jog_cmd',
                 lambda message, session=state: self.jog(message, session), 1)
@@ -394,6 +402,7 @@ class RuntimeNode(Node):
                 if self.coordinator.owner_checked: self.coordinator.converge()
                 self.coordinator.diagnostics = {'readable': False, 'error': str(error)}
             self.publisher.publish(String(data=json.dumps({'state': self.coordinator.state,
+                'input_epochs': dict(self.coordinator.generations),
                 'groups': dict(self.coordinator.states), 'diagnostics': self.coordinator.diagnostics,
                 'operations': dict(self.coordinator.operations), 'profile': self.coordinator.profile, 'arm_profile': self.coordinator.arm_profile,
                 'maintenance_dirty_axes': sorted(self.policy.dirty_axes)})))
@@ -411,12 +420,28 @@ class RuntimeNode(Node):
                 'profile': self.coordinator.profile, 'maintenance_dirty': self.policy.dirty})))
         finally: self.coordinator.lock.release()
 
+def spin_runtime(executor, node):
+    from rclpy._rclpy_pybind11 import InvalidHandle
+    while rclpy.ok():
+        try:
+            executor.spin()
+            return
+        except InvalidHandle:
+            # A take queued before intentional subscription retirement can fail
+            # outside its callback. Rebuild the wait set on the next spin.
+            # All unrelated handle failures still propagate and fail closed.
+            if (not rclpy.ok() or node.retired_subscription_errors <= 0 or
+                    time.monotonic() - node.last_subscription_retirement > 1.0):
+                raise
+            node.retired_subscription_errors -= 1
+
+
 def main():
     rclpy.init()
     node = RuntimeNode()
     executor = MultiThreadedExecutor(num_threads=8)
     executor.add_node(node)
-    try: executor.spin()
+    try: spin_runtime(executor, node)
     except KeyboardInterrupt: pass
     except Exception:
         if rclpy.ok(): raise

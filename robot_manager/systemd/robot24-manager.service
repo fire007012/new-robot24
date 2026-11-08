@@ -1,0 +1,28 @@
+[Unit]
+Description=Robot24 independent management API
+After=network.target
+
+[Service]
+Type=simple
+User=robot24
+Group=robot24
+ExecStart=/usr/bin/python3 /opt/robot24/manager/manager.py --config /etc/robot24/manager.json
+Restart=on-failure
+RestartSec=2
+# Preserve separately identified launch groups on daemon failure for reconciliation.
+# Controlled robot stop MUST precede stopping this service or upgrading the release.
+KillMode=process
+StateDirectory=robot24-manager
+UMask=0077
+Environment=ROS_LOG_DIR=/var/lib/robot24-manager/ros-logs
+Environment=ROS_HOME=/var/lib/robot24-manager/ros-home
+Environment=XDG_CACHE_HOME=/var/lib/robot24-manager/cache
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/robot24-manager
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

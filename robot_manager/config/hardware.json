@@ -1,0 +1,13 @@
+{
+  "profile_id": "hardware",
+  "config_revision": "1",
+  "mode": "hardware",
+  "build_version": "robot24-release-1",
+  "video": false,
+  "video_required": false,
+  "required_modules": ["core", "bridge"],
+  "optional_modules": [],
+  "baseline": "/etc/robot24/profiles/commissioning.yaml",
+  "devices": ["canable0", "canable1"],
+  "startup_timeout": 90
+}

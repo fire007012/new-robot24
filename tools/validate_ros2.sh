@@ -8,6 +8,8 @@ bash "$robot_source_root/tools/build_ros2.sh" "$robot_prefix" "$robot_mode"
 source "${robot_prefix}-install/setup.bash"
 export ROS_LOCALHOST_ONLY=1
 export ROS_LOG_DIR="${robot_prefix}-roslogs"
+export PYTHONDONTWRITEBYTECODE=1
+bash "$robot_source_root/tools/validate_management.sh" "$robot_prefix" "$robot_mode"
 python3 "$robot_source_root/robot_hardware/scripts/audit_config.py" "${robot_prefix}-install"
 for robot_package in robot_safety can_driver canopen_core canopen_base_driver canopen_proxy_driver canopen_402_driver canopen_master_driver canopen_ros2_control robot_canopen_config robot_hardware arm_control; do
   ctest --test-dir "${robot_prefix}-build/$robot_package" --output-on-failure --timeout 60

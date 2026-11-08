@@ -1,0 +1,18 @@
+{
+  "enable_config_transactions": false,
+  "robot_id": "robot24",
+  "config_root": "/etc/robot24/profiles",
+  "state_dir": "/var/lib/robot24-manager",
+  "token_file": "/etc/robot24/manager.token",
+  "setup": "/opt/robot24/install/setup.bash",
+  "build_version": "robot24-release-1",
+  "bind": "127.0.0.1",
+  "port": 9091,
+  "control_endpoint": {
+    "host": "127.0.0.1",
+    "port": 9090,
+    "protocol_version": 2
+  },
+  "build_manifest": "/opt/robot24/release.json",
+  "bridge_bind": "127.0.0.1"
+}

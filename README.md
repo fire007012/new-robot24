@@ -18,6 +18,7 @@ ROS1 代码已集中到 [reference/ros1](reference/ros1/README.md)，仅供参�
 | realsense-ros / OrbbecSDK_ROS2 | ROS2 相机驱动子模块；后者为支持 Astra+ 的 SDK v1 分支 |
 | eye_in_hand / aruco_ros / easy_handeye2 | 手眼采样与启动 / marker 检测 / 求解、保存和外参发布 |
 | host_bridge | TCP/JSON 上位机协议、视频管理、ROS2 图像转 RTSP |
+| robot_manager | 独立 TCP/JSON 一键启动管理服务、档案、持久操作与 systemd 部署 |
 | senseair_co2 / thermal_camera | CO₂ 与热成像外围接口 |
 | tools / docs / reference | 依赖与回归工具 / 当前架构和现场操作 / 历史参考 |
 
@@ -41,7 +42,7 @@ source /tmp/robot24-ros2-install/setup.bash
 bash tools/validate_ros2.sh /tmp/robot24-ros2 full
 ```
 
-构建、安装、CTest 和 ROS 日志均写入指定的 `/tmp` 前缀。集成测试需要本机回环 DDS/TCP；Fortress 软件渲染需要 X display。`test/`、`tests/` 和 `tools/test/` 是持续回归源码，应保留；完成批次的日志、截图、evidence 和缓存不放在源码树。
+构建、安装、CTest 和 ROS 日志均写入指定的 `/tmp` 前缀。`core` 和 `full` 均包含桥接/管理单元测试；`full` 还验证控制 ROS mock、配置事务和管理异常恢复。集成测试需要本机回环 DDS/TCP/UDP；Fortress 软件渲染需要 X display。`test/`、`tests/` 和 `tools/test/` 是持续回归源码，应保留；完成批次的日志、截图、evidence 和缓存不放在源码树。
 
 ## 启动
 
@@ -54,6 +55,8 @@ ros2 launch robot_simulation full_system_simulate.launch.py gui:=false
 # ros2 launch robot_bringup full_system.launch.py baseline:=/实际路径/commissioning.yaml
 ```
 
+一键启动管理服务及部署见 [robot_manager](robot_manager/README.md) 和 [管理协议归档 39](docs/archive/qt/39_下位机管理协议与Qt对接.md)，不自动初始化或放行运动。
+
 三个入口择一运行。整车入口默认启用 `robot_safety/config/group_policy_v1.yaml`，启动后硬件与运动控制器不会自动进入运行。mock 示例的显式操作见 [当前运行说明](docs/36_ROS2迁移剩余事项清单.md)；实机操作见 [现场验收](docs/28_CANopen软件交付与实机验收.md) 和 [分组操作](docs/31_分组隔离与局部恢复实施验收.md)。`init → enable (Armed) → resume (Running)` 建立新会话；故障恢复后也需要显式放行并发送新目标。
 
 `full_system.launch.py` 默认启动主控制与 MoveIt，`enable_servo` 默认为 false，`ui` 默认为 none；相机、视觉、上位机桥、CO₂ 和热成像也默认关闭，需分别启用 `enable_cameras/enable_vision/enable_host/enable_co2/enable_thermal`。从整车入口启用 D405 时还须指定 `enable_paw:=true paw_serial:=实际序列号`；该入口的 `paw_serial` 默认为空。相机独立入口及历史参数来源见 [参数说明 37](docs/37_ROS1实机参数迁入ROS2.md)。手眼标定使用 `eye_in_hand` 的独立启动入口。
@@ -65,3 +68,5 @@ ros2 launch robot_simulation full_system_simulate.launch.py gui:=false
 2026-11-08 恢复第三方上游依赖后的整车 `full` 连续回归已通过：37 包构建、11 包的 43 个 CTest 入口，以及控制、MoveIt、Servo/UI、合成视觉/H265、上位机/视频控制、模拟 CO₂、自动采样、原生标定和 Fortress 全部通过。匹配版本、持久证据和运行方法见 [清单 36](docs/36_ROS2迁移剩余事项清单.md)。无实机现场准备已完成，生成工具为 `tools/prepare_commissioning.py`；真实 CAN、关联条件、相机/marker、YOLO 权重、完整 RTSP 及外围仍待验收。设备和自动采样配置保持 `commissioned: false`。
 
 [文档索引](docs/README.md) · [系统架构](docs/06_项目架构图与数据流向图.md) · [实施计划与待办](docs/25_ROS1迁移ROS2实施计划.md)
+
+Qt 对接阶段的协议与交付记录见 [专题归档](docs/archive/qt/README.md)。控制 v2 及管理配置事务已完成最终整车 full、47 项新增单元测试及持久证据归档，见 [记录 43](docs/archive/43_ROS2软件验证闭环记录.md)；旧 Qt 仅能只读监控，运动控制需按新契约适配。

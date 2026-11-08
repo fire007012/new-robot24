@@ -2,10 +2,13 @@
 from pathlib import Path
 from types import SimpleNamespace
 import unittest
+import time
+from unittest.mock import Mock, patch
+from rclpy._rclpy_pybind11 import InvalidHandle
 import yaml
 from control_msgs.msg import JointJog
 from robot_hardware_runtime.flipper import Reference, NAMES
-from robot_hardware_runtime.node import RuntimeNode
+from robot_hardware_runtime.node import RuntimeNode, spin_runtime
 
 
 class FlipperInputSession(unittest.TestCase):
@@ -15,7 +18,8 @@ class FlipperInputSession(unittest.TestCase):
             generation=lambda _: session['generation'], group_state=lambda _: session['state'])
         limits = yaml.safe_load((Path(__file__).parents[1]/'config/joint_limits.yaml').read_text())
         node = SimpleNamespace(coordinator=coordinator, reference=Reference(limits),
-            last_profile=None, jog_active=False, jog_sub=None, trajectory_sub=None)
+            last_profile=None, jog_active=False, jog_sub=None, trajectory_sub=None,
+            retired_subscription_errors=0, last_subscription_retirement=0.0)
         node.create_subscription = lambda kind, topic, callback, depth: callback
         node.destroy_subscription = lambda subscription: True
         node.sync_flipper_session = lambda: RuntimeNode.sync_flipper_session(node)
@@ -33,6 +37,22 @@ class FlipperInputSession(unittest.TestCase):
         self.assertIsNot(node.jog_sub, queued)
         node.jog_sub(message)
         self.assertTrue(node.jog_active)
+
+    def test_destroyed_take_only_recovers_during_retirement(self):
+        node = SimpleNamespace(retired_subscription_errors=1, last_subscription_retirement=time.monotonic())
+        executor = Mock()
+        executor.spin.side_effect = [InvalidHandle('retired take'), None]
+        with patch('robot_hardware_runtime.node.rclpy.ok', return_value=True):
+            spin_runtime(executor, node)
+        self.assertEqual(executor.spin.call_count, 2)
+        self.assertEqual(node.retired_subscription_errors, 0)
+        executor.spin.side_effect = InvalidHandle('unrelated destruction')
+        with patch('robot_hardware_runtime.node.rclpy.ok', return_value=True):
+            with self.assertRaises(InvalidHandle): spin_runtime(executor, node)
+        node.retired_subscription_errors = 1
+        node.last_subscription_retirement = time.monotonic() - 5
+        with patch('robot_hardware_runtime.node.rclpy.ok', return_value=True):
+            with self.assertRaises(InvalidHandle): spin_runtime(executor, node)
 
 
 if __name__ == '__main__': unittest.main()

@@ -1,0 +1,10 @@
+/var/lib/robot24-manager/*.process.log {
+    daily
+    maxsize 10M
+    rotate 7
+    missingok
+    notifempty
+    compress
+    copytruncate
+    su robot24 robot24
+}

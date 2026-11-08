@@ -1,3 +1,5 @@
+import threading
+import time
 import sys
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -52,6 +54,8 @@ VISION_MONITOR_COMMANDS = {
 class OutputAdapter:
     def __init__(self, events: Optional[EventSink] = None) -> None:
         self.events = events or NullEventSink()
+        self.operation_context = threading.local()
+        self.late_operation_result = None
 
     def publish_twist(self, twist: TwistCommand) -> None:
         raise NotImplementedError
@@ -225,13 +229,18 @@ class RosOutput(OutputAdapter):
         self.flipper_profile_service=flipper_profile_service;self.hybrid_service_ns='/robot_runtime'
         self.service_commands=service_commands or {};self.vision_detection_service=vision_detection_service
         self.clients={};self.client_lock=threading.Lock();self.runtime_reset_callback=None;self.epoch=None
+        self.runtime_state=None;self.runtime_received=None
         self._arm_type=ExecuteArmGoal;self.arm=ActionClient(self.node,ExecuteArmGoal,'/arm_control/execute_goal')
         self.node.create_subscription(String,'/robot_runtime/state',self.state,1)
 
     def state(self,message):
         import json
         try:
-            state=json.loads(message.data);epoch=json.dumps([state.get('groups',{}),state.get('operations',{})],sort_keys=True)
+            state=json.loads(message.data)
+            if not isinstance(state,dict):
+                self.runtime_state=None;return
+            epoch=json.dumps([state.get('groups',{}),state.get('input_epochs',{})],sort_keys=True)
+            self.runtime_state=state;self.runtime_received=time.monotonic()
             if epoch!=self.epoch and self.runtime_reset_callback:self.runtime_reset_callback('runtime_epoch')
             self.epoch=epoch
         except ValueError:pass
@@ -244,7 +253,16 @@ class RosOutput(OutputAdapter):
     def wait(self,future,seconds=30):
         import threading
         done=threading.Event();future.add_done_callback(lambda _:done.set())
-        if not done.wait(seconds):raise TimeoutError('ROS2 request timeout; outcome uncertain')
+        if not done.wait(seconds):
+            oid=getattr(self.operation_context,'operation_id',None)
+            observer=self.late_operation_result
+            if oid and observer:
+                def completed(f):
+                    try:response,error=f.result(),None
+                    except Exception as exc:response,error=None,type(exc).__name__
+                    observer(oid,response,error)
+                future.add_done_callback(completed)
+            raise TimeoutError('ROS2 request timeout; outcome uncertain')
         return future.result()
 
     def request(self,kind,path,request,seconds=30):

@@ -2,6 +2,8 @@
 import argparse
 import json
 import os
+import queue
+import time
 import signal
 import socket
 import sys
@@ -12,6 +14,7 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 if SCRIPT_DIR not in sys.path:
     sys.path.insert(0, SCRIPT_DIR)
 
+from control_v2 import ControlV2, CAPABILITIES, BUILD
 from bridge_core import BridgeCore, BridgeRuntime
 from bridge_protocol import DEFAULT_WATCHDOG_MS, MAX_FRAME_BYTES, PROTOCOL_VERSION, now_ms
 from bridge_protocol import json_line
@@ -277,11 +280,12 @@ class HostBridgeServer:
         joint_runtime_topic: str = "",
         co2_topic: str = "",
         events: Optional[EventSink] = None,
+        control_state_dir: Optional[str] = None,
     ) -> None:
         self.host = host
         self.port = port
         self.stop_event = threading.Event()
-        self.client_lock = threading.Lock()
+        self.client_lock = threading.RLock()
         self.active_clients: List["BridgeClient"] = []
         self.events = events or RingBufferEventSink()
         self.video_gateway = video_gateway
@@ -318,12 +322,13 @@ class HostBridgeServer:
             self.events,
         )
         self.runtime = BridgeRuntime(self.core, self.broadcast)
+        self.control = ControlV2(self.core, state_dir=control_state_dir)
 
     def serve_forever(self) -> None:
         self.start_video_manager()
         self.start_joint_runtime_forwarder()
         self.start_co2_forwarder()
-        self.runtime.start_watchdog()
+        threading.Thread(target=self._control_loop, daemon=True).start()
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server:
                 server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -339,12 +344,24 @@ class HostBridgeServer:
                         continue
                     except OSError:
                         break
+                    with self.client_lock:
+                        if len(self.active_clients) >= 16:
+                            conn.close()
+                            continue
                     client = BridgeClient(self, conn, addr)
                     with self.client_lock:
                         self.active_clients.append(client)
                     threading.Thread(target=client.run, daemon=True).start()
         finally:
+            self.control.close()
+            with self.client_lock:
+                for client in self.active_clients:
+                    client.close()
             self.stop_video_manager()
+
+    def _control_loop(self):
+        while not self.stop_event.wait(.01):
+            self.control.tick()
 
     def start_video_manager(self) -> None:
         if not self.video_gateway:
@@ -406,7 +423,7 @@ class HostBridgeServer:
         with self.client_lock:
             if client in self.active_clients:
                 self.active_clients.remove(client)
-        self.core.publish_zero("client_disconnected")
+        self.control.disconnect(client)
 
     def broadcast(self, payload: Dict[str, Any]) -> None:
         with self.client_lock:
@@ -420,36 +437,63 @@ class BridgeClient:
         self.server = server
         self.conn = conn
         self.addr = addr
-        self.send_lock = threading.Lock()
+        self.outbox = queue.Queue(32)
+        self.connected_at = time.monotonic()
         self.closed = False
+        self.writer = None
 
     def run(self) -> None:
         print(f"[bridge] client connected: {self.addr}", flush=True)
         self.server.events.emit("tcp", "client connected", data={"addr": f"{self.addr[0]}:{self.addr[1]}"})
-        self.server.core.reset_operator_input_session("client_connected")
         self.conn.settimeout(1.0)
         try:
-            self.send_json(self.server.core.make_hello())
+            self.writer = threading.Thread(target=self._write_loop, daemon=True)
+            self.writer.start()
+            hello = dict(self.server.core.make_hello(), control_protocol_version=2, build_version=BUILD)
+            self.send_json(hello)
             self.send_json(self.server.core.make_capabilities())
             self._recv_loop()
         finally:
-            self.closed = True
-            try:
-                self.conn.close()
-            except OSError:
-                pass
+            self.close()
+            if self.writer:
+                self.writer.join(1.2)
             self.server.remove_client(self)
             self.server.events.emit("tcp", "client disconnected", data={"addr": f"{self.addr[0]}:{self.addr[1]}"})
             print(f"[bridge] client disconnected: {self.addr}", flush=True)
 
+    def close(self):
+        self.closed = True
+        try:
+            self.conn.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass
+        self.conn.close()
+
     def send_json(self, payload: Dict[str, Any]) -> None:
         if self.closed:
             return
+        data = json_line(payload)
+        if len(data) > MAX_FRAME_BYTES:
+            self.close()
+            return
         try:
-            with self.send_lock:
-                self.conn.sendall(json_line(payload))
-        except OSError:
-            self.closed = True
+            self.outbox.put_nowait((time.monotonic(), data))
+        except queue.Full:
+            self.close()
+
+    def _write_loop(self):
+        while not self.closed and not self.server.stop_event.is_set():
+            try:
+                queued, data = self.outbox.get(timeout=.1)
+            except queue.Empty:
+                continue
+            try:
+                if time.monotonic()-queued > 1:
+                    self.close()
+                    break
+                self.conn.sendall(data)
+            except OSError:
+                self.close()
 
     def _recv_loop(self) -> None:
         buffer = b""
@@ -474,7 +518,8 @@ class BridgeClient:
                 line, buffer = buffer.split(b"\n", 1)
                 if not line.strip():
                     continue
-                if len(line) > MAX_FRAME_BYTES:
+                # MAX_FRAME_BYTES includes the terminating newline on the wire.
+                if len(line) + 1 > MAX_FRAME_BYTES:
                     self.server.events.emit("protocol", "line exceeds max length", level="error")
                     self.send_json(self.server.core.make_protocol_error({}, 2001, "TCP frame exceeds max length"))
                     return
@@ -487,8 +532,29 @@ class BridgeClient:
                     self.send_json(self.server.core.make_protocol_error({}, 2100, f"invalid JSON: {exc}"))
                     continue
 
-                for response in self.server.core.handle_message(msg):
-                    self.send_json(response)
+                kind = msg.get('type')
+                if kind == 'control_hello' and time.monotonic()-self.connected_at > 3:
+                    self.send_json(dict(type='control_result', protocol_version=2, ok=False, error=dict(code='NEGOTIATION_TIMEOUT')))
+                    continue
+                if (msg.get('protocol_version', 1) == 2 and kind != 'control_hello'
+                        and self not in self.server.control.sessions
+                        and time.monotonic()-self.connected_at > 3):
+                    self.send_json(dict(type='control_result', protocol_version=2,
+                                        request_id=msg.get('request_id'), seq=msg.get('seq'),
+                                        ok=False, error=dict(code='NEGOTIATION_TIMEOUT')))
+                    continue
+                # Legacy probes remain independent from the versioned control admission.
+                if msg.get('protocol_version', 1) == 1 and kind in {'heartbeat','sync_request','system_snapshot_request','camera_list_request'}:
+                    try:
+                        for response in self.server.core.handle_message(msg):
+                            self.send_json(response)
+                    except (ValueError, TypeError):
+                        self.send_json(self.server.core.make_protocol_error({}, 2100, 'invalid fields'))
+                    continue
+                try:
+                    self.send_json(self.server.control.handle(self, msg))
+                except (ValueError, TypeError, KeyError):
+                    self.send_json(dict(type='control_result', protocol_version=2, ok=False, error=dict(code='BAD_REQUEST')))
 
 
 def parse_camera(value: str) -> Dict[str, Any]:
@@ -557,6 +623,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="ROS2 host bridge TCP/JSON node")
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=9090)
+    parser.add_argument("--control-state-dir", default=None, help="private persistent control operation journal directory")
     parser.add_argument(
         "--bridge-control-config",
         default=DEFAULT_BRIDGE_CONFIG,
@@ -702,6 +769,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
 def parse_node_args() -> Tuple[argparse.ArgumentParser, argparse.Namespace]:
     parser = build_arg_parser()
     from rclpy.utilities import remove_ros_args
+    parser.add_argument("--robot-id", default="loopback_robot")
     args = parser.parse_args(remove_ros_args(args=sys.argv)[1:])
     return parser, args
 
@@ -879,8 +947,10 @@ def main() -> None:
         joint_runtime_topic=args.joint_runtime_topic if not args.dry_run else "",
         co2_topic=co2_topic if not args.dry_run else "",
         events=events,
+        control_state_dir=args.control_state_dir or f"/tmp/robot24-control-{args.port}",
     )
-    if isinstance(output, RosOutput):output.runtime_reset_callback=server.core.reset_operator_input_session
+    server.core.robot_id = args.robot_id
+    if isinstance(output, RosOutput):output.runtime_reset_callback=server.control.runtime_changed
     if args.debug_ui:
         DebugHttpServer(args.debug_host, args.debug_port, server.core, buffer_events).start()
 
