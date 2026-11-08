@@ -1,10 +1,10 @@
-# ROS1 实机参数迁入 ROS2（首版）
+# ROS1 实机参数迁入 ROS2
 
-日期：2026-10-30。根据设备使用者确认，ROS1 历史参数已有实机验证。本次将含义明确的设备参数和控制器约束迁入当前 ROS2；历史参数验证不代替当前 ROS2 驱动、SDK 和控制链的实机验收。
+参数迁移日期：2026-10-30；说明对齐：2026-11-08。根据设备使用者确认，ROS1 历史参数已有实机验证。本次将含义明确的设备参数和控制器约束迁入当前 ROS2；历史参数验证不代替当前 ROS2 驱动、SDK 和控制链的实机验收。
 
 ## 版本与来源
 
-保持 ROS2 Humble、RealSense ROS2 `4.58.1 / 53aceeac` 和现有 librealsense `2.58.4`。未切换 ROS1 分支、替换驱动或修改子模块 gitlink。
+保持 ROS2 Humble、RealSense ROS2 `4.58.1 / 53aceeac` 和现有 librealsense `2.58.4`。2026-10-30 参数迁移本身未切换 ROS1 分支或修改 gitlink；后续依赖恢复及当前 gitlink 状态见 [清单 36](36_ROS2迁移剩余事项清单.md)。
 
 - 相机来源：`reference/ros1/vision_pkg/launch/vision.launch` 和 `d405_driver_only.launch`。`realsense-ros` 的 `origin/ros1-legacy` 仅只读核对参数接口；其中驱动默认值不视为项目实测参数。
 - 控制来源：`reference/ros1/Eyou_ROS1_Master/config/controllers_jtc.yaml`、`reference/ros1/mobility_control/config/base_cmd.yaml`、`reference/ros1/Eyou_Canopen_Master/config/joints.yaml`。
@@ -12,6 +12,8 @@
 ## 已迁入的相机参数
 
 入口：`vision_pkg/launch/cameras.launch.py`。参数可由 launch 覆盖，手爪相机仍需显式 `enable_paw:=true`。
+
+下表默认值对应相机独立入口。整车 `robot_bringup/full_system.launch.py` 默认 `enable_cameras:=false`，且将自己的空 `paw_serial` 传入相机入口；从整车启用 D405 时必须同时指定 `enable_cameras:=true enable_paw:=true paw_serial:=实际序列号`，否则会被参数校验拒绝，不能依赖独立入口的历史序列号默认值。
 
 | 项目 | ROS2 值/接口 |
 | --- | --- |
@@ -60,7 +62,9 @@ ROS2 保留统一 controller_manager `200 Hz`、控制器会话隔离、命令�
 - 不迁入旧 marker `6x6_250 / 582`、未经 ROS2 核验的自动采样点或设备持久化零点；设备 `commissioned:false`、自动采样 `commissioned:false` 保持。
 - 需使用上述参数重新验证 ROS2 实机出流、USB/固件、设备重连、轨迹跟踪、真实停止、几何/里程计和安全关联条件；本次不勾选清单 36 的实机验收项。
 
-## 本次软件验证
+## 2026-10-30 参数迁移软件验证（历史批次）
+
+以下结果属于参数迁移当日，不代表当前依赖版本的全量回归。记录中的 `/tmp` 路径本次整理时未找到原始产物；当前进度见 [清单 36](36_ROS2迁移剩余事项清单.md)。
 
 - `bash tools/build_ros2.sh /tmp/robot24-param-migration core`：18 个核心包构建通过；仅有未使用 `INSTALL_UDEV_RULES` 的 CMake 提示。
 - 相机 launch 参数展开检查通过：双 RealSense、D405 profile、Astra+ 序列号选择、关闭相机、覆盖参数、重复序列号拒绝；传入 RealSense 的参数名全部存在于当前 ROS2 驱动。检查脚本 `/tmp/check_ros2_migrated_cameras.py`。

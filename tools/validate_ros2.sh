@@ -25,8 +25,8 @@ if [[ "$robot_mode" == full ]]; then
   python3 "$robot_source_root/vision_pkg/test/pipeline_smoke.py"
   python3 "$robot_source_root/tools/test/host_smoke.py"
   python3 "$robot_source_root/tools/test/sensor_smoke.py"
-  python3 -m unittest discover -s "$robot_source_root/easy_handeye2/easy_handeye2/test" -v
-  ROS_DOMAIN_ID=93 timeout 45s python3 "$robot_source_root/easy_handeye2/easy_handeye2/test/robot_service_smoke.py"
+  # Exercise the project's Action-based sampler and upstream calibration server.
+  # The upstream MoveIt movement helper is not enabled by this project.
   python3 "$robot_source_root/eye_in_hand/test/auto_sample_smoke.py"
   timeout 45s python3 "$robot_source_root/eye_in_hand/test/calibration_smoke.py"
   # Fortress software rendering uses an X display; EGL can be configured for a

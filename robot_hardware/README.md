@@ -11,7 +11,7 @@ source /tmp/canopen-final-install/setup.bash
 ros2 launch robot_hardware hardware.launch.py mock:=true journal:=/tmp/mock-maintenance.json
 ```
 
-启动后依次显式调用 `/robot_runtime/init`、`/robot_runtime/enable`、`/robot_runtime/resume`，类型均为 `std_srvs/srv/Trigger`。`enable` 进入 Armed；`resume` 才启动运动控制器并进入 Running。`halt` 撤销运行许可；`recover` 重建两侧硬件并重新校验，最终保持 Armed；`shutdown` 清理两侧。
+上述空 `group_policy` 示例使用全局联锁诊断模式。启动后依次显式调用 `/robot_runtime/init`、`/robot_runtime/enable`、`/robot_runtime/resume`，类型均为 `std_srvs/srv/Trigger`。`enable` 进入 Armed；`resume` 才启动运动控制器并进入 Running。`halt` 撤销运行许可；该模式的 `recover` 重建两侧硬件并重新校验，最终保持 Armed；`shutdown` 清理两侧。整车默认分组模式下，普通组恢复不重建总线，确需重建后端时使用 `recover_resource`；真实关联证据缺失会阻止相应组运行。
 
 | ROS2 接口 | 合同 |
 | --- | --- |
@@ -22,7 +22,7 @@ ros2 launch robot_hardware hardware.launch.py mock:=true journal:=/tmp/mock-main
 | `/flipper_control/set_linkage_mode` | `SetProfile`，profile 为 independent/left_right_mirror/front_rear_sync/side_pair/diagonal_pair |
 | `/gripper_controller/command` | `Float64MultiArray` 一元素，单位 m/s；带 250 ms 超时、限速、行程限制的 CSP 积分 |
 | `/wheel_controller/cmd_vel_unstamped` | `geometry_msgs/msg/Twist`，标准底盘速度，300 ms 超时 |
-| `/robot_runtime/maintain` | `Maintain`；set_zero/set_offset/limits/limits_from_urdf/disable_limits/restore；运行时拒绝写入 |
+| `/robot_runtime/maintain` | `Maintain`；set_zero/set_offset/limits/limits_from_urdf/disable_limits/restore；全局模式要求先 halt，分组模式先停止目标所属组并按关联条件限制其他组 |
 | `/robot_runtime/snapshot` | `Trigger`，只读导出身份、固件及持久化基线，保持 commissioned=false |
 | `/robot_runtime/state` | JSON 状态、当前摆臂 profile、维护不确定结果标志 |
 

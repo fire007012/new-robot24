@@ -1,6 +1,6 @@
 # robot_bringup · ROS2 整车启动
 
-launch/ 提供实机、mock、模拟入口及只读就绪检查，组合唯一 controller_manager、模型/TF、底盘/夹爪、MoveIt 和可选外围。默认分组策略，显式 init/enable/resume。scripts/check_ready.py 检查原始就绪状态，model_joint_states.py 仅为 TF 转发有限测量；bringup_can*.sh 是现场 CAN 配置辅助脚本。
+launch/ 提供实机、Mock 入口及只读就绪检查，组合唯一 controller_manager、模型/TF、底盘/夹爪、MoveIt 和可选外围。Fortress 入口位于 `robot_simulation/launch/full_system_simulate.launch.py`，由 Gazebo 插件持有唯一管理器。默认分组策略，显式 init/enable/resume。scripts/check_ready.py 检查原始就绪状态，model_joint_states.py 仅为 TF 转发有限测量；bringup_can*.sh 是现场 CAN 配置辅助脚本。
 
 ```bash
 ros2 launch robot_bringup full_system_mock.launch.py

@@ -2,6 +2,8 @@
 
 当前活动子模块为 `can_driver`、`ros2_canopen`、`realsense-ros`、`OrbbecSDK_ROS2`、`aruco_ros`、`easy_handeye2` 共 6 个，来源与跟踪分支以根 `.gitmodules` 为准。父仓库 gitlink 锁定具体提交，分支名不意味着自动升级。
 
+仅 `can_driver`、`ros2_canopen` 作为自主维护仓库。其他子模块作为第三方依赖使用，非必要不修改；优先在项目包中适配或采用上游已发布修复。确有运行阻塞时，先说明触发条件与最小修改范围，再决定是否维护补丁。
+
 旧 `Eyou_Canopen_Master` 已解除 gitlink、`.gitmodules`、本地配置及工作树 `.git` 指针，源码在 `reference/ros1/`。它不再是子模块，不需要 init/update。不使用 ROS1 checkout 作为交付回退。
 
 ## 获取与检查
@@ -14,7 +16,7 @@ git submodule status --recursive
 git status --short
 ```
 
-有本地修改时先查看各子模块 `git status`/`git diff` 并保存，不能用强制 checkout/update 丢弃补丁。2026-11-04 的 `can_driver`、`ros2_canopen` 会话修复，以及 `easy_handeye2`、`realsense-ros` 节点迁移修改已整理成本地提交，尚未完成远程推送；匹配版本见 [清单 36](36_ROS2迁移剩余事项清单.md)。后两个模块目前仍指向第三方上游，需将本地提交发布到可写 fork 并更新 `.gitmodules`，才能从远程完整复现本次验证状态。
+有本地修改时先查看各子模块 `git status`/`git diff` 并保存，不能用强制 checkout/update 丢弃补丁。2026-11-04 的 `can_driver b240b38`、`ros2_canopen 90e7ce79` 会话修复已推送。`easy_handeye2` 恢复到上游 `29bd50a`，`realsense-ros` 恢复到上游 `53aceeac`，无需维护 fork；匹配版本见 [清单 36](36_ROS2迁移剩余事项清单.md)。撤下的本地补丁仍保留在各自 `robot24/ros2-calibration`、`robot24/ros2-listener-fix` 分支，仅供参考，不作为交付依赖。
 
 ## 修改与匹配发布
 
@@ -24,4 +26,4 @@ git status --short
 
 `.github/workflows/ci.yml` 使用 Humble/Ubuntu 22.04，递归检出子模块并执行核心构建与回归，不再使用 Noetic/Catkin 或临时克隆替换驱动。私有子模块可通过仓库 secret `SUBMODULE_TOKEN` 提供读取权限；CI 会将 GitHub SSH 来源映射为 HTTPS，默认 GITHUB_TOKEN 必须拥有相应访问权限。CI 核心检查不代替需 SDK 和显示服务的全量 `tools/validate_ros2.sh ... full`。
 
-当前相机依赖版本见 [迁移总计划](25_ROS1迁移ROS2实施计划.md)，设备参数与复核边界见 [参数说明](37_ROS1实机参数迁入ROS2.md)；历史软件验收批次见 [全量实施记录](archive/34_ROS2全量软件集成与验收.md)。
+当前依赖版本和未提交 gitlink 状态见 [清单 36](36_ROS2迁移剩余事项清单.md)，设备参数与复核边界见 [参数说明](37_ROS1实机参数迁入ROS2.md)；历史软件验收批次见 [全量实施记录](archive/34_ROS2全量软件集成与验收.md)。
