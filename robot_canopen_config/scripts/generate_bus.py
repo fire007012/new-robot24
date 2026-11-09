@@ -81,8 +81,9 @@ def validate_legacy(source, joints):
         require(tpdo[2]["cob_id"] == 0x280 + node_id, f"{name}: TPDO2 COB-ID changed")
 
 
-def build_bus(source, joints, dcf_path, axes=None):
+def build_bus(source, joints, dcf_path, axes=None, period_ms=5):
     validate_legacy(source, joints)
+    require(type(period_ms) is int and period_ms in (5, 20), "period_ms must be 5 or 20")
     bus = {
         "options": {"dcf_path": str(dcf_path), "heartbeat_multiplier": 3.0, "retry_factor": 0},
         "master": {
@@ -90,7 +91,7 @@ def build_bus(source, joints, dcf_path, axes=None):
             "driver": "ros2_canopen::MasterDriver",
             "package": "canopen_master_driver",
             "heartbeat_producer": 500,
-            "sync_period": 5000,
+            "sync_period": period_ms * 1000,
             "sync_overflow": 0,
             "boot_timeout": 5000,
         },
@@ -107,11 +108,15 @@ def build_bus(source, joints, dcf_path, axes=None):
             "dcf": node["dcf"],
             "driver": "ros2_canopen::Cia402Driver",
             "package": "canopen_402_driver",
-            "period": 5,
+            "period": period_ms,
             "sdo_timeout_ms": 100,
             "boot_timeout_ms": 5000,
             "non_transmit_timeout": 1000,
             "motion_safety": True,
+            "enable_eyou_zero_mode_support_fallback": True,
+            # ROS1 changes mode in Standby; drop Operation Enable before writing
+            # 0x6060, then require matching 0x6061 before opening a new session.
+            "switching_state": 4,
             "managed_by_ros2_control": True,
             "perform_homing_on_init": False,
             "feedback_timeout_ms": 100,
@@ -127,7 +132,7 @@ def build_bus(source, joints, dcf_path, axes=None):
             "tpdo": mapping(node["tpdo"]),
             "sdo": [
                 *node["sdo"],
-                {"index": 0x60C2, "sub_index": 1, "value": 5},
+                {"index": 0x60C2, "sub_index": 1, "value": period_ms},
             ],
         }
     return bus
@@ -140,10 +145,11 @@ def main():
     parser.add_argument("--joints", type=Path, required=True)
     parser.add_argument("--dcf-path", type=Path, required=True)
     parser.add_argument('--axes', nargs='+', choices=list(AXES))
+    parser.add_argument("--period-ms", type=int, choices=(5, 20), default=5)
     args = parser.parse_args()
     source = yaml.safe_load(args.source.read_text(encoding="utf-8"))
     joints = yaml.safe_load(args.joints.read_text(encoding="utf-8"))
-    bus = build_bus(source, joints, args.dcf_path, args.axes)
+    bus = build_bus(source, joints, args.dcf_path, args.axes, args.period_ms)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(yaml.safe_dump(bus, sort_keys=False), encoding="utf-8")
 

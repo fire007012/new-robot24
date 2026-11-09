@@ -38,6 +38,7 @@ class GroupSmoke(HybridSmoke):
         response=self.call('/controller_manager/list_controllers',ListControllers,ListControllers.Request())
         return {c.name for c in response.controller if c.state=='active'}
     def test_whole_chain(self):
+        self.assert_manager_rate()
         def loaded():
             controllers=self.call('/controller_manager/list_controllers',ListControllers,ListControllers.Request()).controller
             return len(controllers)==6 and all(c.state=='inactive' for c in controllers)

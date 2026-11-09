@@ -1,6 +1,7 @@
 # ROS2 controllers; hardware values/trajectory tolerances inherited from
 # reference/ros1/Eyou_ROS1_Master/config/controllers_jtc.yaml.
-# Keep the ROS2 200 Hz shared manager and session/timeout fences.
+# Default is 200 Hz; hardware launches override the rate from the installed
+# CANopen profile (5/20 ms). Session and timeout fences apply to both profiles.
 controller_manager:
   ros__parameters:
     update_rate: 200

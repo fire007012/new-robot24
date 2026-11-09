@@ -4,6 +4,18 @@
 
 完整操作及现场出口见 [CANopen 软件交付与实机验收](../docs/28_CANopen软件交付与实机验收.md)。
 
+控制周期默认 5 ms / 200 Hz。调试安装可在构建 `robot_canopen_config` 时指定
+`--cmake-args -DROBOT_CONTROL_PERIOD_MS=20`，生成 20 ms / 50 Hz 的全轴及单轴配置。
+本包两种 launch 根据已安装的 bus/DCF 推导 manager 频率，启动前检查驱动、SYNC、
+插补周期与 master DCF 一致；不能只改单独的 controllers.yaml。切换后需加载匹配安装环境。
+现有诊断字段 `period_over_7_5ms` 仍表示超过 7.5 ms 的原始次数，以 200 Hz 为参考；
+在 50 Hz 调试档下正常周期也会计入，不能据此单项判断周期异常。
+
+只读采集 CAN 统计可在源码根目录执行
+`python3 tools/capture_can_health.py canable1 --samples 60 --interval 1 --output /tmp/can-health.json`。
+工具不发送 CAN 帧或重配接口，保留完整内核统计与逐段增量；接口重建、计数回退时标记不可比较。
+该结果用于通信排查，实际目标帧积压和机械停止时延还需要抓包及实机测量。
+
 ```bash
 # 在仓库 src 目录执行；测试需要 ROS2 本机回环通信。
 robot_hardware/scripts/validate_offline.sh /tmp/canopen-final
@@ -27,6 +39,8 @@ ros2 launch robot_hardware hardware.launch.py mock:=true journal:=/tmp/mock-main
 | `/robot_runtime/state` | JSON 状态、当前摆臂 profile、维护不确定结果标志 |
 
 项目配置禁用启动 Homing 和自动写限位。原始单轴运动 service/PDO topic 写入在托管模式下关闭；控制器资源切换是模式切换入口。维护 SDO 复用同一主站并单飞，读回失败不会使用缓存值代替设备响应。
+
+生成的 Eyou 配置启用 `enable_eyou_zero_mode_support_fallback`，仅对真实身份为 `1000=0x00220811`、厂商 `0x668`、产品 `0x00221401`、修订 `16`、固件 `V133-0262` 且 `6502=0` 的 PH14，允许尝试 IP 7 / CSP 8 / CSV 9。通用驱动默认关闭该兼容；任何非零能力位掩码仍以设备读回为准，SDO 失败不回退到 EDS 默认值。模式必须通过实际 `6061` 和使能状态确认才能建立新会话。项目以 `switching_state: 4` 在 Switched On 状态切换模式；Quick Stop 完成于 Switch On Disabled 时，disable 保持失能，不重新上电。位置控制指 CSP，不是 Profile Position 1；本兼容不开放额外转矩或 Homing 模式。
 
 `hardware.launch.py` 默认真实插件，但硬件保持 unconfigured；没有现场 `commissioning.yaml` 的完整登记，init 校验不能通过。`mock:=true` 加载专用模拟插件与明确标识的模拟身份，不连接 CAN。单轴实机入口为 `single_axis.launch.py`，只配置目标节点，控制器同样默认 inactive。
 

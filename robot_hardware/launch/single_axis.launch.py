@@ -7,6 +7,7 @@ from launch.actions import DeclareLaunchArgument, OpaqueFunction
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 from ament_index_python.packages import get_package_share_directory
+from robot_hardware_runtime.control_period import control_rate
 
 AXES={'left_front_arm_joint':1,'right_front_arm_joint':2,'left_rear_arm_joint':3,'right_rear_arm_joint':4,'shoulder_yaw_joint':6,'shoulder_pitch_joint':5}
 def setup(context):
@@ -14,6 +15,7 @@ def setup(context):
     if joint not in AXES:raise ValueError('unknown CANopen joint')
     share=Path(get_package_share_directory('robot_hardware'))
     config=Path(get_package_share_directory('robot_canopen_config'))/'config'/f'axis_{AXES[joint]}'
+    update_rate=control_rate(config)
     limits=yaml.safe_load((share/'config/joint_limits.yaml').read_text())[joint]
     root=E.parse(share/'urdf/model.urdf.xacro').getroot()
     component=E.SubElement(root,'ros2_control',{'name':'RobotCanopenSystem','type':'system'})
@@ -31,7 +33,7 @@ def setup(context):
     # Node parameter namespaces must match controller node names, use a launch-owned temporary YAML.
     import tempfile,atexit,os
     fd,path=tempfile.mkstemp(prefix='robot-axis-',suffix='.yaml');os.close(fd);atexit.register(lambda:os.path.exists(path) and os.unlink(path))
-    Path(path).write_text(yaml.safe_dump({'controller_manager':{'ros__parameters':{'update_rate':200,'hardware_components_initial_state':{'unconfigured':['RobotCanopenSystem']},'joint_state_broadcaster':{'type':'joint_state_broadcaster/JointStateBroadcaster'},'axis_controller':controller}},'axis_controller':{'ros__parameters':params}}))
+    Path(path).write_text(yaml.safe_dump({'controller_manager':{'ros__parameters':{'update_rate':update_rate,'hardware_components_initial_state':{'unconfigured':['RobotCanopenSystem']},'joint_state_broadcaster':{'type':'joint_state_broadcaster/JointStateBroadcaster'},'axis_controller':controller}},'axis_controller':{'ros__parameters':params}}))
     return [Node(package='controller_manager',executable='ros2_control_node',parameters=[{'robot_description':E.tostring(root,encoding='unicode')},path],output='screen'),
       *[Node(package='controller_manager',executable='spawner',arguments=[name,'--inactive'],output='screen') for name in ['joint_state_broadcaster','axis_controller']]]
 def generate_launch_description():

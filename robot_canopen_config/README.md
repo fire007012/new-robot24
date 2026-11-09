@@ -48,3 +48,16 @@ The startup SDO map writes `0x6060` and `0x60C2:01=5`. The latter matches the
 old driver's interpolation-period write. It does not write zero, limits, or
 persisted settings. Do not enable motion until the physical-device checks in
 [the CANopen acceptance guide](../docs/28_CANopen软件交付与实机验收.md) are complete.
+
+## Shared control period
+
+The default remains 5 ms (200 Hz). Build a separate 50 Hz debugging installation
+with `--cmake-args -DROBOT_CONTROL_PERIOD_MS=20`; only 5 and 20 ms are accepted.
+The option changes the full bus and all six single-axis configurations together:
+master DCF/SYNC, driver period, and startup `0x60C2:01`. Changing the option in an
+existing build also regenerates these artifacts. Archived ROS1 inputs stay unchanged.
+
+`robot_hardware` full and single-axis launches derive the manager rate from the
+installed bus and reject mismatched YAML/DCF timing. Source the matching installation
+before launch; do not mix generated files from different profiles. This debugging
+option is not a claim that multi-axis hardware has passed either frequency.

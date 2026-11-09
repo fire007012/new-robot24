@@ -6,24 +6,33 @@ find_package(Python3 REQUIRED COMPONENTS Interpreter)
 find_program(DCFGEN_EXECUTABLE dcfgen REQUIRED)
 find_program(DCFCHK_EXECUTABLE dcfchk REQUIRED)
 
+set(ROBOT_CONTROL_PERIOD_MS "5" CACHE STRING "Shared control period: 5 ms (200 Hz) or 20 ms (50 Hz)")
+set_property(CACHE ROBOT_CONTROL_PERIOD_MS PROPERTY STRINGS 5 20)
+if(NOT ROBOT_CONTROL_PERIOD_MS MATCHES "^(5|20)$")
+  message(FATAL_ERROR "ROBOT_CONTROL_PERIOD_MS must be 5 or 20")
+endif()
+
 set(CONFIG_SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/config)
 set(CONFIG_BUILD ${CMAKE_CURRENT_BINARY_DIR}/config)
 set(CONFIG_INSTALL ${CMAKE_INSTALL_PREFIX}/share/${PROJECT_NAME}/config)
+configure_file(scripts/control_period.in ${CMAKE_CURRENT_BINARY_DIR}/control_period.txt @ONLY)
 
 add_custom_command(
   OUTPUT ${CONFIG_BUILD}/master.dcf ${CONFIG_BUILD}/bus.yml
   COMMAND ${CMAKE_COMMAND} -E make_directory ${CONFIG_BUILD}
   COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/generate_bus.py
           ${CONFIG_SOURCE}/legacy_master.yaml ${CONFIG_BUILD}/bus.yml
-          --joints ${CONFIG_SOURCE}/legacy_joints.yaml --dcf-path .
+          --joints ${CONFIG_SOURCE}/legacy_joints.yaml --dcf-path . --period-ms ${ROBOT_CONTROL_PERIOD_MS}
   COMMAND ${DCFGEN_EXECUTABLE} -v -d ${CONFIG_BUILD} -rS ${CONFIG_BUILD}/bus.yml
   COMMAND ${DCFCHK_EXECUTABLE} ${CONFIG_BUILD}/master.dcf
   COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/check_generated.py
           ${CONFIG_SOURCE}/legacy_master.dcf ${CONFIG_BUILD}/master.dcf ${CONFIG_BUILD}
+          --period-ms ${ROBOT_CONTROL_PERIOD_MS}
   COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/generate_bus.py
           ${CONFIG_SOURCE}/legacy_master.yaml ${CONFIG_BUILD}/bus.yml
-          --joints ${CONFIG_SOURCE}/legacy_joints.yaml --dcf-path .
+          --joints ${CONFIG_SOURCE}/legacy_joints.yaml --dcf-path . --period-ms ${ROBOT_CONTROL_PERIOD_MS}
   DEPENDS ${CONFIG_SOURCE}/legacy_master.yaml
+          ${CMAKE_CURRENT_BINARY_DIR}/control_period.txt
           ${CONFIG_SOURCE}/legacy_joints.yaml
           ${CONFIG_SOURCE}/legacy_master.dcf
           ${CONFIG_SOURCE}/YiyouServo_V1.4.dcfgen.eds
@@ -45,12 +54,13 @@ foreach(i RANGE 0 5)
   add_custom_command(OUTPUT ${AXIS_BUILD}/master.dcf ${AXIS_BUILD}/bus.yml
     COMMAND ${CMAKE_COMMAND} -E make_directory ${AXIS_BUILD}
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/generate_bus.py
-      ${CONFIG_SOURCE}/legacy_master.yaml ${AXIS_BUILD}/bus.yml --joints ${CONFIG_SOURCE}/legacy_joints.yaml --dcf-path . --axes ${AXIS_NAME}
+      ${CONFIG_SOURCE}/legacy_master.yaml ${AXIS_BUILD}/bus.yml --joints ${CONFIG_SOURCE}/legacy_joints.yaml --dcf-path . --period-ms ${ROBOT_CONTROL_PERIOD_MS} --axes ${AXIS_NAME}
     COMMAND ${DCFGEN_EXECUTABLE} -v -d ${AXIS_BUILD} -rS ${AXIS_BUILD}/bus.yml
     COMMAND ${DCFCHK_EXECUTABLE} ${AXIS_BUILD}/master.dcf
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/generate_bus.py
-      ${CONFIG_SOURCE}/legacy_master.yaml ${AXIS_BUILD}/bus.yml --joints ${CONFIG_SOURCE}/legacy_joints.yaml --dcf-path . --axes ${AXIS_NAME}
+      ${CONFIG_SOURCE}/legacy_master.yaml ${AXIS_BUILD}/bus.yml --joints ${CONFIG_SOURCE}/legacy_joints.yaml --dcf-path . --period-ms ${ROBOT_CONTROL_PERIOD_MS} --axes ${AXIS_NAME}
     DEPENDS ${CONFIG_SOURCE}/legacy_master.yaml ${CONFIG_SOURCE}/legacy_joints.yaml ${CMAKE_CURRENT_SOURCE_DIR}/scripts/generate_bus.py
+      ${CMAKE_CURRENT_BINARY_DIR}/control_period.txt
     WORKING_DIRECTORY ${CONFIG_SOURCE} VERBATIM)
   add_custom_target(generate_axis_${AXIS_ID} ALL DEPENDS ${AXIS_BUILD}/master.dcf)
   install(FILES ${CONFIG_SOURCE}/YiyouServo_V1.4.dcfgen.eds DESTINATION share/${PROJECT_NAME}/config/axis_${AXIS_ID})

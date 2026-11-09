@@ -24,7 +24,9 @@ def load_dcf(path):
     return parser
 
 
-def check(legacy_path, generated_path, bin_dir):
+def check(legacy_path, generated_path, bin_dir, period_ms=5):
+    if type(period_ms) is not int or period_ms not in (5, 20):
+        raise ValueError("period_ms must be 5 or 20")
     legacy = load_dcf(legacy_path)
     generated = load_dcf(generated_path)
     ignored = {"OptionalObjects"}
@@ -32,7 +34,10 @@ def check(legacy_path, generated_path, bin_dir):
     for section in legacy.sections():
         if section in ignored:
             continue
-        if section not in generated or dict(legacy[section]) != dict(generated[section]):
+        expected = dict(legacy[section])
+        if section == "1006":
+            expected["DefaultValue"] = str(period_ms * 1000)
+        if section not in generated or expected != dict(generated[section]):
             raise ValueError(f"legacy DCF section changed: {section}")
 
     for node_id, filename in NODE_FILES.items():
@@ -49,8 +54,9 @@ def main():
     parser.add_argument("legacy", type=Path)
     parser.add_argument("generated", type=Path)
     parser.add_argument("bin_dir", type=Path)
+    parser.add_argument("--period-ms", type=int, choices=(5, 20), default=5)
     args = parser.parse_args()
-    check(args.legacy, args.generated, args.bin_dir)
+    check(args.legacy, args.generated, args.bin_dir, args.period_ms)
 
 
 if __name__ == "__main__":

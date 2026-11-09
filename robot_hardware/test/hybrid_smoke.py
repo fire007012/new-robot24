@@ -22,6 +22,9 @@ from sensor_msgs.msg import JointState
 from control_msgs.action import FollowJointTrajectory
 from trajectory_msgs.msg import JointTrajectoryPoint
 from controller_manager_msgs.srv import ListControllers, ListHardwareComponents, SetHardwareComponentState
+from rcl_interfaces.srv import GetParameters
+from ament_index_python.packages import get_package_share_directory
+from robot_hardware_runtime.control_period import control_rate
 from robot_hardware.srv import SetProfile, Maintain
 
 class HybridSmoke(unittest.TestCase):
@@ -95,6 +98,12 @@ class HybridSmoke(unittest.TestCase):
     def trigger(self,operation):
         result=self.call('/robot_runtime/'+operation,Trigger,Trigger.Request())
         self.assertTrue(result.success,operation+': '+result.message)
+    def assert_manager_rate(self):
+        config=Path(get_package_share_directory('robot_canopen_config'))/'config'
+        if self.LAUNCH=='single_axis.launch.py':config=config/'axis_6'
+        response=self.call('/controller_manager/get_parameters',GetParameters,
+                           GetParameters.Request(names=['update_rate']))
+        self.assertEqual(response.values[0].integer_value,control_rate(config))
     def goal(self,value,seconds=1):
         names=['shoulder_yaw_joint','shoulder_pitch_joint','elbow_pitch_joint','wrist_pitch_joint','wrist_yaw_joint','wrist_roll_joint']
         goal=FollowJointTrajectory.Goal();goal.trajectory.joint_names=names
@@ -105,6 +114,7 @@ class HybridSmoke(unittest.TestCase):
         handle=self.result(client.send_goal_async(goal));self.assertTrue(handle.accepted)
         return client,handle
     def test_whole_chain(self):
+        self.assert_manager_rate()
         # All controllers are loaded inactive; motion requires explicit init -> enable -> resume.
         def loaded():
             try:
@@ -162,7 +172,9 @@ class SingleAxisSmoke(unittest.TestCase):
     result=HybridSmoke.result
     call=HybridSmoke.call
     wait=HybridSmoke.wait
+    assert_manager_rate=HybridSmoke.assert_manager_rate
     def test_actual_single_axis_plugin_loads_without_opening_can(self):
+        self.assert_manager_rate()
         response=self.call('/controller_manager/list_hardware_components',ListHardwareComponents,ListHardwareComponents.Request())
         self.assertEqual(len(response.component),1)
         self.assertEqual(response.component[0].name,'RobotCanopenSystem')

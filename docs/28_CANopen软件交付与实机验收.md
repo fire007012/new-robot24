@@ -81,6 +81,8 @@ ros2 run robot_hardware axis_commission shoulder_yaw_joint --baseline /实际路
 
 若固件 Quick Stop 选项使设备最终进入其他状态，保留状态字序列和 `0x605A` 读回；软件等待 Quick Stop 确认失败时保持会话关闭，不通过反复 resume 绕过。
 
+PH14 `V133-0262` 的实机兼容修复见 [记录 45](45_PH14单电机实机验证记录.md)。仅在真实身份和固件匹配、`6502=0` 且显式启用兼容配置时，允许进入 IP/CSP/CSV 的真实模式切换验证。项目配置先退出 Operation Enable，再切换模式；Quick Stop 已完成于 Switch On Disabled 同样视为停止确认，命令会话仍撤销，必须显式重新建立。未匹配设备、未知状态、故障和缺失反馈不能据此放行。
+
 ## 5. 六轴与双后端验收
 
 停止单轴主站，使用完整现场基线：

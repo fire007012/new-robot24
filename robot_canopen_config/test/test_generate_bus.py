@@ -30,6 +30,8 @@ class BusContractTest(unittest.TestCase):
             self.assertEqual(node["node_id"], node_id)
             self.assertFalse(node["perform_homing_on_init"])
             self.assertTrue(node["motion_safety"])
+            self.assertTrue(node["enable_eyou_zero_mode_support_fallback"])
+            self.assertEqual(node["switching_state"], 4)
             self.assertEqual(node["sdo"], [
                 {"index": 0x6060, "sub_index": 0, "value": mode},
                 {"index": 0x60C2, "sub_index": 1, "value": 5},
@@ -68,6 +70,19 @@ class BusContractTest(unittest.TestCase):
         changed["joints"][0]["counts_per_rev"] = 1
         with self.assertRaises(ValueError):
             MODULE.build_bus(self.source, changed, Path("/opt/robot/config"))
+
+    def test_debug_period_changes_every_axis_and_single_axis_consistently(self):
+        bus = MODULE.build_bus(self.source, self.joints, Path('.'), period_ms=20)
+        self.assertEqual(bus['master']['sync_period'], 20000)
+        for joint in MODULE.AXES:
+            self.assertEqual(bus[joint]['period'], 20)
+            self.assertEqual(bus[joint]['sdo'][-1],
+                             {'index': 0x60C2, 'sub_index': 1, 'value': 20})
+            single = MODULE.build_bus(self.source, self.joints, Path('.'), [joint], 20)
+            self.assertEqual(single[joint], bus[joint])
+        for invalid in (0, -1, 10, 5.0, True, '20'):
+            with self.subTest(period=invalid), self.assertRaises(ValueError):
+                MODULE.build_bus(self.source, self.joints, Path('.'), period_ms=invalid)
 
 
 if __name__ == "__main__":

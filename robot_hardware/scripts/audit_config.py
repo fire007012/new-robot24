@@ -3,8 +3,10 @@
 import configparser,struct,sys
 from pathlib import Path
 import yaml
+from robot_hardware_runtime.control_period import control_rate
 root=Path(sys.argv[1])/'robot_canopen_config/share/robot_canopen_config/config'
 for directory in [root,*sorted(root.glob('axis_*'))]:
+ rate=control_rate(directory);assert rate==control_rate(root)
  bus=yaml.safe_load((directory/'bus.yml').read_text());assert bus['options']['dcf_path']=='.'
  nodes=set(bus)-{'options','master'};assert len(nodes)==(6 if directory==root else 1)
  dcf=configparser.ConfigParser(interpolation=None);dcf.read(directory/'master.dcf')
@@ -18,7 +20,7 @@ for directory in [root,*sorted(root.glob('axis_*'))]:
    assert index not in {0x607C,0x607D,0x2003,0x1010,0x1011},f'{joint}: persistent startup write {index:04X}'
    objects.append((index,sub,value))
   assert cursor==len(data)
-  assert (0x60C2,1,5) in objects
+  assert (0x60C2,1,1000//rate) in objects
   assert (0x6060,0,7 if node in (5,6) else 9) in objects
   if directory!=root:assert data==(root/(joint+'.bin')).read_bytes()
  print(directory.name+': startup writes and references verified')
