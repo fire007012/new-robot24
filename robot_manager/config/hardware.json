@@ -2,6 +2,7 @@
   "profile_id": "hardware",
   "config_revision": "1",
   "mode": "hardware",
+  "enable_servo": true,
   "build_version": "robot24-release-1",
   "video": false,
   "video_required": false,

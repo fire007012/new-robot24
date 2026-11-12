@@ -89,4 +89,48 @@ class Tests(unittest.TestCase):
         finally:
             gate.set();c.close()
 
+    def test_preset_negotiation_and_group_operation_over_socket(self):
+        from test_motion_presets import PresetCapture
+        from control_v2 import SUPPORTED_CAPABILITIES
+        output = PresetCapture(time.monotonic)
+        self.server.core.output = output
+        client, sock, stream = self.connect()
+        stream.readline()
+        caps = json.loads(stream.readline())
+        self.assertIn('motion_presets_v1', caps['control_capabilities'])
+        self.assertEqual(caps['motion_presets']['arm']['groups'], ['arm','gripper'])
+        session = {}
+        seq = 0
+        def call(kind, **fields):
+            nonlocal seq
+            seq += 1
+            request = dict(type=kind, protocol_version=2, seq=seq, ttl_ms=300,
+                session_id=session.get('session_id'), epoch=session.get('epoch'),
+                freshness_token=session.get('freshness_token'), **fields)
+            sock.sendall((json.dumps(request)+'\n').encode())
+            return json.loads(stream.readline())
+        try:
+            hello = call('control_hello', robot_id=self.server.core.robot_id, role='control',
+                capabilities=SUPPORTED_CAPABILITIES, presets=['flippers','arm'])
+            self.assertTrue(hello['ok'], hello)
+            session.update(hello['result'])
+            call('operator_input', keyboard={'pressed_keys':[]})
+            self.assertTrue(call('authorize_operations')['ok'])
+            accepted = call('system_command', command='init', request_id='socket-preset', params={'presets':['arm']})
+            self.assertTrue(accepted['ok'], accepted)
+            deadline = time.monotonic()+2
+            while True:
+                op = call('operation_query', operation_id=accepted['result']['operation_id'])['result']
+                if op['state'] not in ('accepted','running'):
+                    break
+                self.assertLess(time.monotonic(), deadline)
+                time.sleep(.005)
+            self.assertEqual(op['state'], 'succeeded')
+            self.assertEqual(output.group_calls, [('init',['arm','gripper'])])
+            status = call('control_status')['result']
+            self.assertEqual(status['selected_presets'], ['arm','flippers'])
+            self.assertFalse(status['presets']['base']['selected'])
+        finally:
+            stream.close()
+
 if __name__=='__main__':unittest.main(verbosity=2)

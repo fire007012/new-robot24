@@ -320,6 +320,8 @@ class Backend:
     def validate(self, p):
         if p.get('mode') not in ('mock', 'hardware') or type(p.get('video')) is not bool:
             raise Fault('CONFIG', 'invalid mode/video')
+        if type(p.get('enable_servo', False)) is not bool:
+            raise Fault('CONFIG', 'enable_servo must be boolean')
         if type(p.get('startup_timeout',90)) not in (int,float) or not 1 <= p.get('startup_timeout', 90) <= 180:
             raise Fault('CONFIG', 'invalid startup_timeout')
         for key in ('baseline', 'video_config'):
@@ -426,7 +428,7 @@ class Backend:
     def start(self, module, p, oid):
         port = str(self.config['control_endpoint']['port'])
         if module == 'core':
-            args = ['ros2','launch','robot_bringup','full_system.launch.py','mock:='+str(p['mode']=='mock').lower(),'enable_host:=false','enable_moveit:=true','journal:='+str(self.state/'maintenance.json')]
+            args = ['ros2','launch','robot_bringup','full_system.launch.py','mock:='+str(p['mode']=='mock').lower(),'enable_host:=false','enable_moveit:=true','enable_servo:='+str(p.get('enable_servo',False)).lower(),'journal:='+str(self.state/'maintenance.json')]
             if p.get('baseline'):
                 args += ['baseline:='+p['baseline']]
         elif module == 'video_stack':

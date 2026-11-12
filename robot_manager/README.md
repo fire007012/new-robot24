@@ -6,6 +6,8 @@
 
 core 复用 `robot_bringup/full_system.launch.py`，始终 `enable_host:=false`；无视频时单独启动 `host_bridge.launch.py`，选视频时由现有 `video_stack.launch.py` 唯一拥有桥接、视频 IPC 和图像 RTSP。不再创建 controller_manager。视频档案复用 video_stack 的默认外部 MediaMTX 模式；现场应先部署配置所引用的 RTSP 服务，本管理服务不重复占用其8554端口。预检保留桥接9090、调试18080和所选视频IPC18081端口。视频可选表示流故障允许降级，桥接仍必需；视频 stack 整体故障导致桥接失败则整体失败。
 
+运动预设通过控制桥 `motion_presets_v1` 选择，映射与上位机提示词见 [文档 51](../docs/51_三组预设与上位机对接提示词.md)。部署档案可设置布尔 `enable_servo`，管理服务将其传入整车 launch；本目录 hardware/mock 示例启用该项以支持机械臂遥控，旧部署省略时仍为 false。它只加载 Servo 软件/控制器，不使能电机；切换 arm 模式仍需显式请求。该字段由部署管理员离线维护，配置事务接口只读。
+
 ready 要求控制器清单、两个硬件组件、实时 runtime、MoveIt 项目 action 及匹配桥接心跳 ACK 均实际通过。视频需要非空且全部 online 的源清单，并由 ffprobe 实际收到视频帧；探测预算4秒、单源最多2秒，缺少 ffprobe 或未收到帧时按必需/可选规则失败或降级。这不替代现场完整链路、质量和时延验收。runtime 的 Stopped、初始化、使能、分组、急停字段原样独立提供。管理服务从不调用 init/enable/resume。停止先通过实时 runtime、硬件生命周期和控制器清单确认：只有两个硬件均 unconfigured、所有控制器未运行、组均 Stopped 时，才以只读证据判定冷栈已停；其他情况必须成功调用 halt 并观察停止状态；无法确认时保留资源、返回 STOP_UNCONFIRMED，不能宣告停止成功。
 
 默认使用部署目录只读JSON档案。部署可显式开启enable_config_transactions，提供受限字段的候选、校验、应用、回滚及审计；[配置事务41](../docs/archive/qt/41_配置维护事务与Qt对接.md)定义接口。基线和视频YAML仍必须位于原配置根目录，不接受网络文件路径。配置功能默认关闭，P0控制升级可独立发布。

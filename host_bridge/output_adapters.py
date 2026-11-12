@@ -75,6 +75,9 @@ class OutputAdapter:
     def call_lifecycle(self, command: str) -> Tuple[bool, int, str]:
         raise NotImplementedError
 
+    def call_group_operation(self, command, groups):
+        return dict(success=False, message='group operations unavailable', operation_id='')
+
     def lifecycle_service_name(self, command: str) -> str:
         return f"lifecycle/{command}"
 
@@ -158,6 +161,10 @@ class DryRunOutput(OutputAdapter):
 
     def lifecycle_service_name(self, command: str) -> str:
         return f"dry-run:lifecycle/{command}"
+
+    def call_group_operation(self, command, groups):
+        return dict(success=True, operation_id='', message='dry-run; no hardware operated',
+                    groups=list(groups), operation=command)
 
     def command_service_name(self, command: str, params: Optional[Dict[str, Any]] = None) -> str:
         if command in VISION_MONITOR_COMMANDS:
@@ -294,6 +301,13 @@ class RosOutput(OutputAdapter):
         except Exception as error:return False,2301,str(error),{'service_unavailable':True}
     def call_lifecycle(self,command):
         return self._call_trigger_service(self.lifecycle_service_name(command))
+
+    def call_group_operation(self, command, groups):
+        from robot_hardware.srv import GroupOperation
+        # Let timeouts propagate: the control journal must retain result_unknown.
+        result = self.request(GroupOperation, '/robot_runtime/group_operation',
+                              GroupOperation.Request(groups=list(groups), operation=command, resource=''))
+        return dict(success=result.success, operation_id=result.operation_id, message=result.message)
     def lifecycle_service_name(self,command):return '/robot_runtime/'+command
     def command_service_name(self,command,params=None):
         if command=='set_control_mode':return '/arm_control/set_servo_mode'

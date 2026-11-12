@@ -2,6 +2,7 @@
   "profile_id": "mock",
   "config_revision": "1",
   "mode": "mock",
+  "enable_servo": true,
   "build_version": "robot24-release-1",
   "video": false,
   "video_required": false,

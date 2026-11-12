@@ -7,3 +7,5 @@ ros2 launch host_bridge video_stack.launch.py video_config:=/absolute/path/video
 ```
 
 从仓库根目录使用 `bash tools/build_ros2.sh /tmp/robot24-ros2 full` 构建并 source 安装环境。组件示例须配合整车运行入口，运动需要显式许可。当前架构、完整参数与验证边界见 [根 README](../README.md) 和 [文档索引](../docs/README.md)。历史 ROS1 内容位于 `reference/ros1/`；持续回归源码保留。
+
+控制 v2 可协商 `motion_presets_v1`：摆臂 `flippers`、底盘 `base`、机械臂含夹爪 `arm` 三组任意多选。`control_hello.presets` 确认初始选择；`select_presets` 更新选择并撤销旧授权；生命周期 `system_command.params.presets` 可显式操作已选预设的子集，统一调用运行协调器的组服务。未协商扩展的旧 v2 客户端保留全车语义。协议、状态机、部署限制和可复制的上位机开发提示词见 [文档 51](../docs/51_三组预设与上位机对接提示词.md)。

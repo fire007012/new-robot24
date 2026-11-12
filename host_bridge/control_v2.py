@@ -10,10 +10,12 @@ import secrets
 import threading
 import time
 import uuid
+from motion_presets import CAPABILITY as PRESET_CAPABILITY, PRESETS, groups as preset_groups, select as select_presets
 
 CAPABILITIES = ['session_v2', 'freshness_v2', 'explicit_authorization',
                 'bounded_operations', 'isolated_output', 'runtime_permission']
-BUILD = 'robot24-p0-config-2'
+BUILD = 'robot24-motion-presets-1'
+SUPPORTED_CAPABILITIES = CAPABILITIES + [PRESET_CAPABILITY]
 
 
 class Rejected(Exception):
@@ -108,7 +110,7 @@ class ControlV2:
             finally:os.close(fd)
             self.persisted_revision = revision
 
-    def _revoke(self, reason):
+    def _revoke(self, reason, halt=True):
         had_motion = bool(self.owner in self.sessions and self.sessions[self.owner]['authorized'])
         had_motion = had_motion or any(op.get('state')=='running' and op.get('command')=='move_arm_named_target' for op in self.operations.values())
         if self.owner in self.sessions:
@@ -118,7 +120,7 @@ class ControlV2:
         self.latest = None
         self.core.reset_operator_input_session(reason)
         self.counts['revocations'] += 1
-        if had_motion:
+        if had_motion and halt:
             self._queue_halt()
 
     def runtime_changed(self, reason='runtime_epoch'):
@@ -169,7 +171,17 @@ class ControlV2:
         return dict(freshness_token=token, valid_for_ms=max(0, int((s['tokens'][token]+self.TOKEN_SEC-now)*1000)),
                     refresh_ms=100, input_ttl_ms=300, lease_ms=1500, watchdog_ms=min(500, self.core.watchdog_ms))
 
-    def permission(self):
+    def selected_presets(self):
+        return self.sessions.get(self.owner, {}).get('presets', sorted(PRESETS))
+
+    @staticmethod
+    def parse_presets(value):
+        try:
+            return select_presets(value)
+        except ValueError:
+            raise Rejected('PRESETS')
+
+    def permission(self, presets=None):
         output = self.core.output
         value = getattr(output, 'runtime_state', None)
         at = getattr(output, 'runtime_received', None)
@@ -180,8 +192,7 @@ class ControlV2:
             return False
         if d.get('readable') is not True or d.get('global_inhibit') is not False or d.get('owner_fresh') is not True:
             return False
-        # Conservative whole-robot permission; partial-group driving is not negotiated in v2.
-        for group in ('base', 'arm', 'flippers', 'gripper'):
+        for group in preset_groups(self.selected_presets() if presets is None else presets):
             g = d.get('groups', {}).get(group, {})
             if not isinstance(g,dict):
                 return False
@@ -189,6 +200,29 @@ class ControlV2:
                     g.get('ready') is not True or g.get('blockers') != []):
                 return False
         return True
+
+    def preset_status(self):
+        output = self.core.output
+        runtime = getattr(output, 'runtime_state', None) or {}
+        if not isinstance(runtime, dict):
+            runtime = {}
+        states = runtime.get('groups')
+        states = states if isinstance(states, dict) else {}
+        diagnostics = runtime.get('diagnostics')
+        diagnostics = diagnostics if isinstance(diagnostics, dict) else {}
+        diagnostics = diagnostics.get('groups')
+        diagnostics = diagnostics if isinstance(diagnostics, dict) else {}
+        at = getattr(output, 'runtime_received', None)
+        fresh = at is not None and self.clock() - at < self.RUNTIME_SEC
+        return dict(selected_presets=self.selected_presets(),
+                    selected_groups=preset_groups(self.selected_presets()),
+                    runtime_fresh=fresh,
+                    presets={p: dict(**definition, selected=p in self.selected_presets(),
+                        motion_permitted=self.permission([p]),
+                        states={g: states.get(g, 'Unknown') for g in definition['groups']},
+                        diagnostics={g: diagnostics.get(g, {})
+                                     for g in definition['groups']})
+                        for p, definition in PRESETS.items()})
 
     def _input(self, m):
         keyboard, gamepad = m.get('keyboard', {}), m.get('gamepad', {})
@@ -240,8 +274,14 @@ class ControlV2:
                 raise Rejected('ALREADY_NEGOTIATED')
             if m.get('robot_id') != self.core.robot_id or m.get('role') not in ('control','monitor'):
                 raise Rejected('IDENTITY_ROLE')
-            if not isinstance(m.get('capabilities'), list) or not set(CAPABILITIES) <= set(m['capabilities']):
+            if (not isinstance(m.get('capabilities'), list) or
+                    any(not isinstance(c, str) for c in m['capabilities']) or
+                    not set(CAPABILITIES) <= set(m['capabilities'])):
                 raise Rejected('CAPABILITIES')
+            preset_aware = PRESET_CAPABILITY in m['capabilities']
+            if 'presets' in m and not preset_aware:
+                raise Rejected('CAPABILITIES')
+            presets = self.parse_presets(m.get('presets', sorted(PRESETS)))
             if len(self.sessions) >= 16:
                 raise Rejected('BUSY')
             if m['role'] == 'control' and self.owner is not None:
@@ -251,13 +291,15 @@ class ControlV2:
                 self._revoke('lease_expired')
                 self.owner = None
             s = dict(session_id=secrets.token_urlsafe(24), role=m['role'], lease_until=0, tokens={}, seq=0,
-                     authorized=False, operations_authorized=False, neutral_at=None)
+                     authorized=False, operations_authorized=False, neutral_at=None,
+                     presets=presets, preset_aware=preset_aware)
             self.sessions[connection] = s
             if s['role'] == 'control':
                 self.owner = connection
                 self._revoke('acquired')
             result = dict(session_id=s['session_id'], epoch=self.epoch, robot_id=self.core.robot_id,
-                          capabilities=CAPABILITIES, role=s['role'], build_version=BUILD, authorized=False)
+                          capabilities=SUPPORTED_CAPABILITIES, role=s['role'], build_version=BUILD, authorized=False,
+                          **self.preset_status())
             if s['role'] == 'control':
                 result.update(self._token(s))
             return result
@@ -267,7 +309,9 @@ class ControlV2:
                 raise Rejected('SESSION')
             return dict(epoch=self.epoch, counts=dict(self.counts), motion_permitted=self.permission(),
                         emergency_active=self.core.state.emergency_active, queue_depth=self.jobs.qsize(), safety_halt=self.safety_status,
-                        authorized=self.sessions[connection]['authorized'])
+                        authorized=self.sessions[connection]['authorized'],
+                        operations_authorized=self.sessions[connection]['operations_authorized'],
+                        **self.preset_status())
         if kind == 'operation_query':
             self._session(connection, m, False)
             op = self.operations.get(m.get('operation_id'))
@@ -282,6 +326,32 @@ class ControlV2:
             self._session(connection, m)
             return self._submit(connection, m)
         s, deadline = self._fresh(connection, m)
+        if kind == 'select_presets':
+            if not s['preset_aware']:
+                raise Rejected('CAPABILITIES')
+            presets = self.parse_presets(m.get('presets'))
+            if s['neutral_at'] is None or self.clock()-s['neutral_at'] >= .300:
+                raise Rejected('NEUTRAL_REQUIRED')
+            if any(op.get('state') in ('accepted', 'running') for op in self.operations.values()):
+                raise Rejected('OPERATIONS_BUSY')
+            # Removal is explicit: halt the removed presets and observe fresh state first.
+            removed = set(preset_groups(s['presets'])) - set(preset_groups(presets))
+            if removed:
+                runtime = getattr(self.core.output, 'runtime_state', None) or {}
+                at = getattr(self.core.output, 'runtime_received', None)
+                diagnostics = runtime.get('diagnostics', {})
+                if (at is None or self.clock()-at >= self.RUNTIME_SEC or
+                        diagnostics.get('readable') is not True or
+                        any(runtime.get('groups', {}).get(g) not in ('Stopped', 'Halted') or
+                            diagnostics.get('groups', {}).get(g, {}).get('state') not in (0, 3)
+                            for g in removed)):
+                    raise Rejected('HALT_REMOVED_PRESETS')
+            # Selection never starts hardware. Existing healthy groups may remain Running,
+            # but old input/authorization and queued requests cannot carry into the new selection.
+            self._revoke('preset_selection', halt=False)
+            s['presets'] = presets
+            self.epoch = str(uuid.uuid4())
+            return dict(epoch=self.epoch, authorized=False, operations_authorized=False, **self.preset_status())
         if kind == 'operator_input':
             neutral = self._input(m)
             if neutral:
@@ -304,6 +374,8 @@ class ControlV2:
             s['operations_authorized'] = True
             return dict(operations_authorized=True, authorized=s['authorized'])
         if kind == 'authorize':
+            if any(op.get('state') in ('accepted', 'running') for op in self.operations.values()):
+                raise Rejected('OPERATIONS_BUSY')
             if s['neutral_at'] is None or self.clock()-s['neutral_at'] >= .300:
                 raise Rejected('NEUTRAL_REQUIRED')
             if self.core.state.emergency_active or not self.permission():
@@ -365,6 +437,22 @@ class ControlV2:
             # Arbitrary named services and implicit input-edge operations are excluded.
             if m['type'] == 'system_command' and m.get('command') not in self.core.LIFECYCLE_COMMANDS | {'set_control_mode','request_arm_named_targets','move_arm_named_target'}:
                 raise Rejected('COMMAND')
+            s = self.sessions[connection]
+            params = m.get('params', {})
+            if s['preset_aware'] and m.get('command') in self.core.LIFECYCLE_COMMANDS and set(params) - {'presets'}:
+                raise Rejected('PARAMS')
+            if 'presets' in params:
+                if not s['preset_aware'] or m.get('command') not in self.core.LIFECYCLE_COMMANDS:
+                    raise Rejected('PARAMS')
+                targets = self.parse_presets(params['presets'])
+                if not set(targets) <= set(s['presets']):
+                    raise Rejected('PRESET_NOT_SELECTED')
+            if m.get('command') in ('move_arm_named_target', 'request_arm_named_targets') and 'arm' not in s['presets']:
+                raise Rejected('PRESET_NOT_SELECTED')
+            if (m.get('command') == 'set_control_mode' and
+                    self.core.normalize_mode(str(params.get('mode', ''))) == self.core.MODE_ARM and
+                    'arm' not in s['presets']):
+                raise Rejected('PRESET_NOT_SELECTED')
             digest = hashlib.sha256(json.dumps(payload, sort_keys=True, allow_nan=False).encode()).hexdigest()
             if rid in self.requests:
                 old_digest, oid = self.requests[rid]
@@ -388,6 +476,9 @@ class ControlV2:
                 oid = str(uuid.uuid4())
                 op = dict(operation_id=oid, request_id=rid, robot_id=self.core.robot_id, command=m.get('command'), state='accepted', error=None, created_at=now,
                           epoch=self.epoch, authorization_generation=s.get('authorization_generation',0), invalidated=False, result=None)
+                op['presets'] = list(params.get('presets', s['presets']))
+                op['groups'] = preset_groups(op['presets'])
+                op['preset_aware'] = s['preset_aware']
                 self.operations[oid] = op
                 self.requests[rid] = [digest, oid]
                 self.reserved_waiting += 1
@@ -424,6 +515,27 @@ class ControlV2:
         if self.core.state.emergency_active and m.get('command') not in ('halt','disable','shutdown'):
             raise Rejected('EMERGENCY_ACTIVE')
 
+    def _execute(self, op, m):
+        command = m.get('command')
+        if m['type'] == 'system_command' and op['preset_aware']:
+            if command in self.core.LIFECYCLE_COMMANDS:
+                result = self.core.output.call_group_operation('halt' if command == 'disable' else command, op['groups'])
+                return [dict(result, presets=op['presets'], requested_groups=op['groups'])]
+            if command == 'set_control_mode':
+                mode = self.core.normalize_mode(str(m.get('params', {}).get('mode', '')))
+                if not mode:
+                    return [dict(ok=False, message='invalid control mode')]
+                # Vehicle-only selection must not switch an unselected arm controller.
+                if 'arm' in op['presets']:
+                    ok, code, message = self.core.output.call_command_service(command, {'mode': mode})
+                    if not ok:
+                        return [dict(ok=False, code=code, message=message)]
+                with self.core.state_lock:
+                    self.core.state.control_mode = mode
+                self.core.reset_operator_input_session('set_control_mode')
+                return [dict(ok=True, mode=mode)]
+        return list(self.core.handle_message(dict(m, protocol_version=1)))
+
     def _persist_operation(self, oid):
         try:
             self._save()
@@ -457,6 +569,14 @@ class ControlV2:
                     try:self._validate_job(connection,m,deadline)
                     except Rejected as exc:op.update(state='failed',error=exc.code)
                 rejected = op['state'] != 'running'
+                if (not rejected and op['preset_aware'] and m['type'] == 'system_command' and
+                        m.get('command') in self.core.LIFECYCLE_COMMANDS | {'set_control_mode'}):
+                    # Intentional group changes pause teleoperation before runtime epochs
+                    # change. The normal permission-loss path must not halt healthy peers.
+                    s = self.sessions[connection]
+                    s.update(authorized=False, neutral_at=None)
+                    self.latest = None
+                    self.core.reset_operator_input_session('preset_operation')
             if rejected:
                 self._persist_operation(oid)
                 self.jobs.task_done()
@@ -464,8 +584,7 @@ class ControlV2:
             # No admission/watchdog lock across a ROS, action or video IPC call.
             try:
                 self.core.output.operation_context.operation_id = oid
-                request = dict(m, protocol_version=1)
-                result = list(self.core.handle_message(request))
+                result = self._execute(op, m)
                 failed = any(r.get('ok') is False or r.get('success') is False for r in result)
                 uncertain = any('timeout' in str(r).lower() or 'uncertain' in str(r).lower() for r in result)
                 if len(json.dumps(result).encode()) > 60000:
@@ -545,11 +664,15 @@ class ControlV2:
                         if self.core.state.emergency_active:
                             self.core.publish_zero('emergency_stop')
                             return
-                        self.core.publish_twist(twist)
-                        self.core.publish_servo(servo)
-                        if gripper:
+                        selected = s['presets']
+                        if 'base' in selected:
+                            self.core.publish_twist(twist)
+                        if 'arm' in selected:
+                            self.core.publish_servo(servo)
+                        if gripper and 'arm' in selected:
                             self.core.publish_gripper(gripper)
-                        self.core.publish_flipper(flipper)
+                        if 'flippers' in selected:
+                            self.core.publish_flipper(flipper)
                         self.core.state.last_operator_seq = m['seq']
                         self.core.state.last_valid_input_ms = int(now*1000)
                         s['last_input'] = now

@@ -9,10 +9,26 @@ import signal
 import time
 import tempfile
 import unittest
+from unittest.mock import patch
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from manager import Backend,Fault,identity
 
 class Tests(unittest.TestCase):
+    def test_servo_deployment_option_is_validated_and_forwarded(self):
+        with tempfile.TemporaryDirectory(prefix='robot-servo-profile-') as folder:
+            backend = Backend(dict(control_endpoint={'port':9090}), Path(folder), Path(folder))
+            backend.command = lambda args: args
+            for value in ('true', 1, None):
+                with self.assertRaises(Fault):
+                    backend.validate(dict(mode='mock', video=False, enable_servo=value))
+            for setting, expected in (({}, 'false'), ({'enable_servo':True}, 'true'), ({'enable_servo':False}, 'false')):
+                profile = dict(mode='mock', video=False, **setting)
+                backend.validate(profile)
+                with patch('manager.subprocess.Popen') as spawn:
+                    spawn.return_value.pid = os.getpid()
+                    backend.start('core', profile, 'servo-option')
+                    self.assertIn('enable_servo:='+expected, spawn.call_args.args[0])
+
     def test_invalid_device_port_release_and_paths(self):
         with tempfile.TemporaryDirectory(prefix='robot-preflight-') as folder:
             root=Path(folder)

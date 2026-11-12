@@ -176,7 +176,7 @@ class ConfigTransactions:
                             maintenance=True,stop_groups=['all'],restart=True,source='Manager.work monotonic startup health budget'),
                         'video_required':dict(type='boolean',unit=None,editable=True,depends_on='video == true when value == true',
                             maintenance=True,stop_groups=['all'],restart=True,source='Backend.required / optional video health policy')},
-                    readonly_fields=['mode','devices','baseline','video_config','build_version','profile_id','config_revision'],
+                    readonly_fields=['mode','devices','baseline','video_config','build_version','profile_id','config_revision','enable_servo'],
                     max_patches=64,max_request_bytes=49152,max_page_size=50,device_nvm=False)
             if method=='config.status':return self._status()
             if method=='config.source':
