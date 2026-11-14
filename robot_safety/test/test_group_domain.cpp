@@ -64,6 +64,59 @@ TEST_F(GroupDomain, BaseCanStartWithoutPreparingOtherAxes) {
   EXPECT_FALSE(d.arm("arm")); EXPECT_FALSE(d.arm("flippers")); EXPECT_FALSE(d.arm("gripper"));
   EXPECT_NE(d.group("arm").state, D::State::Running);
 }
+TEST_F(GroupDomain, IndependentBaseNeedsNoOtherAxesOrSyntheticConditions) {
+  d.configure(axes, {}, "group-policy-v2");
+  d.reportAxis("left", true); d.reportAxis("right", true);
+  const auto base = start("base");
+  for (const auto & name : {"arm", "flippers", "gripper"}) {
+    EXPECT_EQ(d.group(name).state, D::State::Stopped);
+    EXPECT_FALSE(d.group(name).ready);
+  }
+  d.event(failure("shoulder")); d.event(failure("finger", "finger-fault"));
+  d.reportAxis("flipper1", false, "offline");
+  EXPECT_TRUE(d.permits("base", base)); EXPECT_EQ(d.epoch("base"), base);
+  EXPECT_TRUE(d.group("base").blockers.empty());
+  d.halt("arm"); EXPECT_TRUE(d.permits("base", base));
+}
+TEST_F(GroupDomain, IndependentFaultScopeFollowsActualBackendOwnership) {
+  d.configure(axes, {}, "group-policy-v2"); readyAll();
+  const auto base=start("base"), arm=start("arm"), flippers=start("flippers"), grip=start("gripper");
+  d.reportBackend("canopen", false, "CANopen bus offline");
+  EXPECT_TRUE(d.permits("base",base)); EXPECT_TRUE(d.permits("gripper",grip));
+  EXPECT_FALSE(d.permits("arm",arm)); EXPECT_FALSE(d.permits("flippers",flippers));
+  d.reportBackend("private", false, "private bus offline");
+  EXPECT_FALSE(d.permits("base",base)); EXPECT_FALSE(d.permits("gripper",grip));
+}
+TEST_F(GroupDomain, ExplicitPhysicalInterlocksAreIndependentFailClosedTargetGates) {
+  auto interlocks=rules; for(auto & rule:interlocks)rule.category="physical_interlock";
+  d.configure(axes, interlocks, "group-policy-v2");
+  auto spoof=failure("left","interlock:secured:base");spoof.severity=D::Severity::Warn;
+  EXPECT_THROW(d.event(spoof),std::invalid_argument);
+  d.reportAxis("left",true);d.reportAxis("right",true);
+  EXPECT_FALSE(d.arm("base")); // Configured interlocks require real evidence.
+  d.condition("secured",D::Evidence::Satisfied,"brake",now+100);
+  d.condition("supported",D::Evidence::Satisfied,"support",now+100);
+  const auto base=start("base");
+  // Gripper is unknown, arm remains unavailable; neither changes the base gate.
+  d.event(failure("finger"));d.event(failure("shoulder","shoulder-fault"));
+  EXPECT_TRUE(d.permits("base",base));
+  d.condition("supported",D::Evidence::Unsatisfied,"support",now+100);
+  EXPECT_FALSE(d.permits("base",base));
+  d.condition("supported",D::Evidence::Satisfied,"support",now+100);
+  const auto renewed=start("base");
+  now+=100;EXPECT_FALSE(d.permits("base",renewed));
+  d.condition("secured",D::Evidence::Satisfied,"brake",now+100);
+  d.condition("supported",D::Evidence::Satisfied,"support",now+100);
+  EXPECT_FALSE(d.permits("base",renewed)); // Explicit re-arm/start still required.
+}
+TEST_F(GroupDomain, IndependentGroupsStillObeyGlobalEmergency) {
+  d.configure(axes, {}, "group-policy-v2");readyAll();
+  const auto base=start("base"), arm=start("arm");
+  d.globalStop("operator emergency");
+  EXPECT_FALSE(d.permits("base",base));EXPECT_FALSE(d.permits("arm",arm));
+  EXPECT_FALSE(d.arm("base"));ASSERT_TRUE(d.resetGlobalStop());
+  EXPECT_FALSE(d.permits("base",base));
+}
 TEST_F(GroupDomain, OneTrackFailureStopsBothTracksAndPreservesOtherSessions) {
   readyAll(); auto base = start("base"), arm = start("arm"), grip = start("gripper");
   d.reportAxis("left", false, "offline");

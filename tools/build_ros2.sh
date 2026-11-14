@@ -3,6 +3,11 @@
 set -eo pipefail
 robot_source_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 robot_prefix="${1:-/tmp/robot24-ros2}"
+robot_build_workers="${ROBOT_BUILD_WORKERS:-3}"
+if [[ ! "$robot_build_workers" =~ ^[1-9][0-9]*$ ]]; then
+  echo 'ROBOT_BUILD_WORKERS must be a positive integer' >&2
+  exit 2
+fi
 source /opt/ros/humble/setup.bash
 robot_sdk_prefix="$robot_source_root/.deps/librealsense/opt/ros/humble"
 if [[ -d "$robot_sdk_prefix" ]]; then
@@ -22,4 +27,4 @@ done
 colcon --log-base "${robot_prefix}-log" build --base-paths "${robot_paths[@]}" \
   --packages-up-to "$robot_build_target" --packages-ignore lely_core_libraries \
   --build-base "${robot_prefix}-build" --install-base "${robot_prefix}-install" \
-  --parallel-workers 3 --cmake-args -DBUILD_TESTING=ON -DINSTALL_UDEV_RULES=OFF
+  --parallel-workers "$robot_build_workers" --cmake-args -DBUILD_TESTING=ON -DINSTALL_UDEV_RULES=OFF

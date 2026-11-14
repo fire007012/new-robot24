@@ -75,6 +75,12 @@ class OutputAdapter:
     def call_lifecycle(self, command: str) -> Tuple[bool, int, str]:
         raise NotImplementedError
 
+    def call_global_stop(self):
+        return False, 2302, 'independent global stop unavailable'
+
+    def reset_global_stop(self):
+        return False, 2302, 'global stop reset unavailable'
+
     def call_group_operation(self, command, groups):
         return dict(success=False, message='group operations unavailable', operation_id='')
 
@@ -162,6 +168,12 @@ class DryRunOutput(OutputAdapter):
     def lifecycle_service_name(self, command: str) -> str:
         return f"dry-run:lifecycle/{command}"
 
+    def call_global_stop(self):
+        return True, 0, 'dry-run global stop; no hardware operated'
+
+    def reset_global_stop(self):
+        return True, 0, 'dry-run global stop reset; no hardware operated'
+
     def call_group_operation(self, command, groups):
         return dict(success=True, operation_id='', message='dry-run; no hardware operated',
                     groups=list(groups), operation=command)
@@ -235,7 +247,12 @@ class RosOutput(OutputAdapter):
         self._flipper_pub=self.node.create_publisher(JointJog,flipper_jog_topic,1)
         self.flipper_profile_service=flipper_profile_service;self.hybrid_service_ns='/robot_runtime'
         self.service_commands=service_commands or {};self.vision_detection_service=vision_detection_service
-        self.clients={};self.client_lock=threading.Lock();self.runtime_reset_callback=None;self.epoch=None
+        # Discover the short safety RPCs before the first emergency. Creating a
+        # client only when its request is sent can race DDS response discovery
+        # for an immediate C++ reply, leaving an applied stop unconfirmed.
+        self.clients={path:self.node.create_client(Trigger,path) for path in (
+            '/robot_runtime/global_stop','/robot_runtime/reset_global_stop','/robot_runtime/halt')}
+        self.client_lock=threading.Lock();self.runtime_reset_callback=None;self.epoch=None
         self.runtime_state=None;self.runtime_received=None
         self._arm_type=ExecuteArmGoal;self.arm=ActionClient(self.node,ExecuteArmGoal,'/arm_control/execute_goal')
         self.node.create_subscription(String,'/robot_runtime/state',self.state,1)
@@ -246,9 +263,18 @@ class RosOutput(OutputAdapter):
             state=json.loads(message.data)
             if not isinstance(state,dict):
                 self.runtime_state=None;return
-            epoch=json.dumps([state.get('groups',{}),state.get('input_epochs',{})],sort_keys=True)
+            previous=getattr(self,'runtime_state',None) or {}
+            epoch=json.dumps([state.get('groups',{}),state.get('input_epochs',{}),
+                              {k:state.get('diagnostics',{}).get(k) for k in
+                               ('global_inhibit','owner_fresh','configuration_version')}],sort_keys=True)
             self.runtime_state=state;self.runtime_received=time.monotonic()
-            if epoch!=self.epoch and self.runtime_reset_callback:self.runtime_reset_callback('runtime_epoch')
+            if epoch!=self.epoch and self.runtime_reset_callback:
+                changed={g for key in ('groups','input_epochs')
+                         for g in set(previous.get(key,{})) | set(state.get(key,{}))
+                         if previous.get(key,{}).get(g)!=state.get(key,{}).get(g)}
+                global_change=any(previous.get('diagnostics',{}).get(k)!=state.get('diagnostics',{}).get(k)
+                                  for k in ('global_inhibit','owner_fresh','configuration_version'))
+                self.runtime_reset_callback(dict(type='runtime_epoch',groups=sorted(changed),global_change=global_change))
             self.epoch=epoch
         except ValueError:pass
 
@@ -301,6 +327,13 @@ class RosOutput(OutputAdapter):
         except Exception as error:return False,2301,str(error),{'service_unavailable':True}
     def call_lifecycle(self,command):
         return self._call_trigger_service(self.lifecycle_service_name(command))
+
+    def call_global_stop(self):
+        # Independent C++ guard: never route an emergency through Python group locks.
+        return self._call_trigger_service('/robot_runtime/global_stop')
+
+    def reset_global_stop(self):
+        return self._call_trigger_service('/robot_runtime/reset_global_stop')
 
     def call_group_operation(self, command, groups):
         from robot_hardware.srv import GroupOperation

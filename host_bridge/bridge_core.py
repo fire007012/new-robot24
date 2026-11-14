@@ -199,6 +199,13 @@ class BridgeCore:
             "control_protocol_version": 2,
             "control_capabilities": __import__("control_v2").SUPPORTED_CAPABILITIES,
             "motion_presets": __import__("motion_presets").PRESETS,
+            "speed_control": {
+                "command": "set_speed_level", "parameter": "level", "levels": [1,2,3,4,5],
+                "neutral_required": True, "reauthorize_required": True,
+                "base_linear_m_s": dict(self.base_linear), "base_angular_rad_s": dict(self.base_angular),
+                "arm_linear_m_s": dict(self.arm_linear), "arm_angular_rad_s": dict(self.arm_angular),
+                "gripper_m_s": dict(self.gripper_rates), "flipper_rad_s": dict(self.flipper_velocities),
+            },
             "legacy_control_allowed": False,
             "max_frame_bytes": MAX_FRAME_BYTES,
             "watchdog_ms": self.watchdog_ms,
@@ -206,9 +213,9 @@ class BridgeCore:
             "keyboard_service_bindings": dict(self.keyboard_service_bindings),
             "gamepad_service_bindings": dict(self.gamepad_service_bindings),
             "keyboard_mapping": {
-                "mode_switch": "1 or gamepad menu/options/start",
-                "emergency": "space or gamepad l3+r3",
-                "speed_levels": {"6": 1, "7": 2, "8": 3, "9": 4, "0": 5},
+                "mode_switch": "system_command set_control_mode",
+                "emergency": "emergency_stop (client translates space or l3+r3)",
+                "speed_levels": "system_command set_speed_level, params.level=1..5",
                 "vehicle": {
                     "linear_x": {"positive": "w", "negative": "s"},
                     "angular_z": {"positive": "a", "negative": "d"},

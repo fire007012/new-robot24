@@ -42,6 +42,9 @@ def main():
         calls.append(('halt',time.monotonic()));response.success=True;response.message='mock halted';return response
     node.create_service(Trigger,'/p0_mock/init',slow,callback_group=group)
     node.create_service(Trigger,'/p0_mock/halt',halt,callback_group=group)
+    def global_stop(request,response):
+        calls.append(('global_stop',time.monotonic()));response.success=True;response.message='mock C++ gate latched';return response
+    node.create_service(Trigger,'/robot_runtime/global_stop',global_stop,callback_group=group)
     node.create_subscription(Twist,'/p0_mock/cmd_vel',lambda msg:observed.append((time.monotonic(),msg.linear.x)),100,callback_group=group)
     groups=('base','arm','flippers','gripper')
     state=dict(groups={g:'Running' for g in groups},input_epochs={g:1 for g in groups},diagnostics=dict(
@@ -92,8 +95,8 @@ def main():
             if i==15:
                 estop_begin=time.monotonic();call('emergency_stop')
                 halt_until=time.monotonic()+1
-                while not any(name=='halt' and at>=estop_begin for name,at in calls):
-                    assert time.monotonic()<halt_until,'independent ROS halt stalled during init';time.sleep(.01)
+                while not any(name=='global_stop' and at>=estop_begin for name,at in calls):
+                    assert time.monotonic()<halt_until,'independent ROS global stop stalled during init';time.sleep(.01)
             max_roundtrip=max(max_roundtrip,time.monotonic()-started)
             time.sleep(.1)
         assert finished.wait(2)

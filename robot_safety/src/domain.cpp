@@ -42,6 +42,8 @@ void Domain::configure(const std::map<std::string, Axis> & axes,
   if (present != names) throw std::invalid_argument("all four groups must have axes");
   std::set<std::string> seen;
   for (const auto & rule : rules) {
+    if (version == "group-policy-v2" && rule.category != "physical_interlock")
+      throw std::invalid_argument("v2 associations must be explicit physical interlocks");
     if (!names.count(rule.source_group) || !names.count(rule.dependent_group) ||
         rule.source_group == rule.dependent_group || rule.category.empty() ||
         rule.condition.empty() || rule.source.empty() ||
@@ -86,6 +88,9 @@ std::set<std::string> Domain::scope(const Event & event) const {
     if (result.empty())
       for (const auto & axis : axes_) if (axis.second.backend == event.backend) result.insert(axis.second.group);
   }
+  // v2 faults remain in their owning group/backend. Physical interlocks are
+  // evaluated directly from evidence, never inferred from another group's state.
+  if (configuration_version_ == "group-policy-v2") return result;
   bool changed = true;
   while (changed) {
     changed = false;
@@ -101,6 +106,13 @@ std::set<std::string> Domain::scope(const Event & event) const {
 std::map<std::string, std::pair<std::set<std::string>, std::string>> Domain::restrictions() const {
   std::map<std::string, std::pair<std::set<std::string>, std::string>> out;
   for (const auto & e : events_) out.emplace(e.first, std::make_pair(scope(e.second), e.second.reason));
+  if (configuration_version_ == "group-policy-v2") {
+    for (const auto & rule : associations_) if (!conditionSatisfied(rule))
+      out.emplace("interlock:" + rule.condition + ":" + rule.dependent_group,
+        std::make_pair(std::set<std::string>{rule.dependent_group},
+          "physical interlock " + rule.condition + " unknown, unsatisfied or expired"));
+    return out;
+  }
   // No report is unknown readiness, not evidence of a mechanically safe inactive axis.
   // This only restricts dependent groups; the unprepared source keeps its startup state.
   for (const auto & g : groups_) if (!g.second.ready) {
@@ -187,7 +199,8 @@ void Domain::event(const Event & value) {
   }
   if (e.timestamp_ns < 0) throw std::invalid_argument("invalid event timestamp");
   if (e.id.rfind("readiness:", 0) == 0 || e.id.rfind("backend:", 0) == 0 ||
-      e.id.rfind("unavailable:", 0) == 0 || e.id.rfind("warning:", 0) == 0)
+      e.id.rfind("unavailable:", 0) == 0 || e.id.rfind("warning:", 0) == 0 ||
+      e.id.rfind("interlock:", 0) == 0)
     throw std::invalid_argument("reserved internal event namespace");
   if (e.id.empty() || e.reason.empty()) throw std::invalid_argument("event id/reason required");
   if (!e.axis.empty()) {

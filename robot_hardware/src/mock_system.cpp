@@ -4,6 +4,7 @@
 #include "pluginlib/class_list_macros.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "robot_safety/domain.hpp"
+#include "robot_safety/policy.hpp"
 #include "robot_safety/runtime.hpp"
 #include "robot_safety/axis_session.hpp"
 #include "std_srvs/srv/trigger.hpp"
@@ -118,7 +119,13 @@ public:
    if(info_.name=="CanDriverSystem") {
     const std::map<std::string,std::string> sources{{"arm_secured","commissioned_arm_pose_and_brake"},
      {"support_trusted","commissioned_support_state"},{"payload_retained","commissioned_payload_state"}};
+    const auto policy=robot_safety::Policy::load(info_.hardware_parameters.at("group_policy"));
     for(const auto & entry:sources) {
+     bool configured=false;
+     for(const auto & rule:policy.associations)
+      if(rule.condition==entry.first && rule.source==entry.second)configured=true;
+     if(!configured)continue;
+     // Explicit test fixture only. Startup never asserts physical evidence.
      auto trusted=std::make_shared<std::atomic<bool>>(false);
      services_.push_back(node_->create_service<std_srvs::srv::SetBool>("/mock/conditions/"+entry.first,
       [this,trusted,entry](const std::shared_ptr<std_srvs::srv::SetBool::Request> request,std::shared_ptr<std_srvs::srv::SetBool::Response> response) {

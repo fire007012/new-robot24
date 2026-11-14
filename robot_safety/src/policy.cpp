@@ -18,7 +18,8 @@ void unique(const YAML::Node & node) {
 Policy Policy::load(const std::string & path) {
   auto root = YAML::LoadFile(path); unique(root); Policy out;
   out.version = root["version"].as<std::string>();
-  if (out.version != "group-policy-v1") throw std::invalid_argument("unsupported group policy version");
+  if (out.version != "group-policy-v1" && out.version != "group-policy-v2")
+    throw std::invalid_argument("unsupported group policy version");
   const std::set<std::string> groups{"arm", "flippers", "base", "gripper"};
   std::set<std::string> owners;
   for (const auto & entry : root["axes"]) {
@@ -49,6 +50,8 @@ Policy Policy::load(const std::string & path) {
       entry["dependent_group"].as<std::string>(), entry["condition"].as<std::string>(), entry["source"].as<std::string>()};
     if (entry["unknown"].as<std::string>() != "block" || !root["conditions"][a.condition])
       throw std::invalid_argument("association must block unknown evidence");
+    if (out.version == "group-policy-v2" && a.category != "physical_interlock")
+      throw std::invalid_argument("v2 only permits explicit physical interlocks");
     out.associations.push_back(a);
   }
   const std::map<std::string, std::string> ownership{
@@ -65,7 +68,7 @@ Policy Policy::load(const std::string & path) {
     if (actual.group != axis.second || actual.backend != expected_backend)
       throw std::invalid_argument("v1 axis/group/backend ownership mismatch: " + axis.first);
   }
-  for (const auto & required : std::vector<Domain::Association>{
+  if (out.version == "group-policy-v1") for (const auto & required : std::vector<Domain::Association>{
       {"arm","*","base","arm_secured","commissioned_arm_pose_and_brake"},
       {"flippers","*","base","support_trusted","commissioned_support_state"},
       {"gripper","*","arm","payload_retained","commissioned_payload_state"}}) {

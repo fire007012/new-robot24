@@ -234,6 +234,35 @@ class Tests(unittest.TestCase):
             op = self.wait_op(self.call('system_command', command='set_control_mode', request_id='mode', params={'mode':'vehicle'}))
         self.assertEqual(op['state'], 'succeeded')
 
+    def test_unselected_fault_epoch_does_not_revoke_base_authorization(self):
+        self.hello(['base']);self.authorize()
+        epoch=self.c.epoch
+        for group in ('arm','flippers','gripper'):
+            self.output.runtime_state['groups'][group]='Fault'
+            self.c.runtime_changed(dict(type='runtime_epoch',groups=[group],global_change=False))
+            self.assertEqual(self.c.epoch,epoch)
+            self.assertTrue(self.c.sessions['owner']['authorized'])
+            self.assertTrue(self.c.permission())
+        self.c.runtime_changed(dict(type='runtime_epoch',groups=['base'],global_change=False))
+        self.assertNotEqual(self.c.epoch,epoch)
+        self.assertFalse(self.c.sessions['owner']['authorized'])
+
+    def test_global_epoch_change_still_revokes_independent_base(self):
+        self.hello(['base']);self.authorize();epoch=self.c.epoch
+        self.c.runtime_changed(dict(type='runtime_epoch',groups=[],global_change=True))
+        self.assertNotEqual(self.c.epoch,epoch)
+        self.assertFalse(self.c.sessions['owner']['authorized'])
+
+    def test_selected_group_fault_revokes_input_without_globally_halting_peer(self):
+        self.hello(['base','flippers']);self.authorize()
+        self.output.runtime_state['groups']['flippers']='Fault'
+        with patch.object(self.c,'_queue_halt') as halt:
+            self.c.tick()  # Also cover observation before the epoch callback.
+            self.c.runtime_changed(dict(type='runtime_epoch',groups=['flippers'],global_change=False))
+            halt.assert_not_called()
+        self.assertFalse(self.c.sessions['owner']['authorized'])
+        self.assertEqual(self.output.runtime_state['groups']['base'],'Running')
+
     def test_group_transition_does_not_globally_halt_healthy_peer(self):
         self.hello(['base','flippers'])
         self.authorize()

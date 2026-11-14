@@ -56,6 +56,17 @@ class Tests(unittest.TestCase):
             self.assertFalse(self.m.data['resources'])
         self.assertEqual(len(self.backend.started),40)
         self.assertEqual(self.backend.stopped,['halt','bridge','core']*20)
+
+    def test_requested_selection_is_validated_and_persisted_without_changing_profile(self):
+        args=dict(robot_id='robot24',profile_id='mock',config_revision='1')
+        for selection in ([],['unknown'],['base','base'],None):
+            with self.assertRaises(Fault):self.call('preflight',**args,presets=selection)
+        self.call('start',**args,presets=['base'])
+        self.assertEqual(self.done()['state'],'succeeded')
+        self.assertEqual(self.m.data['profile']['requested_presets'],['base'])
+        deployed=json.loads((self.root/'profiles/mock.json').read_text())
+        self.assertNotIn('requested_presets',deployed)
+        self.call('stop');self.done()
     def test_parallel_and_replay(self):
         self.backend.wait=.2
         with concurrent.futures.ThreadPoolExecutor(8) as pool:

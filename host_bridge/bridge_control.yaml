@@ -28,7 +28,7 @@ host_bridge_node:
   angular_speed: 1.5
 
   # 开机默认速度档位
-  default_speed_level: 3
+  default_speed_level: 1
 
   # 翻转臂 jog 持续时间与 profile 重试周期
   flipper_jog_duration: 0.15
@@ -56,19 +56,20 @@ host_bridge_node:
     4: 0.8
     5: 1.5
 
-  # MoveIt Servo 桥接输出档位，单位分别为 m/s 与 rad/s
+  # MoveIt Servo 桥接输出档位，单位分别为 m/s 与 rad/s。
+  # 来源：reference/ros1/car_control/config/keyboard_teleop.yaml，已由用户确认可用。
   arm_linear_levels:
-    1: 0.4
-    2: 0.8
-    3: 1.2
-    4: 1.6
-    5: 2.0
+    1: 0.04
+    2: 0.08
+    3: 0.10
+    4: 0.125
+    5: 0.15
   arm_angular_levels:
-    1: 1.2
-    2: 2.4
-    3: 4.0
-    4: 6.0
-    5: 9.0
+    1: 0.2
+    2: 0.4
+    3: 0.55
+    4: 0.7
+    5: 0.8
 
   # MoveIt Servo 角速度方向修正系数，按 x/y/z 生效。
   # bridge 会先生成逻辑方向，再乘上这里的系数修正到实际笛卡尔映射方向。

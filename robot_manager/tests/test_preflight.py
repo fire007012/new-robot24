@@ -14,6 +14,21 @@ sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from manager import Backend,Fault,identity
 
 class Tests(unittest.TestCase):
+    def test_removed_safe_posture_option_is_rejected_and_never_forwarded(self):
+        with tempfile.TemporaryDirectory() as folder:
+            backend=Backend(dict(control_endpoint={'port':9090}),Path(folder),Path(folder))
+            backend.command=lambda args:args
+            for value in (True,False,'true',1,None):
+                with self.assertRaises(Fault):backend.validate(dict(mode='mock',video=False,mock_safe_posture=value))
+            with self.assertRaises(Fault) as error:
+                backend.validate(dict(mode='hardware',video=False,mock_safe_posture=True))
+            self.assertIn('mock_safe_posture',str(error.exception))
+            profile=dict(mode='mock',video=False)
+            backend.validate(profile)
+            with patch('manager.subprocess.Popen') as spawn:
+                spawn.return_value.pid=os.getpid();backend.start('core',profile,'mock-posture')
+                self.assertFalse(any('mock_safe_posture' in arg for arg in spawn.call_args.args[0]))
+
     def test_servo_deployment_option_is_validated_and_forwarded(self):
         with tempfile.TemporaryDirectory(prefix='robot-servo-profile-') as folder:
             backend = Backend(dict(control_endpoint={'port':9090}), Path(folder), Path(folder))

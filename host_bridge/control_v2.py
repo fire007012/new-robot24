@@ -14,8 +14,8 @@ from motion_presets import CAPABILITY as PRESET_CAPABILITY, PRESETS, groups as p
 
 CAPABILITIES = ['session_v2', 'freshness_v2', 'explicit_authorization',
                 'bounded_operations', 'isolated_output', 'runtime_permission']
-BUILD = 'robot24-motion-presets-1'
-SUPPORTED_CAPABILITIES = CAPABILITIES + [PRESET_CAPABILITY]
+BUILD = 'robot24-field-control-2'
+SUPPORTED_CAPABILITIES = CAPABILITIES + [PRESET_CAPABILITY, 'speed_level_v1', 'latched_global_stop_v1']
 
 
 class Rejected(Exception):
@@ -51,7 +51,9 @@ class ControlV2:
         self.operations, self.requests = {}, {}
         self.jobs = queue.Queue(16)
         self.safety = queue.Queue(1)
+        self.global_safety = queue.Queue(1)
         self.safety_status = dict(state='idle',physical_stop_confirmed=False)
+        self.global_stop_status = dict(state='idle',physical_stop_confirmed=False)
         self.closed = threading.Event()
         self.path = None
         self.journal_lock = None
@@ -79,12 +81,17 @@ class ControlV2:
         self.worker.start()
         self.safety_worker = threading.Thread(target=self._safety_work, daemon=True)
         self.safety_worker.start()
+        self.global_safety_worker = threading.Thread(target=self._global_safety_work, daemon=True)
+        self.global_safety_worker.start()
+        if self.core.state.emergency_active:
+            self._queue_global_stop()
 
     def close(self):
         self.closed.set()
         self.worker.join(1)
         self.safety_worker.join(1)
-        if self.journal_lock and not self.worker.is_alive() and not self.safety_worker.is_alive() and not self.reserved_waiting and not self.disk_lock.locked():
+        self.global_safety_worker.join(1)
+        if self.journal_lock and not any(t.is_alive() for t in (self.worker,self.safety_worker,self.global_safety_worker)) and not self.reserved_waiting and not self.disk_lock.locked():
             self.journal_lock.close()
             self.journal_lock = None
 
@@ -125,8 +132,21 @@ class ControlV2:
 
     def runtime_changed(self, reason='runtime_epoch'):
         with self.lock:
+            halt=True
+            if isinstance(reason,dict) and reason.get('type')=='runtime_epoch':
+                if (not reason.get('global_change') and
+                        not set(reason.get('groups',[])) & set(preset_groups(self.selected_presets()))):
+                    return  # An unrelated group's epoch must not revoke this owner.
+                halt=bool(reason.get('global_change'))
+                reason='runtime_epoch'
             self.epoch = str(uuid.uuid4())
-            self._revoke(reason)
+            self._revoke(reason,halt=halt)
+
+    def _runtime_observation_fresh(self):
+        at=getattr(self.core.output,'runtime_received',None)
+        value=getattr(self.core.output,'runtime_state',None)
+        return (at is not None and self.clock()-at < self.RUNTIME_SEC and isinstance(value,dict)
+                and value.get('diagnostics',{}).get('readable') is True)
 
     def disconnect(self, connection):
         with self.lock:
@@ -210,13 +230,27 @@ class ControlV2:
         states = states if isinstance(states, dict) else {}
         diagnostics = runtime.get('diagnostics')
         diagnostics = diagnostics if isinstance(diagnostics, dict) else {}
+        associations = diagnostics.get('associations', [])
+        associations = associations if isinstance(associations, list) else []
+        readable = diagnostics.get('readable') is True
         diagnostics = diagnostics.get('groups')
         diagnostics = diagnostics if isinstance(diagnostics, dict) else {}
         at = getattr(output, 'runtime_received', None)
         fresh = at is not None and self.clock() - at < self.RUNTIME_SEC
+        def condition_status(a):
+            if not fresh or not readable: return 'stale'
+            if a.get('evidence',0) and a.get('valid_until_ns',0) <= self.clock()*1e9: return 'expired'
+            if a.get('satisfied') is True: return 'satisfied'
+            return 'unsatisfied' if a.get('evidence') == 2 else 'unknown'
         return dict(selected_presets=self.selected_presets(),
                     selected_groups=preset_groups(self.selected_presets()),
                     runtime_fresh=fresh,
+                    safety_conditions=[dict(
+                        condition=a.get('condition'), source_group=a.get('source_group'),
+                        dependent_group=a.get('dependent_group'), required_source=a.get('required_source'),
+                        status=condition_status(a), satisfied=condition_status(a)=='satisfied')
+                        for a in associations
+                        if isinstance(a,dict)],
                     presets={p: dict(**definition, selected=p in self.selected_presets(),
                         motion_permitted=self.permission([p]),
                         states={g: states.get(g, 'Unknown') for g in definition['groups']},
@@ -224,10 +258,26 @@ class ControlV2:
                                      for g in definition['groups']})
                         for p, definition in PRESETS.items()})
 
+    def reset_ready(self):
+        value = getattr(self.core.output, 'runtime_state', None) or {}
+        at = getattr(self.core.output, 'runtime_received', None)
+        diagnostics = value.get('diagnostics', {})
+        groups = diagnostics.get('groups', {})
+        return (at is not None and self.clock()-at < self.RUNTIME_SEC and
+                diagnostics.get('readable') is True and diagnostics.get('owner_fresh') is True and
+                diagnostics.get('global_inhibit') is True and
+                set(groups) == {'arm','base','flippers','gripper'} and
+                all(g.get('state') in (0,3) for g in groups.values()) and
+                self.global_stop_status['state'] not in ('pending','running') and self.global_safety.empty() and
+                self.safety_status['state'] not in ('pending','running') and self.safety.empty() and
+                not any(o.get('state') == 'in_progress' for o in value.get('operations',{}).values()))
+
     def _input(self, m):
         keyboard, gamepad = m.get('keyboard', {}), m.get('gamepad', {})
         if not isinstance(keyboard, dict) or not isinstance(gamepad, dict):
             raise Rejected('INPUT_SCHEMA')
+        if 'speed_level' in m or 'speed_level' in keyboard or 'speed_level' in gamepad:
+            raise Rejected('USE_SET_SPEED_LEVEL')
         keys = keyboard.get('pressed_keys', [])
         if not isinstance(keys, list) or any(not isinstance(k, str) or k not in self.MOTION_KEYS for k in keys):
             raise Rejected('INPUT_KEYS')
@@ -249,7 +299,7 @@ class ControlV2:
         if m.get('type') == 'emergency_stop':
             self.emergency()
             return dict(type='control_result',protocol_version=2,request_id=m.get('request_id'),seq=m.get('seq'),ok=True,
-                        result=dict(emergency_active=True,physical_stop_confirmed=False))
+                        result=dict(emergency_active=True,global_stop_requested=True,physical_stop_confirmed=False))
         try:
             if m.get('protocol_version') == 2 and m.get('type') in ('system_command','camera_stream_request'):
                 result = self._submit(connection, m)
@@ -266,7 +316,7 @@ class ControlV2:
         kind = m.get('type')
         if kind == 'emergency_stop':
             self.emergency()
-            return dict(emergency_active=True, physical_stop_confirmed=False)
+            return dict(emergency_active=True, global_stop_requested=True, physical_stop_confirmed=False)
         if m.get('protocol_version') != 2:
             raise Rejected('UPGRADE_REQUIRED')
         if kind == 'control_hello':
@@ -309,6 +359,9 @@ class ControlV2:
                 raise Rejected('SESSION')
             return dict(epoch=self.epoch, counts=dict(self.counts), motion_permitted=self.permission(),
                         emergency_active=self.core.state.emergency_active, queue_depth=self.jobs.qsize(), safety_halt=self.safety_status,
+                        global_stop=copy.deepcopy(self.global_stop_status), speed_level=self.core.state.speed_level,
+                        global_stop_reset_ready=self.reset_ready(),
+                        runtime_global_inhibit=(getattr(self.core.output,'runtime_state',None) or {}).get('diagnostics',{}).get('global_inhibit'),
                         authorized=self.sessions[connection]['authorized'],
                         operations_authorized=self.sessions[connection]['operations_authorized'],
                         **self.preset_status())
@@ -362,7 +415,7 @@ class ControlV2:
                 self.core.publish_zero('neutral')
                 return dict(input_status='neutral', authorized=False)
             if not self.permission():
-                self._revoke('permission_lost')
+                self._revoke('permission_lost',halt=not self._runtime_observation_fresh())
                 raise Rejected('RUNTIME_PERMISSION')
             self.latest = (connection, copy.deepcopy(m), deadline)
             return dict(input_status='staged')
@@ -386,6 +439,8 @@ class ControlV2:
         if kind == 'clear_emergency':
             if s['neutral_at'] is None or self.clock()-s['neutral_at'] >= .300:
                 raise Rejected('NEUTRAL_REQUIRED')
+            if self.global_stop_status['state'] != 'succeeded' or not self.global_safety.empty():
+                raise Rejected('GLOBAL_STOP_UNCONFIRMED')
             self._revoke('clear_emergency')
             with self.output_lock:
                 self.emergency_pending.clear()
@@ -421,6 +476,7 @@ class ControlV2:
             self.core.state.emergency_source = 'control_v2'
             self.emergency_pending.set()
             self.core.publish_zero('emergency_stop')
+            self._queue_global_stop()
             self._queue_halt()
             self._save_latch(True)
 
@@ -435,7 +491,7 @@ class ControlV2:
             if not isinstance(m.get('params', {}), dict):
                 raise Rejected('PARAMS')
             # Arbitrary named services and implicit input-edge operations are excluded.
-            if m['type'] == 'system_command' and m.get('command') not in self.core.LIFECYCLE_COMMANDS | {'set_control_mode','request_arm_named_targets','move_arm_named_target'}:
+            if m['type'] == 'system_command' and m.get('command') not in self.core.LIFECYCLE_COMMANDS | {'set_control_mode','set_speed_level','reset_global_stop','request_arm_named_targets','move_arm_named_target'}:
                 raise Rejected('COMMAND')
             s = self.sessions[connection]
             params = m.get('params', {})
@@ -464,6 +520,19 @@ class ControlV2:
                 s, deadline = self._fresh(connection, m)
                 if not s['operations_authorized']:
                     raise Rejected('OPERATIONS_NOT_AUTHORIZED')
+                if m.get('command') in ('set_speed_level', 'reset_global_stop'):
+                    if s['neutral_at'] is None or self.clock()-s['neutral_at'] >= .300:
+                        raise Rejected('NEUTRAL_REQUIRED')
+                    if any(o['state'] in ('accepted','running') for o in self.operations.values()):
+                        raise Rejected('OPERATIONS_BUSY')
+                    if m['command'] == 'set_speed_level':
+                        if set(params) != {'level'} or type(params['level']) is not int or not 1 <= params['level'] <= 5:
+                            raise Rejected('SPEED_LEVEL')
+                    else:
+                        if params: raise Rejected('PARAMS')
+                        if self.core.state.emergency_active: raise Rejected('EMERGENCY_ACTIVE')
+                        if not self.reset_ready():
+                            raise Rejected('RUNTIME_NOT_SETTLED')
                 if m.get('command') == 'move_arm_named_target' and (not s['authorized'] or not self.permission()):
                     raise Rejected('NOT_AUTHORIZED')
                 if self.reserved_waiting >= 16:
@@ -514,9 +583,24 @@ class ControlV2:
             raise Rejected('NOT_AUTHORIZED')
         if self.core.state.emergency_active and m.get('command') not in ('halt','disable','shutdown'):
             raise Rejected('EMERGENCY_ACTIVE')
+        if m.get('command') == 'reset_global_stop' and not self.reset_ready():
+            raise Rejected('RUNTIME_NOT_SETTLED')
 
     def _execute(self, op, m):
         command = m.get('command')
+        if command == 'set_speed_level':
+            with self.lock:
+                self._revoke('speed_level', halt=False)
+                self.core.state.speed_level = m['params']['level']
+                self.epoch = str(uuid.uuid4())
+                return [dict(ok=True, speed_level=self.core.state.speed_level, epoch=self.epoch,
+                             authorized=False, operations_authorized=False)]
+        if command == 'reset_global_stop':
+            with self.lock:
+                self._revoke('reset_global_stop', halt=False)
+                self.epoch = str(uuid.uuid4())
+            ok,code,message = self.core.output.reset_global_stop()
+            return [dict(ok=ok,code=code,message=message,authorized=False)]
         if m['type'] == 'system_command' and op['preset_aware']:
             if command in self.core.LIFECYCLE_COMMANDS:
                 result = self.core.output.call_group_operation('halt' if command == 'disable' else command, op['groups'])
@@ -621,6 +705,34 @@ class ControlV2:
         except queue.Full:
             pass
 
+    def _queue_global_stop(self):
+        self.global_stop_status = dict(state='pending',physical_stop_confirmed=False)
+        try:
+            self.global_safety.put_nowait(True)
+        except queue.Full:
+            pass
+
+    def _global_safety_work(self):
+        # Separate from both ordinary operations and controller cleanup: even a hung
+        # Python halt RPC must not delay latching the C++ hardware write prohibition.
+        while not self.closed.is_set():
+            try:
+                self.global_safety.get(timeout=.1)
+            except queue.Empty:
+                continue
+            self.global_stop_status = dict(state='running',physical_stop_confirmed=False)
+            try:
+                ok,code,message = self.core.output.call_global_stop()
+                self.global_stop_status = dict(state='succeeded' if ok else 'result_unknown',
+                    ok=ok,code=code,message=message,physical_stop_confirmed=False)
+            except Exception as exc:
+                ok=False
+                self.global_stop_status = dict(state='result_unknown',error=type(exc).__name__,physical_stop_confirmed=False)
+            self.global_safety.task_done()
+            if not ok and not self.closed.wait(.1):
+                self.counts['global_stop_backend_error'] += 1
+                self._queue_global_stop()
+
     def _safety_work(self):
         while not self.closed.is_set():
             try:
@@ -648,7 +760,11 @@ class ControlV2:
                 if now >= s['lease_until']:
                     self._revoke('lease_expired')
                     self.owner = None
-                elif s['authorized'] and (not self.permission() or now - s.get('last_input', now) >= min(.500,self.core.watchdog_ms/1000)):
+                elif s['authorized'] and not self.permission():
+                    # A fresh group guard already fences the failed group. Do
+                    # not turn its local fault into a whole-vehicle halt RPC.
+                    self._revoke('permission_lost',halt=not self._runtime_observation_fresh())
+                elif s['authorized'] and now - s.get('last_input', now) >= min(.500,self.core.watchdog_ms/1000):
                     self._revoke('watchdog_or_permission')
             latest, self.latest = self.latest, None
             if latest:

@@ -446,6 +446,8 @@ class BridgeClient:
         print(f"[bridge] client connected: {self.addr}", flush=True)
         self.server.events.emit("tcp", "client connected", data={"addr": f"{self.addr[0]}:{self.addr[1]}"})
         self.conn.settimeout(1.0)
+        if self.conn.family in (socket.AF_INET, socket.AF_INET6):
+            self.conn.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
         try:
             self.writer = threading.Thread(target=self._write_loop, daemon=True)
             self.writer.start()

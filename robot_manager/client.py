@@ -22,11 +22,13 @@ if __name__ == '__main__':
     p.add_argument('--robot', default='robot24')
     p.add_argument('--profile', default='mock')
     p.add_argument('--revision', default='1')
+    p.add_argument('--presets', nargs='+', choices=['base','flippers','arm'])
     p.add_argument('--request-id')
     p.add_argument('--operation-id')
     p.add_argument('--cursor', type=int, default=0)
     args = p.parse_args()
     params = dict(robot_id=args.robot, profile_id=args.profile, config_revision=args.revision) if args.method in ('start','preflight') else {}
+    if args.presets is not None and args.method in ('start','preflight'): params['presets'] = args.presets
     if args.operation_id: params['operation_id'] = args.operation_id
     if args.method == 'logs': params['cursor'] = args.cursor
     print(json.dumps(request(args.host,args.port,Path(args.token_file).read_text().strip(),args.method,params,args.request_id),ensure_ascii=False,indent=2))

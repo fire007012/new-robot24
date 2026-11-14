@@ -78,5 +78,13 @@ class GroupContract(unittest.TestCase):
         with self.assertRaises(ValueError):
             yaml.load('axis: arm\naxis: base\n', Loader=UniqueLoader)
 
+    def test_independent_default_preserves_resources_without_assuming_physical_dependencies(self):
+        independent=yaml.load((ROOT/'robot_safety/config/group_policy_v2.yaml').read_text(),Loader=UniqueLoader)
+        self.assertEqual(independent['version'],'group-policy-v2')
+        self.assertEqual(independent['axes'],self.contract['axes'])
+        self.assertEqual(independent['groups'],self.contract['groups'])
+        self.assertEqual(independent['associations'],[])
+        self.assertEqual(independent['conditions'],{})
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

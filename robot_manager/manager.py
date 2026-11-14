@@ -18,6 +18,7 @@ import threading
 import time
 import uuid
 from config_transactions import ConfigTransactions, METHODS as CONFIG_METHODS
+from group_selection import selected_groups, required_devices
 
 VERSION = '2.0.0'
 METHODS = ['profiles', 'preflight', 'start', 'stop', 'operation', 'snapshot', 'logs'] + CONFIG_METHODS
@@ -104,6 +105,13 @@ class Manager:
         if profile['profile_id'] != name or p.get('config_revision') != profile['config_revision']:
             raise Fault('REVISION', 'config_revision mismatch')
         self.backend.validate(profile)
+        if 'presets' in p:
+            try:
+                if p['presets'] is None: raise ValueError('presets must be a non-empty list')
+                selected_groups(p['presets'])
+            except ValueError as error:
+                raise Fault('PRESETS', str(error))
+            profile['requested_presets'] = sorted(p['presets'])
         return profile
 
     def log(self, oid, line):
@@ -318,10 +326,25 @@ class Backend:
         self.children = {}
 
     def validate(self, p):
+        if 'requested_presets' in p:
+            try:
+                if p['requested_presets'] is None: raise ValueError('presets must be a non-empty list')
+                selected_groups(p['requested_presets'])
+            except ValueError as error:
+                raise Fault('PRESETS', str(error))
+        if 'group_devices' in p:
+            mapping = p['group_devices']
+            if (not isinstance(mapping, dict) or set(mapping) != {'arm','base','flippers','gripper'} or
+                any(not isinstance(v, list) or not v or any(not isinstance(d,str) or not d for d in v)
+                    for v in mapping.values()) or
+                set().union(*(set(v) for v in mapping.values())) != set(p.get('devices', []))):
+                raise Fault('CONFIG', 'group_devices must cover four groups and exactly the declared devices')
         if p.get('mode') not in ('mock', 'hardware') or type(p.get('video')) is not bool:
             raise Fault('CONFIG', 'invalid mode/video')
         if type(p.get('enable_servo', False)) is not bool:
             raise Fault('CONFIG', 'enable_servo must be boolean')
+        if 'mock_safe_posture' in p:
+            raise Fault('CONFIG', 'mock_safe_posture has been removed; remove the obsolete field and use group-policy-v2')
         if type(p.get('startup_timeout',90)) not in (int,float) or not 1 <= p.get('startup_timeout', 90) <= 180:
             raise Fault('CONFIG', 'invalid startup_timeout')
         for key in ('baseline', 'video_config'):
@@ -377,7 +400,7 @@ class Backend:
         except (OSError, ValueError, KeyError, TypeError):
             version_ok = False
         add('release_manifest', version_ok, 'DEPENDENCY', '部署匹配版本及文件 SHA256 清单')
-        for dev in p.get('devices', []):
+        for dev in required_devices(p):
             path = Path('/sys/class/net') / dev if not dev.startswith('/') else Path(dev)
             exists = path.exists()
             if not dev.startswith('/') and exists:
@@ -448,7 +471,7 @@ class Backend:
 
     def health(self, p):
         try:
-            output = self.run([sys.executable, str(Path(__file__).with_name('ros_health.py')), 'health', str(self.config['control_endpoint']['port']), str(p['video']).lower()], 12)
+            output = self.run([sys.executable, str(Path(__file__).with_name('ros_health.py')), 'health', str(self.config['control_endpoint']['port']), str(p['video']).lower(), json.dumps(p.get('requested_presets'))], 12)
             return json.loads(output.strip().splitlines()[-1])
         except Exception:
             return dict(modules={k:dict(ok=False) for k in self.required(p)}, runtime=None, observed_at=time.time())

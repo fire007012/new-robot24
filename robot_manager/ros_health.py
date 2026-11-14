@@ -7,6 +7,8 @@ import sys
 import time
 from video_probe import video_frames
 from stop_evidence import cold_stopped
+from read_probe import ReadProbe
+from group_selection import requirements
 import rclpy
 from rclpy.node import Node
 from std_msgs.msg import String
@@ -125,51 +127,55 @@ def probe():
         print(json.dumps({'halt_result':reason}))
         return 1
     clients = [node.create_client(kind, '/controller_manager/'+name) for kind,name in [(ListControllers,'list_controllers'),(ListHardwareComponents,'list_hardware_components')]]
-    pending = [None,None]
-    action = ActionClient(node, ExecuteArmGoal, '/arm_control/execute_goal')
+    reads = [ReadProbe(client, kind.Request) for client,kind in zip(clients,(ListControllers,ListHardwareComponents))]
+    groups, required, backends = requirements(json.loads(sys.argv[4]) if len(sys.argv)>4 else None)
+    action = ActionClient(node, ExecuteArmGoal, '/arm_control/execute_goal') if 'arm' in groups else None
     deadline = time.monotonic()+7
     core = False
     hardware = None
     while time.monotonic() < deadline:
         rclpy.spin_once(node, timeout_sec=.05)
-        for i,c in enumerate(clients):
-            if pending[i] is None and c.service_is_ready():
-                pending[i] = c.call_async(ListControllers.Request() if i == 0 else ListHardwareComponents.Request())
-        if all(f is not None and f.done() for f in pending) and latest:
-            cs = pending[0].result().controller
-            hs = pending[1].result().component
+        values = [read.poll() for read in reads]
+        if all(value is not None for value in values) and latest:
+            cs = values[0].controller
+            hs = values[1].component
             hardware = {h.name: h.state.id for h in hs}
-            required = {'joint_state_broadcaster','arm_position_controller','flipper_csp_controller','flipper_csv_forward_controller','gripper_controller','wheel_controller'}
             core = (required <= {c.name for c in cs if c.state in ('inactive','active')}
-                    and {h.name for h in hs} == {'RobotCanopenSystem','CanDriverSystem'}
-                    and time.monotonic()-latest['at'] < .5 and action.server_is_ready()
+                    and backends <= {h.name for h in hs}
+                    and time.monotonic()-latest['at'] < .5 and (action is None or action.server_is_ready())
                     and latest['value'].get('diagnostics',{}).get('readable') is True)
             if core: break
     modules = dict(core=dict(ok=core))
     # This monitor handshake never takes control or resets the operator session.
     bridge = False
     bridge_state = None
-    try:
-        with socket.create_connection(('127.0.0.1',int(sys.argv[2])),timeout=.6) as conn:
-            conn.settimeout(.6)
-            f = conn.makefile('rb')
-            hello = json.loads(f.readline(65536))
-            caps = json.loads(f.readline(65536))
-            conn.sendall(b'{"type":"heartbeat","protocol_version":1,"seq":987654}\n')
-            end = time.monotonic()+1
-            while time.monotonic()<end:
-                msg = json.loads(f.readline(65536))
-                if msg.get('type')=='heartbeat_ack' and msg.get('seq')==987654:
-                    bridge = (hello.get('type')=='hello' and
-                              {'sync_request','readonly_monitor','monotonic_watchdog','connection_control_owner','control_v2','legacy_readonly'} <= set(caps.get('supports',[])))
-                    conn.sendall(b'{"type":"sync_request","protocol_version":1,"seq":987655}\n')
-                    while time.monotonic()<end:
-                        snapshot = json.loads(f.readline(65536))
-                        if snapshot.get('type')=='system_snapshot' and snapshot.get('seq')==987655:
-                            bridge_state = snapshot
-                            break
-                    break
-    except (OSError, ValueError): pass
+    for attempt in range(2):
+        bridge = False
+        bridge_state = None
+        try:
+            with socket.create_connection(('127.0.0.1',int(sys.argv[2])),timeout=.6) as conn:
+                conn.settimeout(.6)
+                f = conn.makefile('rb')
+                hello = json.loads(f.readline(65536))
+                caps = json.loads(f.readline(65536))
+                conn.sendall(b'{"type":"heartbeat","protocol_version":1,"seq":987654}\n')
+                end = time.monotonic()+1
+                while time.monotonic()<end:
+                    msg = json.loads(f.readline(65536))
+                    if msg.get('type')=='heartbeat_ack' and msg.get('seq')==987654:
+                        bridge = (hello.get('type')=='hello' and
+                                  {'sync_request','readonly_monitor','monotonic_watchdog','connection_control_owner','control_v2','legacy_readonly'} <= set(caps.get('supports',[])))
+                        conn.sendall(b'{"type":"sync_request","protocol_version":1,"seq":987655}\n')
+                        while time.monotonic()<end:
+                            snapshot = json.loads(f.readline(65536))
+                            if snapshot.get('type')=='system_snapshot' and snapshot.get('seq')==987655:
+                                bridge_state = snapshot
+                                break
+                        break
+        except (OSError, ValueError): pass
+        if bridge and bridge_state is not None:
+            break
+        bridge = False
     modules['bridge'] = dict(ok=bridge, robot_id=hello.get('robot_id') if bridge else None)
     if sys.argv[3]=='true':
         video = False

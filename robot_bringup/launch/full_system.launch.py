@@ -27,7 +27,7 @@ def peripherals(context):
 def generate_launch_description():
     hardware = Path(get_package_share_directory('robot_hardware'))
     model = Path(get_package_share_directory('car_urdf')) / 'urdf/robot.urdf.xacro'
-    policy = Path(get_package_share_directory('robot_safety')) / 'config/group_policy_v1.yaml'
+    policy = Path(get_package_share_directory('robot_safety')) / 'config/group_policy_v2.yaml'
     actions = [DeclareLaunchArgument('mock', default_value='false'),
         DeclareLaunchArgument('canopen_interface', default_value='canable0'),
         DeclareLaunchArgument('private_interface', default_value='canable1'),

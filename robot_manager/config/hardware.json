@@ -10,5 +10,11 @@
   "optional_modules": [],
   "baseline": "/etc/robot24/profiles/commissioning.yaml",
   "devices": ["canable0", "canable1"],
+  "group_devices": {
+    "base": ["canable1"],
+    "flippers": ["canable0"],
+    "arm": ["canable0", "canable1"],
+    "gripper": ["canable1"]
+  },
   "startup_timeout": 90
 }

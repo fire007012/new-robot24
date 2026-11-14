@@ -18,6 +18,11 @@ TEST(GroupPolicy, LoadsTheFrozenOwnershipAndControllerContract) {
   auto p=robot_safety::Policy::load(policyPath().string());EXPECT_EQ(p.axes.size(),13u);EXPECT_EQ(p.controllers.size(),4u);
   EXPECT_EQ(p.axes.at("shoulder_yaw_joint").group,"arm");EXPECT_EQ(p.associations.size(),3u);
 }
+TEST(GroupPolicy, IndependentDefaultHasNoUncommissionedMechanicalDependencies) {
+  auto p=robot_safety::Policy::load((policyPath().parent_path()/"group_policy_v2.yaml").string());
+  EXPECT_EQ(p.version,"group-policy-v2");EXPECT_EQ(p.axes.size(),13u);
+  EXPECT_TRUE(p.associations.empty());EXPECT_EQ(p.controllers.size(),4u);
+}
 TEST(GroupPolicy, RejectsDuplicateKeysAndControllerConflicts) {
   invalidPolicy("version: group-policy-v1","version: group-policy-v1\nversion: other");
   invalidPolicy("controllers: [gripper_controller]","controllers: [wheel_controller]");
@@ -29,5 +34,5 @@ TEST(GroupPolicy, RejectsFakePhysicalEvidenceAndRelaxedMechanicalRules) {
 TEST(GroupPolicy, RejectsOwnershipChangesAndUnsupportedEmcyMappings) {
   invalidPolicy("shoulder_yaw_joint: {group: arm","shoulder_yaw_joint: {group: base");
   invalidPolicy("known_emcy: []","known_emcy: [1234]");
-  invalidPolicy("version: group-policy-v1","version: group-policy-v2");
+  invalidPolicy("version: group-policy-v1","version: group-policy-v99");
 }
