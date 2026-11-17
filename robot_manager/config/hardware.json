@@ -1,20 +1,38 @@
 {
   "profile_id": "hardware",
-  "config_revision": "1",
+  "config_revision": "can0-v1",
   "mode": "hardware",
   "enable_servo": true,
   "build_version": "robot24-release-1",
   "video": false,
   "video_required": false,
-  "required_modules": ["core", "bridge"],
+  "required_modules": [
+    "core",
+    "bridge"
+  ],
   "optional_modules": [],
   "baseline": "/etc/robot24/profiles/commissioning.yaml",
-  "devices": ["canable0", "canable1"],
+  "devices": [
+    "can0"
+  ],
   "group_devices": {
-    "base": ["canable1"],
-    "flippers": ["canable0"],
-    "arm": ["canable0", "canable1"],
-    "gripper": ["canable1"]
+    "arm": [
+      "can0"
+    ],
+    "base": [
+      "can0"
+    ],
+    "flippers": [
+      "can0"
+    ],
+    "gripper": [
+      "can0"
+    ]
   },
-  "startup_timeout": 90
+  "startup_timeout": 90,
+  "robot_id": "robot24",
+  "can_interfaces": {
+    "canopen_interface": "can0",
+    "private_interface": "can0"
+  }
 }

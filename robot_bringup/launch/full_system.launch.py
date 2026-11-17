@@ -29,6 +29,7 @@ def generate_launch_description():
     model = Path(get_package_share_directory('car_urdf')) / 'urdf/robot.urdf.xacro'
     policy = Path(get_package_share_directory('robot_safety')) / 'config/group_policy_v2.yaml'
     actions = [DeclareLaunchArgument('mock', default_value='false'),
+        DeclareLaunchArgument('selected_groups', default_value='arm,base,flippers,gripper'),
         DeclareLaunchArgument('canopen_interface', default_value='canable0'),
         DeclareLaunchArgument('private_interface', default_value='canable1'),
         DeclareLaunchArgument('group_policy', default_value=str(policy)),
@@ -40,7 +41,7 @@ def generate_launch_description():
         DeclareLaunchArgument('enable_moveit', default_value='true'),
         IncludeLaunchDescription(PythonLaunchDescriptionSource(str(hardware / 'launch/hardware.launch.py')),
             launch_arguments={key: LaunchConfiguration(key) for key in
-                ('enable_servo','mock', 'canopen_interface', 'private_interface', 'group_policy', 'baseline', 'journal')}.items()),
+                ('selected_groups','enable_servo','mock', 'canopen_interface', 'private_interface', 'group_policy', 'baseline', 'journal')}.items()),
         Node(package='robot_bringup', executable='model_joint_states', output='screen'),
         Node(package='robot_state_publisher', executable='robot_state_publisher',
              remappings=[('/joint_states', '/robot_model/joint_states')],

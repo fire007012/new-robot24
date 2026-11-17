@@ -10,8 +10,13 @@ from .policy import counts
 class GroupCoordinator:
     COMPONENTS = ('RobotCanopenSystem', 'CanDriverSystem')
 
-    def __init__(self, io, policy, contract):
+    def __init__(self, io, policy, contract, allowed_groups=None):
         self.io, self.policy, self.contract = io, policy, contract
+        self.allowed_groups = set(contract['groups'] if allowed_groups is None else allowed_groups)
+        if not self.allowed_groups or not self.allowed_groups <= set(contract['groups']):
+            raise ValueError('invalid startup group selection')
+        self.COMPONENTS = tuple(c for c in type(self).COMPONENTS if any(
+            a['backend'] == c and a['group'] in self.allowed_groups for a in contract['axes'].values()))
         self.profile = 'csv'
         self.arm_profile = 'trajectory'
         self.topology_generation = 0
@@ -35,7 +40,7 @@ class GroupCoordinator:
         if set(self.states) != {'arm', 'base', 'flippers', 'gripper'}:
             raise ValueError('four motion groups required')
         for axis in contract['axes'].values():
-            if axis['group'] not in self.states or axis['backend'] not in self.COMPONENTS:
+            if axis['group'] not in self.states or axis['backend'] not in type(self).COMPONENTS:
                 raise ValueError('invalid axis ownership')
 
     def check_owner(self):
@@ -74,8 +79,8 @@ class GroupCoordinator:
         return self.states[group]
 
     def selected(self, groups):
-        result = list(self.states) if groups is None else [groups] if isinstance(groups, str) else list(groups)
-        if not result or len(set(result)) != len(result) or not set(result) <= set(self.states):
+        result = list(self.allowed_groups) if groups is None else [groups] if isinstance(groups, str) else list(groups)
+        if not result or len(set(result)) != len(result) or not set(result) <= self.allowed_groups:
             raise ValueError('select unique known groups')
         return sorted(result)
 
@@ -94,7 +99,7 @@ class GroupCoordinator:
         return names
 
     @contextmanager
-    def operation(self, groups, action):
+    def operation(self, groups, action, precondition=None):
         self.operation_context.id = ''
         selected = self.selected(groups)
         if not self.check_owner(): raise RuntimeError('runtime ownership reconciliation in progress')
@@ -104,6 +109,8 @@ class GroupCoordinator:
                 if not self.locks[group].acquire(blocking=False):
                     raise RuntimeError(group + ': another operation is in progress')
                 acquired.append(group)
+            # Read-only rejection must not create a new motion permission token.
+            if precondition is not None: precondition()
             operation_id = uuid.uuid4().hex
             self.operation_context.id = operation_id
             with self.lock:
@@ -256,6 +263,7 @@ class GroupCoordinator:
         def arm(group):
             if self.states[group] != 'Armed': self._arm(group)
         def start(group):
+            if group == 'arm' and self.arm_profile == 'servo': self.io.check_servo_ready()
             self.io.controllers(self.controllers(group), [])
             self.io.group_operation(group, 'run')
             self.states[group] = 'Running'
@@ -270,7 +278,7 @@ class GroupCoordinator:
 
     def resource_groups(self, component):
         if component not in self.COMPONENTS: raise ValueError('unknown shared hardware resource')
-        return sorted(g for g in self.states if component in self.backends(g))
+        return sorted(g for g in self.allowed_groups if component in self.backends(g))
 
     def recover_resource(self, component):
         users = self.resource_groups(component)
@@ -290,7 +298,7 @@ class GroupCoordinator:
                 self._stop(group)
                 self.states[group] = 'Stopped'
             for component in self.COMPONENTS:
-                users = {g for g in self.states if component in self.backends(g)}
+                users = {g for g in self.allowed_groups if component in self.backends(g)}
                 if users <= set(selected):
                     self.transition(component, 'unconfigured')
 
@@ -329,12 +337,18 @@ class GroupCoordinator:
         if profile == 'servo' and 'arm_servo_controller' not in self.contract['groups']['arm']['controllers']:
             raise RuntimeError('Servo controller not configured; launch with enable_servo:=true')
         if profile == self.arm_profile:return
-        with self.operation(['arm'], 'arm_profile'):
+        def check_entry():
+            if profile == 'servo':
+                if self.states['arm'] != 'Running':
+                    raise RuntimeError('Arm must be Running in trajectory mode before Servo entry')
+                self.io.check_servo_ready()
+        with self.operation(['arm'], 'arm_profile', precondition=check_entry):
             was_running=self.states['arm']=='Running'
             self._stop('arm');self.arm_profile=profile
             if was_running:
                 try:
                     self._init('arm');self._enable('arm')
+                    if profile == 'servo': self.io.check_servo_ready()
                     self.io.controllers(self.controllers('arm'),[])
                     self.io.group_operation('arm','run');self.states['arm']='Running'
                 except Exception:

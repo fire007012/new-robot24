@@ -65,6 +65,30 @@ foreach(i RANGE 0 5)
   add_custom_target(generate_axis_${AXIS_ID} ALL DEPENDS ${AXIS_BUILD}/master.dcf)
   install(FILES ${CONFIG_SOURCE}/YiyouServo_V1.4.dcfgen.eds DESTINATION share/${PROJECT_NAME}/config/axis_${AXIS_ID})
 endforeach()
+# Dedicated group masters prevent discovery/configuration of unselected nodes.
+foreach(GROUP_NAME arm flippers)
+  if(GROUP_NAME STREQUAL "arm")
+    set(GROUP_AXES shoulder_yaw_joint shoulder_pitch_joint)
+  else()
+    set(GROUP_AXES left_front_arm_joint right_front_arm_joint left_rear_arm_joint right_rear_arm_joint)
+  endif()
+  set(GROUP_BUILD ${CONFIG_BUILD}/groups_${GROUP_NAME})
+  add_custom_command(OUTPUT ${GROUP_BUILD}/master.dcf ${GROUP_BUILD}/bus.yml
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${GROUP_BUILD}
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/generate_bus.py
+      ${CONFIG_SOURCE}/legacy_master.yaml ${GROUP_BUILD}/bus.yml --joints ${CONFIG_SOURCE}/legacy_joints.yaml
+      --dcf-path . --period-ms ${ROBOT_CONTROL_PERIOD_MS} --axes ${GROUP_AXES}
+    COMMAND ${DCFGEN_EXECUTABLE} -v -d ${GROUP_BUILD} -rS ${GROUP_BUILD}/bus.yml
+    COMMAND ${DCFCHK_EXECUTABLE} ${GROUP_BUILD}/master.dcf
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/generate_bus.py
+      ${CONFIG_SOURCE}/legacy_master.yaml ${GROUP_BUILD}/bus.yml --joints ${CONFIG_SOURCE}/legacy_joints.yaml
+      --dcf-path . --period-ms ${ROBOT_CONTROL_PERIOD_MS} --axes ${GROUP_AXES}
+    DEPENDS ${CONFIG_SOURCE}/legacy_master.yaml ${CONFIG_SOURCE}/legacy_joints.yaml
+      ${CMAKE_CURRENT_SOURCE_DIR}/scripts/generate_bus.py ${CMAKE_CURRENT_BINARY_DIR}/control_period.txt
+    WORKING_DIRECTORY ${CONFIG_SOURCE} VERBATIM)
+  add_custom_target(generate_groups_${GROUP_NAME} ALL DEPENDS ${GROUP_BUILD}/master.dcf)
+  install(FILES ${CONFIG_SOURCE}/YiyouServo_V1.4.dcfgen.eds DESTINATION share/${PROJECT_NAME}/config/groups_${GROUP_NAME})
+endforeach()
 install(DIRECTORY ${CONFIG_SOURCE}/ DESTINATION share/${PROJECT_NAME}/config)
 install(DIRECTORY ${CONFIG_BUILD}/ DESTINATION share/${PROJECT_NAME}/config)
 install(DIRECTORY urdf DESTINATION share/${PROJECT_NAME})

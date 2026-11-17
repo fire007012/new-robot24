@@ -22,7 +22,7 @@ def probe():
     if sys.argv[1] in ('config', 'preflight'):
         import yaml
         profile = json.loads(sys.argv[2])
-        if profile['mode'] == 'hardware':
+        if profile['mode'] == 'hardware' and sys.argv[1] == 'config':
             with open(profile['baseline']) as stream:
                 if yaml.safe_load(stream).get('commissioned') is not True:
                     return 1
@@ -52,6 +52,7 @@ def probe():
             pass
     node.create_subscription(String, '/robot_runtime/state', state, 1)
     if sys.argv[1] == 'halt':
+        _, _, expected_backends = requirements(json.loads(sys.argv[2]) if len(sys.argv)>2 else None)
         client = node.create_client(Trigger, '/robot_runtime/halt')
         deadline = time.monotonic()+27
         if not client.wait_for_service(timeout_sec=12):
@@ -77,7 +78,7 @@ def probe():
                 runtime=latest.get('value',{})
                 if cold_stopped([c.state for c in controllers],
                                 {h.name:h.state.id for h in hardware}, runtime,
-                                time.monotonic()-latest.get('at',0)):
+                                time.monotonic()-latest.get('at',0), expected_backends):
                     return 0
                 reads=[None,None]
         for future in reads:

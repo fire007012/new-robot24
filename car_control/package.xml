@@ -12,6 +12,7 @@
 <exec_depend>trajectory_msgs</exec_depend>
 <exec_depend>control_msgs</exec_depend>
 <exec_depend>robot_hardware</exec_depend>
+<exec_depend>arm_control</exec_depend>
 <exec_depend>python3-pyqt5</exec_depend>
 <exec_depend>python3-yaml</exec_depend>
 <exec_depend>ament_index_python</exec_depend>

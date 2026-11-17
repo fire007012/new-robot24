@@ -47,7 +47,7 @@ direction, actual angle, and any device offset on each physical axis.
 The startup SDO map writes `0x6060` and `0x60C2:01=5`. The latter matches the
 old driver's interpolation-period write. It does not write zero, limits, or
 persisted settings. Do not enable motion until the physical-device checks in
-[the CANopen acceptance guide](../docs/28_CANopen软件交付与实机验收.md) are complete.
+[the CANopen acceptance guide](../docs/archive/28_CANopen软件交付与实机验收.md) are complete.
 
 ## Shared control period
 

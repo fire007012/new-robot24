@@ -120,6 +120,27 @@ class MoveItSmoke(unittest.TestCase):
             self.wait(lambda: abs(self.velocities['shoulder_yaw_joint']) < 1e-6)
             result = self.completed(self.goal())
             self.assertEqual(result.error_code, result.ERROR_NOT_READY)
+            # A fault in an independent group must not invalidate healthy arm feedback.
+            self.trigger('resume')
+            from std_srvs.srv import SetBool
+            import math
+            injected = self.call('/mock/left_front_arm_joint/fault', SetBool, SetBool.Request(data=True))
+            self.assertTrue(injected.success)
+            self.wait(lambda: self.runtime_details['groups']['flippers'] == 'Fault')
+            self.wait(lambda: math.isnan(self.positions['left_front_arm_joint']))
+            time.sleep(0.4)
+            self.assertEqual(self.runtime_details['groups']['arm'], 'Running')
+            result = self.completed(self.goal('joints', 0.05))
+            self.assertTrue(result.success, result.message)
+            self.assertAlmostEqual(self.positions['shoulder_yaw_joint'], 0.05, delta=0.01)
+            result = self.completed(self.goal('joints', 9.0))
+            self.assertEqual(result.error_code, result.ERROR_INVALID_GOAL)
+            # The arm's own invalid feedback must still stop its goals.
+            injected = self.call('/mock/shoulder_yaw_joint/fault', SetBool, SetBool.Request(data=True))
+            self.assertTrue(injected.success)
+            self.wait(lambda: self.runtime_details['groups']['arm'] == 'Fault')
+            result = self.completed(self.goal('joints', 0.0))
+            self.assertEqual(result.error_code, result.ERROR_NOT_READY)
             self.trigger('shutdown')
         finally:
             # Node destruction after executor.shutdown owns client cleanup.

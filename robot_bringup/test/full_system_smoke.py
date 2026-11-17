@@ -7,11 +7,13 @@ from pathlib import Path
 import time
 import subprocess
 import unittest
+import yaml
 from geometry_msgs.msg import Twist
 from tf2_msgs.msg import TFMessage
 from std_msgs.msg import Bool, Float64, Float64MultiArray
 from controller_manager_msgs.srv import ListControllers
 from std_srvs.srv import SetBool
+from rcl_interfaces.srv import GetParameters
 
 source = Path(__file__).resolve().parents[2]
 spec = importlib.util.spec_from_file_location('hardware_smoke', source / 'robot_hardware/test/hybrid_smoke.py')
@@ -38,7 +40,10 @@ class FullSystemSmoke(unittest.TestCase):
         self.wait(lambda: getattr(self, 'runtime_details', {}).get('diagnostics', {}).get('readable', False))
 
     def conditions(self):
-        for condition in ('arm_secured', 'support_trusted', 'payload_retained'):
+        response = self.call('/robot_runtime/get_parameters', GetParameters,
+                             GetParameters.Request(names=['group_policy']))
+        policy = yaml.safe_load(Path(response.values[0].string_value).read_text())
+        for condition in policy.get('conditions', {}):
             result = self.call('/mock/conditions/' + condition, SetBool, SetBool.Request(data=True))
             self.assertTrue(result.success)
 

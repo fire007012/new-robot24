@@ -1,0 +1,40 @@
+{
+  "profile_id": "hardware-full",
+  "config_revision": "topology-v1",
+  "mode": "hardware",
+  "enable_servo": true,
+  "build_version": "robot24-release-1",
+  "video": false,
+  "video_required": false,
+  "required_modules": [
+    "core",
+    "bridge"
+  ],
+  "optional_modules": [],
+  "baseline": "/etc/robot24/profiles/commissioning.yaml",
+  "devices": [
+    "canable0",
+    "canable1"
+  ],
+  "group_devices": {
+    "base": [
+      "canable1"
+    ],
+    "flippers": [
+      "canable0"
+    ],
+    "arm": [
+      "canable0",
+      "canable1"
+    ],
+    "gripper": [
+      "canable1"
+    ]
+  },
+  "startup_timeout": 90,
+  "robot_id": "robot24",
+  "can_interfaces": {
+    "canopen_interface": "canable0",
+    "private_interface": "canable1"
+  }
+}

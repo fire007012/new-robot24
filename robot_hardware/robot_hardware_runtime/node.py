@@ -50,6 +50,9 @@ class Adapter:
     def group_operation(self, group, operation):
         result = self.call('/robot_runtime/groups/'+group+'/'+operation, Trigger, Trigger.Request(), mutation=True)
         if not result.success: raise RuntimeError(result.message)
+    def check_servo_ready(self):
+        result = self.call('/arm_control/check_servo_ready', Trigger, Trigger.Request(), timeout=2.0)
+        if not result.success: raise RuntimeError(result.message)
     def initialize(self, backend, group):
         result = self.call('/robot_backend/'+backend+'/'+group+'/initialize', Trigger, Trigger.Request(), mutation=True)
         if not result.success: raise RuntimeError(result.message)
@@ -167,6 +170,7 @@ class Adapter:
 class RuntimeNode(Node):
     def __init__(self):
         super().__init__('robot_runtime')
+        self.declare_parameter('selected_groups', ['arm', 'base', 'flippers', 'gripper'])
         self.declare_parameter('simulation', False)
         self.declare_parameter('group_policy', '')
         self.declare_parameter('enable_servo', False)
@@ -185,7 +189,7 @@ class RuntimeNode(Node):
             from .groups import GroupCoordinator
             contract = yaml.safe_load(Path(self.get_parameter('group_policy').value).read_text())
             if self.get_parameter('enable_servo').value:contract['groups']['arm']['controllers'].append('arm_servo_controller')
-            self.coordinator = GroupCoordinator(self.io, self.policy, contract)
+            self.coordinator = GroupCoordinator(self.io, self.policy, contract, self.get_parameter('selected_groups').value)
         else:
             self.coordinator = Coordinator(self.io, self.policy)
         from ament_index_python.packages import get_package_share_directory

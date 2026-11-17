@@ -2,12 +2,13 @@
 import math
 
 
-def cold_stopped(controllers, hardware, runtime, age):
+def cold_stopped(controllers, hardware, runtime, age, expected_backends=None):
     # The owned launch spawns controllers inactive. A partially loaded list
     # need not delay stopping hardware that has never been configured.
     return (
         controllers is not None and hardware is not None
-        and set(hardware) == {'RobotCanopenSystem', 'CanDriverSystem'}
+        and set(hardware) == (set(expected_backends) if expected_backends is not None else {'RobotCanopenSystem', 'CanDriverSystem'})
+        and bool(hardware)
         and all(state == 1 for state in hardware.values())
         and all(state in ('inactive', 'unconfigured') for state in controllers)
         and math.isfinite(age) and 0 <= age < .5

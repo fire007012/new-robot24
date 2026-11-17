@@ -19,8 +19,10 @@ import time
 import uuid
 from config_transactions import ConfigTransactions, METHODS as CONFIG_METHODS
 from group_selection import selected_groups, required_devices
+from can_config import validate_can, effective_can
+from deployment_paths import load_config
 
-VERSION = '2.0.0'
+VERSION = '2.1.0'
 METHODS = ['profiles', 'preflight', 'start', 'stop', 'operation', 'snapshot', 'logs'] + CONFIG_METHODS
 
 class Fault(Exception):
@@ -42,7 +44,7 @@ def wire(obj):
 
 class Manager:
     def __init__(self, config, backend=None):
-        self.config = json.loads(Path(config).read_text())
+        self.config = load_config(config)
         self.config['control_endpoint']['protocol_version'] = 2
         self.config['control_endpoint']['legacy_readonly_version'] = 1
         self.root = Path(self.config['config_root']).resolve(strict=True)
@@ -112,6 +114,7 @@ class Manager:
             except ValueError as error:
                 raise Fault('PRESETS', str(error))
             profile['requested_presets'] = sorted(p['presets'])
+        self.backend.validate(profile)
         return profile
 
     def log(self, oid, line):
@@ -143,6 +146,8 @@ class Manager:
             if method == 'hello':
                 return dict(protocol_version=1, service_version=VERSION, robot_id=self.config['robot_id'], auth='shared_token', capabilities=(METHODS if self.config_transactions else [m for m in METHODS if m not in CONFIG_METHODS]))
             if method == 'profiles':
+                if self.config_transactions:
+                    self.config_transactions._read(self.config_transactions.current())
                 return [json.loads(x.read_text()) for x in sorted((self.config_transactions.profiles_root() if self.config_transactions else self.root).glob('*.json'))]
             if method == 'snapshot':
                 profile = self.data['profile'] or {}
@@ -349,11 +354,15 @@ class Backend:
             raise Fault('CONFIG', 'invalid startup_timeout')
         for key in ('baseline', 'video_config'):
             if p.get(key):
-                path = Path(p[key]).resolve()
+                path = (self.root / p[key]).resolve()
                 if not path.is_relative_to(self.root) or not path.is_file():
                     raise Fault('CONFIG', key + ' must be a deployed file inside config_root')
         if p['mode'] == 'hardware' and (not p.get('baseline') or not p.get('devices')):
             raise Fault('CONFIG', 'hardware requires baseline and devices; no mock fallback')
+        try:
+            validate_can(p)
+        except ValueError as error:
+            raise Fault('CONFIG', str(error))
         expected_required = self.required(p)
         expected_optional = ['video'] if p['video'] and not p.get('video_required') else []
         if p.get('required_modules', expected_required) != expected_required or p.get('optional_modules', expected_optional) != expected_optional:
@@ -379,11 +388,25 @@ class Backend:
         # Video stack includes host_bridge: never also launch standalone bridge.
         return ['core', 'video_stack' if p['video'] else 'bridge']
 
+    def resolved_profile(self, p):
+        p = copy.deepcopy(p)
+        for key in ('baseline', 'video_config'):
+            if p.get(key):
+                p[key] = str((self.root / p[key]).resolve())
+        return p
+
     def preflight(self, p):
         self.validate(p)
+        p = self.resolved_profile(p)
         checks = []
         def add(name, ok, code, hint):
             checks.append(dict(name=name, ok=bool(ok), code=None if ok else code, hint='' if ok else hint))
+        try:
+            effective_can(p)
+            topology_error = ''
+        except ValueError as error:
+            topology_error = str(error)
+        add('can_topology', not topology_error, 'CAN_TOPOLOGY', topology_error)
         add('build_version', p.get('build_version') == self.config['build_version'], 'DEPENDENCY', '部署匹配的软件及档案版本')
         add('setup', Path(self.config['setup']).is_file(), 'DEPENDENCY', '安装预构建 ROS2 产物')
         try:
@@ -400,6 +423,13 @@ class Backend:
         except (OSError, ValueError, KeyError, TypeError):
             version_ok = False
         add('release_manifest', version_ok, 'DEPENDENCY', '部署匹配版本及文件 SHA256 清单')
+        if p['mode'] == 'hardware':
+            try:
+                self.run([sys.executable, str(Path(__file__).with_name('ros_health.py')), 'config', json.dumps(p)], 5)
+                baseline_ok = True
+            except Exception:
+                baseline_ok = False
+            add('real_baseline', baseline_ok, 'BASELINE', '真实基线未登记或配置无效: '+p['baseline']+'；按现场实测登记，不可直接改 commissioned')
         for dev in required_devices(p):
             path = Path('/sys/class/net') / dev if not dev.startswith('/') else Path(dev)
             exists = path.exists()
@@ -441,7 +471,7 @@ class Backend:
             raise Fault('TIMEOUT', 'helper timed out', True)
         if proc.returncode:
             error = Fault('PROCESS', 'helper failed', True)
-            if args[-1] == 'halt':
+            if 'halt' in args:
                 # The halt probe only emits bounded runtime diagnostics, never
                 # credentials or video config contents.
                 error.data['diagnostic'] = out.decode(errors='replace')[-2000:]
@@ -449,9 +479,18 @@ class Backend:
         return out.decode(errors='replace')
 
     def start(self, module, p, oid):
+        p = self.resolved_profile(p)
         port = str(self.config['control_endpoint']['port'])
         if module == 'core':
-            args = ['ros2','launch','robot_bringup','full_system.launch.py','mock:='+str(p['mode']=='mock').lower(),'enable_host:=false','enable_moveit:=true','enable_servo:='+str(p.get('enable_servo',False)).lower(),'journal:='+str(self.state/'maintenance.json')]
+            self.validate(p)
+            try:
+                interfaces = effective_can(p)
+            except ValueError as error:
+                raise Fault('CAN_TOPOLOGY', str(error))
+            args = ['ros2','launch','robot_bringup','full_system.launch.py','mock:='+str(p['mode']=='mock').lower(),'enable_host:=false','enable_moveit:='+str('arm' in selected_groups(p.get('requested_presets'))).lower(),'enable_servo:='+str(p.get('enable_servo',False) and 'arm' in selected_groups(p.get('requested_presets'))).lower(),'journal:='+str(self.state/'maintenance.json')]
+            args += [key+':='+value for key, value in interfaces.items()]
+            if 'requested_presets' in p:
+                args += ['selected_groups:='+','.join(sorted(selected_groups(p['requested_presets'])))]
             if p.get('baseline'):
                 args += ['baseline:='+p['baseline']]
         elif module == 'video_stack':
@@ -479,7 +518,7 @@ class Backend:
     def halt(self, p):
         # If no runtime exists, cleanup is safe only for never-enabled startup;
         # the helper must otherwise confirm halt via the runtime service/state.
-        self.run([sys.executable, str(Path(__file__).with_name('ros_health.py')), 'halt'], 30)
+        self.run([sys.executable, str(Path(__file__).with_name('ros_health.py')), 'halt', json.dumps(p.get('requested_presets'))], 30)
 
     def stop(self, r):
         if r.get('pending') or not r.get('identity'):

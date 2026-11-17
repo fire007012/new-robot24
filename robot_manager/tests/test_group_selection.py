@@ -19,6 +19,7 @@ class Tests(unittest.TestCase):
     def test_device_checks_only_cover_selected_groups_and_mapping_is_complete(self):
         profile=dict(mode='hardware',video=False,baseline=__file__,
                      devices=['canable0','canable1'],requested_presets=['base'],
+                     can_interfaces=dict(canopen_interface='canable0',private_interface='canable1'),
                      group_devices=dict(base=['canable1'],gripper=['canable1'],
                                         arm=['canable0','canable1'],flippers=['canable0']))
         backend=Backend({},Path(__file__).parent,Path(__file__).parent)

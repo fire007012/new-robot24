@@ -19,9 +19,9 @@
 - 在驱动写周期中、`motor_->handleWrite()` 前，按 steady clock 取样完整计划并写目标。各段使用五次 rest-to-rest 插补，上层不再决定逐点节拍。
 - 显式启用，限定 standalone CSP 8；设备反馈健康、模式已确认、已建立命令会话且静止时才接收。限制起点误差、段时长、总时长、位置数值范围，以及配置的轨迹峰值速度/加速度。
 - 运行中拒绝 scalar target 和新计划覆盖。停止、会话变化、失去健康反馈或 deactivation 后计划失效；写周期超过 100 ms/时钟回退会丢弃计划并进入原 halt 异常路径。单元测试覆盖取消后不重放。
-- [test_canopen_csp.py](../tools/test_canopen_csp.py) 默认走完整计划入口；旧逐点路径保留为显式 `--execution stream` 的诊断选项。
+- [test_canopen_csp.py](../../tools/test_canopen_csp.py) 默认走完整计划入口；旧逐点路径保留为显式 `--execution stream` 的诊断选项。
 
-服务语义与配置详见 [POSITION_TRAJECTORY.md](../ros2_canopen/canopen_402_driver/POSITION_TRAJECTORY.md)。此次 PH17 配置显式启用，最大轨迹速度 1 rad/s、最大轨迹加速度 1.5 rad/s²，仍为 50 Hz。没有修改电机增益、零偏、限位或保存对象。
+服务语义与配置详见 [POSITION_TRAJECTORY.md](../../ros2_canopen/canopen_402_driver/POSITION_TRAJECTORY.md)。此次 PH17 配置显式启用，最大轨迹速度 1 rad/s、最大轨迹加速度 1.5 rad/s²，仍为 50 Hz。没有修改电机增益、零偏、限位或保存对象。
 
 该服务接受的是有限计划，接收后可在提交客户端不再发送乃至退出时继续完成已授权计划；最终保持末位置，停止失能仍显式调用 halt/disable。它不是停发即停的 streaming deadman。操作系统调度与 SYNC 仍可能抖动；这次没有把驱动改成硬实时或 SYNC 锁定执行，也不承诺消除全部物理振动。
 
@@ -55,4 +55,4 @@
 
 主站已退出，恢复原心跳、插补周期、模式和全部 PDO；本轮前后对象比较仅实际位置 `6064` 变化，零点、限位及其余备份对象一致。90 个 PDO 恢复写入成功应答，CAN 最终收发错误、error-warning、error-passive、bus-off 均为零。
 
-原始 CAN 帧、历史 PH14 源证据、正负向请求结果、反馈、恢复读回、构建/测试日志和代码快照位于 [20261108-csp-root-cause](evidence/20261108-csp-root-cause/)。源码快照包含记录45及工作区原有未提交修改，不是发布提交。PH14 新路径、整车、200 Hz、进程失效停止及机械振动频谱均未因此验收通过。
+原始 CAN 帧、历史 PH14 源证据、正负向请求结果、反馈、恢复读回、构建/测试日志和代码快照位于 [20261108-csp-root-cause](evidence/20261108-csp-root-cause)。源码快照包含记录45及工作区原有未提交修改，不是发布提交。PH14 新路径、整车、200 Hz、进程失效停止及机械振动频谱均未因此验收通过。

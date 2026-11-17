@@ -26,6 +26,7 @@ def generate_launch_description():
         'robot_description_planning': load('joint_limits.yaml')}
     return LaunchDescription([DeclareLaunchArgument('use_sim_time', default_value='false'),
         Node(package='moveit_ros_move_group', executable='move_group', output='screen',
+             remappings=[('/joint_states', '/robot_model/joint_states')],
              parameters=[description, load('moveit_controllers.yaml'), {
                 'use_sim_time': ParameterValue(LaunchConfiguration('use_sim_time'), value_type=bool),
                 'allow_trajectory_execution': False,

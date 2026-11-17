@@ -1,4 +1,5 @@
 #include <atomic>
+#include "arm_control/motion_validation.hpp"
 #include <chrono>
 #include <cmath>
 #include <csignal>
@@ -42,6 +43,10 @@ public:
     tf_ = std::make_shared<tf2_ros::Buffer>(get_clock());
     listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_, self, true);
     group_ = std::make_unique<moveit::planning_interface::MoveGroupInterface>(self, "arm", tf_, rclcpp::Duration::from_seconds(20));
+    for (const auto & name : names_) {
+      const auto & bound = group_->getRobotModel()->getVariableBounds(name);
+      limits_[name] = {bound.min_position_, bound.max_position_, bound.max_velocity_};
+    }
     group_->setPlanningTime(5.0);
     group_->setMaxVelocityScalingFactor(0.2);
     group_->setMaxAccelerationScalingFactor(0.2);
@@ -61,15 +66,12 @@ public:
       });
     joints_sub_ = create_subscription<sensor_msgs::msg::JointState>("/joint_states", 1,
       [this](sensor_msgs::msg::JointState::ConstSharedPtr msg) {
-        std::set<std::string> seen;
-        if (msg->name.size() != msg->position.size()) return;
-        for (size_t i=0; i<msg->name.size(); ++i) {
-          if (!std::isfinite(msg->position[i])) return;
-          seen.insert(msg->name[i]);
-        }
-        for (const auto & name : names_) if (!seen.count(name)) return;
-        std::lock_guard<std::mutex> guard(mutex_); joints_at_ = Steady::now();
-        for (size_t i=0; i<msg->name.size(); ++i) measured_[msg->name[i]]=msg->position[i];
+        arm_control::Values positions, velocities;
+        const bool valid = arm_control::arm_feedback(*msg, positions, velocities);
+        std::lock_guard<std::mutex> guard(mutex_);
+        if (!valid) { joints_at_ = {}; return; }
+        measured_ = std::move(positions); velocities_ = std::move(velocities);
+        joints_at_ = Steady::now();
       });
     poll_ = create_wall_timer(250ms, [this]() {
       if (!controllers_->service_is_ready() || polling_.exchange(true)) return;
@@ -98,11 +100,14 @@ public:
     RCLCPP_INFO(get_logger(), "ExecuteArmGoal ready; one goal at a time, explicit runtime permission required");
   }
 private:
-  bool ready(const std::string & token = "") {
-    std::lock_guard<std::mutex> guard(mutex_);
+  bool ready_locked(const std::string & token = "") const {
     const auto now = Steady::now();
     return arm_running_ && controller_active_ && now-state_at_ < 500ms && now-joints_at_ < 300ms &&
       now-controllers_at_ < 1s && (token.empty() || token == token_);
+  }
+  bool ready(const std::string & token = "") {
+    std::lock_guard<std::mutex> guard(mutex_);
+    return ready_locked(token);
   }
   bool interrupted(const std::shared_ptr<Handle> & handle, const std::string & token) {
     return stopping_ || !rclcpp::ok() || handle->is_canceling() || !ready(token);
@@ -171,7 +176,20 @@ private:
       if (!ready() || handle->is_canceling()) { finish(handle, Action::Result::ERROR_NOT_READY, "Arm not Running with fresh feedback and active JTC"); return; }
       std::string token;
       { std::lock_guard<std::mutex> guard(mutex_); token=token_; }
-      group_->setStartStateToCurrentState();
+      moveit_msgs::msg::RobotState start;
+      start.is_diff = true;
+      {
+        std::lock_guard<std::mutex> guard(mutex_);
+        if (!arm_control::stationary(velocities_) || !arm_control::within_limits(measured_, limits_)) {
+          finish(handle, Action::Result::ERROR_NOT_READY, "Arm must be stationary and inside joint limits before planning"); return;
+        }
+        for (const auto & name : names_) {
+          start.joint_state.name.push_back(name);
+          start.joint_state.position.push_back(measured_.at(name));
+          start.joint_state.velocity.push_back(velocities_.at(name));
+        }
+      }
+      group_->setStartState(start);
       feedback(handle, Action::Feedback::PHASE_PLANNING, "Planning with MoveIt 2");
       moveit::planning_interface::MoveGroupInterface::Plan plan;
       auto planned = group_->plan(plan);
@@ -180,10 +198,19 @@ private:
         finish(handle, Action::Result::ERROR_PLANNING_FAILED, "MoveIt planning failed: " + std::to_string(planned.val)); return;
       }
       if (!trajectory_->action_server_is_ready()) { finish(handle, Action::Result::ERROR_NOT_READY, "JTC action unavailable"); return; }
+      const auto & joints = plan.trajectory_.joint_trajectory;
+      if (!arm_control::valid_trajectory(joints, limits_)) {
+        finish(handle, Action::Result::ERROR_PLANNING_FAILED, "Planned trajectory violates joint limits or format"); return;
+      }
       bool at_target = true;
       {
         std::lock_guard<std::mutex> guard(mutex_);
-        const auto & joints = plan.trajectory_.joint_trajectory;
+        if (Steady::now()-joints_at_ >= 300ms || !arm_control::stationary(velocities_) ||
+            !arm_control::matches_start(plan.start_state_.joint_state.name,
+                                       plan.start_state_.joint_state.position, measured_) ||
+            !arm_control::matches_start(joints.joint_names, joints.points.front().positions, measured_)) {
+          finish(handle, Action::Result::ERROR_NOT_READY, "Arm moved from planned start; request a new plan"); return;
+        }
         const auto & positions = joints.points.back().positions;
         for (size_t i=0; i<joints.joint_names.size(); ++i) {
           auto value = measured_.find(joints.joint_names[i]);
@@ -194,7 +221,18 @@ private:
       if (at_target) { finish(handle, Action::Result::ERROR_NONE, "Already at planned target"); return; }
       Trajectory::Goal execution; execution.trajectory = plan.trajectory_.joint_trajectory;
       feedback(handle, Action::Feedback::PHASE_EXECUTING, "Executing planned trajectory across both backends");
+      if (interrupted(handle, token)) {
+        finish(handle, Action::Result::ERROR_NOT_READY, "Arm permission changed before dispatch"); return;
+      }
+      std::unique_lock<std::mutex> dispatch_guard(mutex_);
+      if (!ready_locked(token) || !arm_control::stationary(velocities_) || !arm_control::within_limits(measured_, limits_) ||
+          !arm_control::matches_start(plan.start_state_.joint_state.name, plan.start_state_.joint_state.position, measured_) ||
+          !arm_control::matches_start(joints.joint_names, joints.points.front().positions, measured_)) {
+        dispatch_guard.unlock();
+        finish(handle, Action::Result::ERROR_NOT_READY, "Arm moved from planned start before dispatch; request a new plan"); return;
+      }
       auto accepted = trajectory_->async_send_goal(execution);
+      dispatch_guard.unlock();
       const auto accept_deadline = Steady::now()+3s;
       while (accepted.wait_for(20ms)!=std::future_status::ready) {
         if (Steady::now()>accept_deadline || interrupted(handle, token)) {
@@ -237,7 +275,8 @@ private:
   std::mutex mutex_;
   bool arm_running_=false, controller_active_=false;
   std::string token_;
-  std::map<std::string,double> measured_;
+  arm_control::Values measured_, velocities_;
+  std::map<std::string, arm_control::Limits> limits_;
   Steady::time_point state_at_{}, joints_at_{}, controllers_at_{};
   std::shared_ptr<tf2_ros::Buffer> tf_;
   std::shared_ptr<tf2_ros::TransformListener> listener_;

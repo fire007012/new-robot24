@@ -25,6 +25,7 @@ class IO:
     def group_operation(self,group,operation):
         self.event('guard',group,operation)
         if operation in ('halt','arm','run'):self.guard_states[group]={'halt':0,'arm':1,'run':2}[operation]
+    def check_servo_ready(self):self.event('check_servo_ready')
     def heartbeat(self):self.event('heartbeat')
     def owner_reset(self):self.event('owner_reset');self.guard_states={g:3 for g in CONTRACT['groups']}
     def active_controllers(self):return list(self.active)
@@ -131,6 +132,22 @@ class GroupOperations(unittest.TestCase):
         self.c.monitor()
         self.assertEqual(self.c.states['base'],'Running')
         self.assertIn('wheel_controller',self.io.active)
+    def test_singular_servo_entry_keeps_trajectory_controller(self):
+        self.c.contract['groups']['arm']['controllers'].append('arm_servo_controller')
+        self.start(['arm']);before=copy.deepcopy(self.c.operations['arm']);self.io.fail=('check_servo_ready',)
+        with self.assertRaises(RuntimeError):self.c.switch_arm_profile('servo')
+        self.assertEqual(self.c.operations['arm'],before)
+        self.assertEqual(self.c.arm_profile,'trajectory')
+        self.assertEqual(self.c.states['arm'],'Running')
+        self.assertIn('arm_position_controller',self.io.active)
+        self.assertNotIn('arm_servo_controller',self.io.active)
+    def test_servo_resume_rechecks_posture(self):
+        self.c.contract['groups']['arm']['controllers'].append('arm_servo_controller')
+        self.start(['arm']);self.c.switch_arm_profile('servo');self.c.halt(['arm'])
+        self.io.fail=('check_servo_ready',)
+        with self.assertRaises(RuntimeError):self.c.resume(['arm'])
+        self.assertNotIn('arm_servo_controller',self.io.active)
+        self.assertEqual(self.c.states['arm'],'Fault')
     def test_invalid_maintenance_does_not_cancel_motion(self):
         self.start(['arm','base']);before=list(self.io.events)
         for operation,lower,upper in [('typo',0.,0.),('set_offset',float('nan'),0.),('limits',1.,-1.)]:

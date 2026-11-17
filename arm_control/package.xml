@@ -7,11 +7,11 @@
   <buildtool_depend>ament_cmake</buildtool_depend>
   <exec_depend>rclpy</exec_depend>
   <depend>std_msgs</depend>
-  <exec_depend>std_srvs</exec_depend>
+  <depend>std_srvs</depend>
   <depend>control_msgs</depend>
   <depend>sensor_msgs</depend>
   <depend>controller_manager_msgs</depend>
-  <exec_depend>trajectory_msgs</exec_depend>
+  <depend>trajectory_msgs</depend>
   <exec_depend>action_msgs</exec_depend>
   <exec_depend>launch_ros</exec_depend><exec_depend>ament_index_python</exec_depend><exec_depend>python3-yaml</exec_depend>
   <buildtool_depend>rosidl_default_generators</buildtool_depend>
@@ -19,8 +19,9 @@
   <exec_depend>rosidl_default_runtime</exec_depend>
   <member_of_group>rosidl_interface_packages</member_of_group>
   <depend>rclcpp</depend><depend>rclcpp_action</depend>
-  <depend>moveit_ros_planning_interface</depend><depend>tf2_ros</depend><depend>tf2_geometry_msgs</depend>
+  <depend>moveit_ros_planning</depend><depend>moveit_ros_planning_interface</depend><depend>tf2_ros</depend><depend>tf2_geometry_msgs</depend>
   <depend>yaml_cpp_vendor</depend><depend>robot_hardware</depend>
   <exec_depend>car_moveit_config</exec_depend>
+  <test_depend>ament_cmake_gtest</test_depend>
   <export><build_type>ament_cmake</build_type></export>
 </package>

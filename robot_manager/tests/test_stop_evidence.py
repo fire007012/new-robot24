@@ -26,3 +26,10 @@ class ColdStopTests(unittest.TestCase):
             invalid = copy.deepcopy(runtime)
             invalid[field] = value
             self.assertFalse(cold_stopped([], hardware, invalid, .1))
+
+    def test_single_backend_requires_explicit_expected_ownership(self):
+        runtime=dict(state='Stopped',diagnostics=dict(readable=True),
+                     groups={g:'Stopped' for g in ('arm','base','flippers','gripper')})
+        self.assertTrue(cold_stopped([],{'CanDriverSystem':1},runtime,.1,{'CanDriverSystem'}))
+        self.assertFalse(cold_stopped([],{},runtime,.1,set()))
+        self.assertFalse(cold_stopped([],{'CanDriverSystem':1},runtime,.1,{'RobotCanopenSystem'}))

@@ -3,14 +3,16 @@
 import importlib.util,os,time,unittest
 from pathlib import Path
 from controller_manager_msgs.srv import ListControllers
-from std_srvs.srv import SetBool
+from std_srvs.srv import SetBool, Trigger
+from rclpy.action import ActionClient
+from arm_control.action import ExecuteArmGoal
 from geometry_msgs.msg import TwistStamped
 from std_msgs.msg import Float64MultiArray
 root=Path(__file__).resolve().parents[2]
 spec=importlib.util.spec_from_file_location('full_system_smoke',root/'robot_bringup/test/full_system_smoke.py');core=importlib.util.module_from_spec(spec);spec.loader.exec_module(core)
 class ServoSmoke(unittest.TestCase):
     PACKAGE='robot_bringup';LAUNCH='full_system_mock.launch.py';DOMAIN='83'
-    ARGUMENTS=['enable_servo:=true','enable_moveit:=false','journal:=/tmp/robot24-servo-test.json']
+    ARGUMENTS=['enable_servo:=true','enable_moveit:=true','journal:=/tmp/robot24-servo-test.json']
     setUpClass=classmethod(core.FullSystemSmoke.setUpClass.__func__)
     tearDownClass=classmethod(core.FullSystemSmoke.tearDownClass.__func__)
     joint_state=classmethod(core.FullSystemSmoke.joint_state.__func__)
@@ -24,9 +26,33 @@ class ServoSmoke(unittest.TestCase):
         self.prepare();self.trigger('init');self.conditions();self.trigger('enable');self.trigger('resume')
         self.wait(lambda:self.runtime=='Running');self.wait(lambda:len(self.positions)>=13)
         self.assertEqual(self.controllers()['arm_position_controller'],'active')
-        client,handle=self.goal(.3,3);self.assertTrue(handle.accepted)
-        self.assertEqual(self.result(handle.get_result_async()).result.error_code,0)
+        def rejected(reason):
+            response=self.call('/arm_control/set_servo_mode',SetBool,SetBool.Request(data=True))
+            self.assertFalse(response.success,response.message)
+            self.assertIn(reason,response.message)
+            self.assertEqual(self.controllers()['arm_position_controller'],'active')
+            self.assertEqual(self.controllers()['arm_servo_controller'],'inactive')
+        rejected('singularity')  # zero is intentionally retained as a joint-space posture.
+        arm=ActionClient(self.node,ExecuteArmGoal,'/arm_control/execute_goal')
+        self.assertTrue(arm.wait_for_server(timeout_sec=30))
+        def named(name):
+            handle=self.result(arm.send_goal_async(ExecuteArmGoal.Goal(target_type=ExecuteArmGoal.Goal.TARGET_NAMED,named_target=name)))
+            self.assertTrue(handle.accepted)
+            result=self.result(handle.get_result_async(),90).result
+            self.assertTrue(result.success,result.message)
+            time.sleep(.3)
+        named('home');rejected('limit')  # shoulder pitch is only 0.083 rad above its lower limit.
+        response=self.call('/arm_control/prepare_servo',Trigger,Trigger.Request())
+        self.assertTrue(response.success,response.message)
         time.sleep(.3)
+        # A legal position inside the URDF limit but within Servo's 0.1 rad margin.
+        names=['shoulder_yaw_joint','shoulder_pitch_joint','elbow_pitch_joint','wrist_pitch_joint','wrist_yaw_joint','wrist_roll_joint']
+        positions=[self.positions[name] for name in names];positions[0]=.95
+        handle=self.result(arm.send_goal_async(ExecuteArmGoal.Goal(target_type=ExecuteArmGoal.Goal.TARGET_JOINTS,joint_names=names,joint_positions=positions)))
+        self.assertTrue(handle.accepted)
+        result=self.result(handle.get_result_async(),90).result;self.assertTrue(result.success,result.message)
+        time.sleep(.3);rejected('limit')
+        named('ready')
         response=self.call('/arm_control/set_servo_mode',SetBool,SetBool.Request(data=True));self.assertTrue(response.success,response.message)
         self.wait(lambda:self.runtime_details.get('arm_profile')=='servo' and self.runtime_details['groups']['arm']=='Running')
         state=self.controllers();self.assertEqual(state['arm_position_controller'],'inactive');self.assertEqual(state['arm_servo_controller'],'active')
@@ -40,7 +66,7 @@ class ServoSmoke(unittest.TestCase):
         command=TwistStamped();command.header.frame_id='grasp_tcp';command.twist.angular.z=.1
         def nonzero():
             command.header.stamp=self.node.get_clock().now().to_msg();publisher.publish(command)
-            return self.output and any(abs(v)>1e-5 for v in self.output)
+            return self.output and any(abs(v)>1e-5 for v in self.output) and any(abs(self.positions[name]-before[name])>1e-4 for name in names)
         self.wait(nonzero,20)
         self.wait(lambda:self.output is not None and all(v==0. for v in self.output),2)
         response=self.call('/arm_control/set_servo_mode',SetBool,SetBool.Request(data=False));self.assertTrue(response.success,response.message)

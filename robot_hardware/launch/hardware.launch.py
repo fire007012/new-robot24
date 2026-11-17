@@ -1,46 +1,64 @@
+"""Load only the selected groups, with all components initially unconfigured."""
+from pathlib import Path
+import subprocess
+import yaml
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction
-from launch.substitutions import LaunchConfiguration, Command
+from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
-from launch.conditions import IfCondition
-from launch_ros.parameter_descriptions import ParameterValue
 from ament_index_python.packages import get_package_share_directory
-from pathlib import Path
-from robot_hardware_runtime.control_period import control_rate, controller_parameter_file
+from robot_hardware_runtime.control_period import control_rate
+from robot_hardware_runtime.selection import parse_groups, select_description, selected_controllers
 
 
-def spawn_controllers(context):
-    # One spawner loads/configures sequentially. Concurrent spawners can time out
-    # and retry a load that already succeeded while other requests are queued.
-    controllers = ['joint_state_broadcaster', 'arm_position_controller', 'flipper_csp_controller',
-                   'flipper_csv_forward_controller', 'gripper_controller', 'wheel_controller']
-    if LaunchConfiguration('enable_servo').perform(context).lower() == 'true':
-        controllers.append('arm_servo_controller')
-    return [Node(package='controller_manager', executable='spawner',
-                 arguments=controllers + ['--inactive', '--controller-manager-timeout', '60',
-                                          '--service-call-timeout', '30'], output='screen')]
+def launch_selected(context):
+    get = lambda name: LaunchConfiguration(name).perform(context)
+    share = Path(get_package_share_directory('robot_hardware'))
+    canopen = Path(get_package_share_directory('robot_canopen_config')) / 'config'
+    groups = parse_groups(get('selected_groups'))
+    if not get('group_policy') and groups != {'arm', 'base', 'flippers', 'gripper'}:
+        raise ValueError('partial hardware selection requires group_policy')
+    policy_path = get('group_policy') or str(Path(get_package_share_directory('robot_safety'))/'config/group_policy_v2.yaml')
+    contract = yaml.safe_load(Path(policy_path).read_text())
+    raw = subprocess.check_output(['xacro', str(share/'urdf/robot.urdf.xacro'),
+        'mock:='+get('mock'), 'canopen_interface:='+get('canopen_interface'),
+        'private_interface:='+get('private_interface'), 'group_policy:='+get('group_policy')], text=True)
+    backends = {a['backend'] for a in contract['axes'].values() if a['group'] in groups}
+    if (get('mock') != 'true' and len(backends) > 1 and
+            get('canopen_interface') == get('private_interface')):
+        raise ValueError('CAN_TOPOLOGY: shared CANopen/private interface has no commissioned topology')
+    description = select_description(raw, contract, groups, canopen)
+    controllers = selected_controllers(contract, groups, get('enable_servo') == 'true')
+    parameters = yaml.safe_load((share/'config/controllers.yaml').read_text())
+    parameters['controller_manager']['ros__parameters']['update_rate'] = control_rate(canopen)
+    parameters['controller_manager']['ros__parameters']['hardware_components_initial_state'] = {
+        'unconfigured': sorted(backends)}
+    # Keep node-scoped YAML so no wildcard parameter overrides hide the selected rate.
+    import atexit
+    import tempfile
+    with tempfile.NamedTemporaryFile(mode='w', prefix='robot-selected-', suffix='.yaml', delete=False) as out:
+        yaml.safe_dump(parameters, out)
+        parameter_path = Path(out.name)
+    atexit.register(lambda: parameter_path.unlink(missing_ok=True))
+    actions = []
+    if get('start_controller_manager') == 'true':
+        actions.append(Node(package='controller_manager', executable='ros2_control_node',
+            parameters=[{'robot_description': description}, str(parameter_path)], output='screen'))
+    actions.append(Node(package='robot_hardware', executable='robot_runtime', parameters=[{
+        'enable_servo': get('enable_servo') == 'true', 'group_policy': get('group_policy'),
+        'selected_groups': sorted(groups), 'simulation': get('mock') == 'true',
+        'bus_config': str(canopen/'bus.yml'), 'baseline': get('baseline'), 'journal': get('journal')}], output='screen'))
+    actions.append(Node(package='controller_manager', executable='spawner', arguments=controllers +
+        ['--inactive', '--controller-manager-timeout', '60', '--service-call-timeout', '30'], output='screen'))
+    return actions
 
 
 def generate_launch_description():
     share = Path(get_package_share_directory('robot_hardware'))
-    canopen = Path(get_package_share_directory('robot_canopen_config'))
-    update_rate = control_rate(canopen / 'config')
-    controllers = controller_parameter_file(share / 'config/controllers.yaml', update_rate)
-    description = ParameterValue(Command(['xacro ', str(share/'urdf/robot.urdf.xacro'),
-        ' mock:=', LaunchConfiguration('mock'), ' canopen_interface:=', LaunchConfiguration('canopen_interface'),
-        ' private_interface:=', LaunchConfiguration('private_interface'), ' group_policy:="', LaunchConfiguration('group_policy'), '"']), value_type=str)
-    actions = [DeclareLaunchArgument('start_controller_manager',default_value='true'),DeclareLaunchArgument('enable_servo',default_value='false'),DeclareLaunchArgument('group_policy', default_value=''),
-        DeclareLaunchArgument('mock', default_value='false'),
-        DeclareLaunchArgument('canopen_interface', default_value='canable0'),
-        DeclareLaunchArgument('private_interface', default_value='canable1'),
-        DeclareLaunchArgument('baseline', default_value=str(share/'config/commissioning.yaml')),
-        DeclareLaunchArgument('journal', default_value=str(Path.home()/'.ros/robot_maintenance.json')),
-        Node(package='controller_manager', executable='ros2_control_node',condition=IfCondition(LaunchConfiguration('start_controller_manager')),
-             parameters=[{'robot_description': description}, controllers], output='screen'),
-        Node(package='robot_hardware', executable='robot_runtime', parameters=[{
-             'enable_servo': ParameterValue(LaunchConfiguration('enable_servo'),value_type=bool),
-             'group_policy': ParameterValue(LaunchConfiguration('group_policy'), value_type=str),
-             'simulation': ParameterValue(LaunchConfiguration('mock'), value_type=bool), 'bus_config': str(canopen/'config/bus.yml'), 'baseline':LaunchConfiguration('baseline'),
-             'journal':LaunchConfiguration('journal')}], output='screen')]
-    actions.append(OpaqueFunction(function=spawn_controllers))
-    return LaunchDescription(actions)
+    defaults = {'start_controller_manager':'true', 'enable_servo':'false', 'group_policy':'',
+        'selected_groups':'arm,base,flippers,gripper', 'mock':'false',
+        'canopen_interface':'canable0', 'private_interface':'canable1',
+        'baseline':str(share/'config/commissioning.yaml'),
+        'journal':str(Path.home()/'.ros/robot_maintenance.json')}
+    return LaunchDescription([DeclareLaunchArgument(k, default_value=v) for k, v in defaults.items()] +
+                             [OpaqueFunction(function=launch_selected)])

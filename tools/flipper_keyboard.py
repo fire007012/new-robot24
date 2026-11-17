@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Attended bare-motor CANopen PP bounded continuous keyboard control on can0.
+"""Attended bare-motor CANopen PP continuous keyboard control on can0.
 Uses project flipper scale 19857408 counts/output revolution. No zero/limit/save writes.
 """
 import threading
@@ -16,6 +16,16 @@ from run_canopen_velocity import SdoBus
 
 SCALE = 19857408 / (2 * math.pi)
 STEP = round(SCALE * math.pi / 180)
+# Refresh a moving PP target while a key is held; this is not a travel limit.
+TARGET_LEAD = STEP * 30
+TARGET_REFRESH = STEP * 15
+
+def continuous_target(position, direction):
+    target = position + direction * TARGET_LEAD
+    if not -(1 << 31) <= target < (1 << 31):
+        raise RuntimeError('目标位置超出驱动器32位有符号位置范围')
+    return target
+
 FOLDER = Path(tempfile.mkdtemp(prefix='flipper-keyboard-'))
 LOG = (FOLDER/'events.jsonl').open('w', buffering=1)
 def record(**event):
@@ -43,7 +53,7 @@ class Axis:
         if self.read(0x6061,True)!=1:raise RuntimeError('需要原位置模式1')
         self.origin=self.position()
         for idx in (0x6081,0x6083,0x6084,0x6085,0x605d): self.original[idx]=self.read(idx)
-        # Five degrees/s, bounded position target. Settings are RAM-only and restored.
+        # Five degrees/s. Settings are RAM-only and restored.
         for idx,value in ((0x6081,STEP*5),(0x6083,STEP*4),(0x6084,STEP*4),(0x6085,STEP*8),(0x605d,1)):
             self.write(idx,value,2 if idx==0x605d else 4)
             if self.read(idx)!=value:raise RuntimeError('位置曲线参数读回不符')
@@ -55,7 +65,6 @@ class Axis:
     def move(self,target,cancel=lambda:False):
         start=self.position()
         if abs(target-start)>STEP*1.2:raise RuntimeError('单次目标超过1度')
-        if abs(target-self.origin)>STEP*30:raise RuntimeError('超过本次空载调试±30度范围')
         self.bus.control(15);self.write(0x607a,target,signed=True);self.bus.control(63)
         deadline=time.monotonic()+5
         reached=False
@@ -99,9 +108,7 @@ class Controller:
                 if active is None and wanted is not None:
                     idx,direction=wanted;active=self.axes[idx]
                     position=active.position()
-                    target=active.origin+direction*STEP*30
-                    if direction*(target-position)<STEP*.2:
-                        self.message='已到行程边界，请松键或反向';active=None;time.sleep(.02);continue
+                    target=continuous_target(position,direction)
                     active.write(0x607a,position,signed=True)
                     for word,state in ((6,0x21),(7,0x23),(15,0x27)):
                         active.bus.control(word);active.bus.wait_state(state)
@@ -113,10 +120,12 @@ class Controller:
                     if active.check() & 0x6f!=0x27:raise RuntimeError('运动状态异常')
                     position=active.position();velocity=active.read(0x606c,True)
                     self.samples.append((now,active.ident,position,velocity,stopping))
-                    if abs(position-active.origin)>STEP*30.2:raise RuntimeError('超出调试边界')
                     if abs(velocity)>STEP*6.5:raise RuntimeError('实际速度超限')
                     current=(active.ident-1,direction)
-                    if not stopping and (wanted!=current or direction*(position-active.origin)>=STEP*29.8):
+                    if not stopping and wanted==current and direction*(target-position)<=TARGET_REFRESH:
+                        target=continuous_target(position,direction)
+                        active.bus.control(15);active.write(0x607a,target,signed=True);active.bus.control(63)
+                    if not stopping and wanted!=current:
                         active.bus.control(0x10f)  # Halt: decelerate using 6084 / 605D=1.
                         stopping=True;deadline=now+4.5;stop_history=[]
                         record(node=active.ident,action='halt_ramp',position=position,velocity=velocity)
@@ -150,7 +159,7 @@ class Window(QtWidgets.QWidget):
         self.mapping={QtCore.Qt.Key_Y:(0,1),QtCore.Qt.Key_H:(0,-1),QtCore.Qt.Key_U:(1,1),QtCore.Qt.Key_J:(1,-1),QtCore.Qt.Key_I:(2,1),QtCore.Qt.Key_K:(2,-1),QtCore.Qt.Key_O:(3,1),QtCore.Qt.Key_L:(3,-1)}
         self.setWindowTitle('四摆臂空载连续控制 — can0');self.resize(740,300)
         layout=QtWidgets.QVBoxLayout(self)
-        layout.addWidget(QtWidgets.QLabel('按住连续运动，松开平滑停车；每次仅操作一个轴。\n节点1 左前 Y/H；节点2 右前 U/J；节点3 左后 I/K；节点4 右后 O/L（正/反）\n速度约5°/秒；加减速度约4°/秒²；空载范围为启动位置±30°。\n空格、窗口失焦：减速停车；Esc：停车并退出失能。'))
+        layout.addWidget(QtWidgets.QLabel('按住连续运动，松开平滑停车；每次仅操作一个轴。\n节点1 左前 Y/H；节点2 右前 U/J；节点3 左后 I/K；节点4 右后 O/L（正/反）\n速度约5°/秒；加减速度约4°/秒²；不设启动位置相对行程限位。\n空格、窗口失焦：减速停车；Esc：停车并退出失能。'))
         self.label=QtWidgets.QLabel();layout.addWidget(self.label)
         self.timer=QtCore.QTimer(self);self.timer.timeout.connect(self.tick);self.timer.start(20)
         self.setFocusPolicy(QtCore.Qt.StrongFocus)
@@ -175,6 +184,10 @@ class Window(QtWidgets.QWidget):
         self.clear();self.timer.stop();self.controller.close();e.accept()
 
 def main():
+    if '--boundary-test' in sys.argv:
+        print('已取消软件行程限位，--boundary-test 不再支持。', file=sys.stderr)
+        LOG.close()
+        return 2
     lock=open('/tmp/robot24-base-keyboard.lock','w');fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
     axes=[];controller=None
     try:
@@ -183,33 +196,6 @@ def main():
             axis=Axis(ident);axes.append(axis);axis.prepare()
             axis.bus.control(0);axis.bus.wait_state(0x40)
         controller=Controller(axes)
-        if '--boundary-test' in sys.argv:
-            def hold(intent,seconds):
-                controller.intent=intent
-                end=time.monotonic()+seconds
-                while time.monotonic()<end and not controller.error:
-                    controller.heartbeat=time.monotonic();time.sleep(.02)
-                if controller.error:raise RuntimeError(controller.error)
-            for idx,axis in enumerate(axes):
-                start=axis.position()
-                # Place the software boundary 1 degree away for a small real
-                # reproduction of reaching a boundary and then reversing.
-                axis.origin=start-29*STEP
-                try:
-                    hold((idx,1),3)
-                    hold(None,.8)
-                    boundary=axis.position()
-                    if boundary-start<STEP*.7:raise RuntimeError('未到达边界测试位置')
-                    hold((idx,-1),.8)
-                    hold(None,1.8)
-                    reversed_position=axis.position()
-                    if boundary-reversed_position<STEP*.5:raise RuntimeError('边界反向测试失败')
-                    record(node=axis.ident,action='boundary_reverse_passed',start=start,
-                           boundary=boundary,reversed_position=reversed_position)
-                finally:
-                    controller.intent=None
-                    axis.origin=axis.position()
-            record(action='four_axis_boundary_test_passed')
         if '--self-test' in sys.argv:
             for idx in range(4):
                 for direction in (1,-1):

@@ -1,5 +1,7 @@
 # Robot24 独立管理服务
 
+2026-11-17 can0 更新：hardware 档案使用显式 `can_interfaces`（canopen_interface/private_interface），与 devices/group_devices 一致校验。presets 继续传入实际 launch、裁剪组件/轴/控制器并限制 runtime 操作范围。base/flippers 分别使用 can0；未经核验的同接口跨后端组合报 CAN_TOPOLOGY。全车接线使用独立 hardware-full 档案。受控停机迁移工具为 `deploy_can0.py`；完整流程、限制和证据见 [实施验收 54](../docs/54_can0分组实机档案实施与验收.md)。
+
 2026-11-14 分组更新：预检/start 请求可传 `presets: ["base"]`、`["arm"]`、`["flippers"]` 或组合；机械臂展开为 arm+gripper。本次选择持久化在运行 profile 的 requested_presets，源档案不变。健康检查只要求所选组的软件服务/控制器及后端；不传时保持整车检查。hardware 档案可用 group_devices 显式映射四个组所用设备，预检据此只检查所选设备；未配置映射的旧档案仍保守检查全部 devices。设备映射的并集必须与 devices 一致。整车默认策略升级为 group-policy-v2；旧 v1 文件仍可显式选择。v2 默认没有待登记的组间机械关联，现场真实联锁应在 v2 策略显式配置，配置后未知/过期证据仍阻止对应目标组。
 
 管理服务仅依赖 Python 3.10 标准库；ROS 健康探针在 source 部署安装环境后独立运行。入口 `manager.py --config /etc/robot24/manager.json`，客户端 `client.py` 不需要 ROS。协议和 Qt 对接详见 [管理协议 39](../docs/archive/qt/39_下位机管理协议与Qt对接.md)。
@@ -8,7 +10,7 @@
 
 core 复用 `robot_bringup/full_system.launch.py`，始终 `enable_host:=false`；无视频时单独启动 `host_bridge.launch.py`，选视频时由现有 `video_stack.launch.py` 唯一拥有桥接、视频 IPC 和图像 RTSP。不再创建 controller_manager。视频档案复用 video_stack 的默认外部 MediaMTX 模式；现场应先部署配置所引用的 RTSP 服务，本管理服务不重复占用其8554端口。预检保留桥接9090、调试18080和所选视频IPC18081端口。视频可选表示流故障允许降级，桥接仍必需；视频 stack 整体故障导致桥接失败则整体失败。
 
-运动预设通过控制桥 `motion_presets_v1` 选择，映射与上位机提示词见 [文档 51](../docs/51_三组预设与上位机对接提示词.md)。部署档案可设置布尔 `enable_servo`，管理服务将其传入整车 launch；本目录 hardware/mock 示例启用该项以支持机械臂遥控，旧部署省略时仍为 false。它只加载 Servo 软件/控制器，不使能电机；切换 arm 模式仍需显式请求。该字段由部署管理员离线维护，配置事务接口只读。
+运动预设通过控制桥 `motion_presets_v1` 选择，映射与上位机提示词见 [文档 51](../docs/archive/51_三组预设与上位机对接提示词.md)。部署档案可设置布尔 `enable_servo`，管理服务将其传入整车 launch；本目录 hardware/mock 示例启用该项以支持机械臂遥控，旧部署省略时仍为 false。它只加载 Servo 软件/控制器，不使能电机；切换 arm 模式仍需显式请求。该字段由部署管理员离线维护，配置事务接口只读。
 
 ready 要求所选组的控制器清单、所用硬件组件、实时 runtime 及匹配桥接心跳 ACK 均实际通过；选择机械臂时还要求 MoveIt 项目 action，不传选组的旧请求保持整车检查。视频需要非空且全部 online 的源清单，并由 ffprobe 实际收到视频帧；探测预算4秒、单源最多2秒，缺少 ffprobe 或未收到帧时按必需/可选规则失败或降级。这不替代现场完整链路、质量和时延验收。runtime 的 Stopped、初始化、使能、分组、急停字段原样独立提供。管理服务从不调用 init/enable/resume。停止先通过实时 runtime、硬件生命周期和控制器清单确认：只有两个硬件均 unconfigured、所有控制器未运行、组均 Stopped 时，才以只读证据判定冷栈已停；其他情况必须成功调用 halt 并观察停止状态；无法确认时保留资源、返回 STOP_UNCONFIRMED，不能宣告停止成功。
 

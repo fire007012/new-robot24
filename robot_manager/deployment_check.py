@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import stat
 from client import request
+from deployment_paths import load_config
 
 
 def main():
@@ -16,7 +17,7 @@ def main():
     args=parser.parse_args()
     checks=[]
     def check(name,ok,detail=''):checks.append(dict(name=name,ok=bool(ok),detail=detail))
-    config=json.loads(Path(args.config).read_text())
+    config=load_config(args.config)
     token=Path(config['token_file'])
     check('token_permissions',stat.S_IMODE(token.stat().st_mode)==0o600)
     check('token_length',len(token.read_text().strip())>=32)

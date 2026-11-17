@@ -26,4 +26,4 @@ git status --short
 
 `.github/workflows/ci.yml` 使用 Humble/Ubuntu 22.04，递归检出子模块并执行核心构建与回归，不再使用 Noetic/Catkin 或临时克隆替换驱动。私有子模块可通过仓库 secret `SUBMODULE_TOKEN` 提供读取权限；CI 会将 GitHub SSH 来源映射为 HTTPS，默认 GITHUB_TOKEN 必须拥有相应访问权限。CI 核心检查不代替需 SDK 和显示服务的全量 `tools/validate_ros2.sh ... full`。
 
-当前依赖版本和未提交 gitlink 状态见 [清单 36](36_ROS2迁移剩余事项清单.md)，设备参数与复核边界见 [参数说明](37_ROS1实机参数迁入ROS2.md)；历史软件验收批次见 [全量实施记录](archive/34_ROS2全量软件集成与验收.md)。
+当前依赖版本和未提交 gitlink 状态见 [清单 36](36_ROS2迁移剩余事项清单.md)，设备参数与复核边界见 [参数说明](37_ROS1实机参数迁入ROS2.md)；历史软件验收批次见 [全量实施记录](34_ROS2全量软件集成与验收.md)。

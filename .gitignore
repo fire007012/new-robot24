@@ -25,6 +25,7 @@ build/
 /frames.gv
 /frames.pdf
 /docs/evidence/
+/docs/archive/evidence/
 /docs/artifacts/
 *.log
 .pytest_cache/
