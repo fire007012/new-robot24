@@ -24,8 +24,13 @@ def probe():
         profile = json.loads(sys.argv[2])
         if profile['mode'] == 'hardware' and sys.argv[1] == 'config':
             with open(profile['baseline']) as stream:
-                if yaml.safe_load(stream).get('commissioned') is not True:
-                    return 1
+                baseline = yaml.safe_load(stream)
+                groups, _, _ = requirements(profile.get('requested_presets'))
+                if baseline.get('commissioned') is not True:
+                    if (baseline.get('schema_version') != 'robot24-parameter-baseline-v2' or
+                            baseline.get('parameters_verified') is not True or
+                            not groups <= set(baseline.get('commissioned_groups', []))):
+                        return 1
         if profile['video']:
             with open(profile['video_config']) as stream:
                 data = yaml.safe_load(stream)
