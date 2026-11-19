@@ -23,6 +23,25 @@ colcon build --packages-up-to robot_canopen_config
 colcon test --packages-select robot_canopen_config
 ```
 
+If `test_virtual_can.cpp` reports that `MotionHealth` or `async_sdo_read_text`
+does not exist, check that the workspace's
+`ros2_canopen/canopen_base_driver/include/canopen_base_driver/lely_driver_bridge.hpp`
+contains those APIs. The tests require this workspace's modified driver. Rebuild
+the dependencies as well as the configuration package so CMake uses the updated
+installed headers and libraries:
+
+```sh
+cd /path/to/ros2_ws_car
+source /opt/ros/humble/setup.bash
+colcon build --packages-up-to robot_canopen_config --cmake-clean-cache
+source install/setup.bash
+colcon test --packages-select robot_canopen_config
+colcon test-result --verbose
+```
+
+If the source header lacks these APIs, update the workspace's `ros2_canopen`
+source to the matching project revision before rebuilding.
+
 Inspect the generated DCF, each node binary, and `bus.yml` under
 `install/robot_canopen_config/share/robot_canopen_config/config/`. The
 `urdf/canopen.ros2_control.xacro` macro is an integration fragment. It is used by the active ROS2 hardware description.

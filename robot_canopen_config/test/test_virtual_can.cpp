@@ -8,6 +8,7 @@
 #include <lely/ev/fiber_exec.hpp>
 #include <lely/coapp/master.hpp>
 #include "canopen_base_driver/lely_driver_bridge.hpp"
+#include "canopen_base_driver/motion_health.hpp"
 #include <atomic>
 #include <thread>
 
