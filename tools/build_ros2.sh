@@ -14,6 +14,17 @@ if [[ -d "$robot_sdk_prefix" ]]; then
   export CMAKE_PREFIX_PATH="$robot_sdk_prefix:${CMAKE_PREFIX_PATH:-}"
   export LD_LIBRARY_PATH="$robot_sdk_prefix/lib:$robot_sdk_prefix/lib/x86_64-linux-gnu:${LD_LIBRARY_PATH:-}"
 fi
+# Rootless overlay for dependencies that are not installed under /opt/ros.
+robot_extra_prefix="$robot_source_root/.deps/ros_extra"
+if [[ -f "$robot_extra_prefix/setup.sh" ]]; then
+  # shellcheck source=/dev/null
+  source "$robot_extra_prefix/setup.sh"
+fi
+robot_cmake_args=(-DBUILD_TESTING=ON -DINSTALL_UDEV_RULES=OFF)
+robot_qt_controls2_config="$robot_extra_prefix/usr/lib/x86_64-linux-gnu/cmake/Qt5QuickControls2/Qt5QuickControls2Config.cmake"
+if [[ -f "$robot_qt_controls2_config" ]]; then
+  robot_cmake_args+=(-DQt5QuickControls2_DIR="$(dirname "$robot_qt_controls2_config")")
+fi
 robot_packages=(ros2_canopen robot_safety can_driver robot_canopen_config robot_hardware car_urdf car_moveit_config mobility_control arm_control car_control flipper_control robot_bringup)
 robot_build_target=robot_bringup
 if [[ "${2:-core}" == full ]]; then
@@ -27,4 +38,4 @@ done
 colcon --log-base "${robot_prefix}-log" build --base-paths "${robot_paths[@]}" \
   --packages-up-to "$robot_build_target" --packages-ignore lely_core_libraries \
   --build-base "${robot_prefix}-build" --install-base "${robot_prefix}-install" \
-  --parallel-workers "$robot_build_workers" --cmake-args -DBUILD_TESTING=ON -DINSTALL_UDEV_RULES=OFF
+  --parallel-workers "$robot_build_workers" --cmake-args "${robot_cmake_args[@]}"
