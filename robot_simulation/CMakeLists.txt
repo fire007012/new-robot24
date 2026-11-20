@@ -12,5 +12,5 @@ ament_target_dependencies(robot24_gazebo_system rclcpp hardware_interface plugin
 target_link_libraries(robot24_gazebo_system ignition-gazebo6::ignition-gazebo6)
 pluginlib_export_plugin_description_file(gz_ros2_control plugins.xml)
 install(TARGETS robot24_gazebo_system LIBRARY DESTINATION lib)
-install(DIRECTORY launch urdf worlds DESTINATION share/${PROJECT_NAME})
+install(DIRECTORY launch worlds DESTINATION share/${PROJECT_NAME})
 ament_package()
