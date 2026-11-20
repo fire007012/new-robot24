@@ -33,7 +33,7 @@ ROS1 代码已集中到 [reference/ros1](reference/ros1/README.md)，仅供参�
 ```bash
 bash tools/install_ros2_dependencies.sh --dry-run
 bash tools/install_ros2_dependencies.sh
-# 仅全量相机集合需要；固定 librealsense 2.58.4 解包到 .deps/，不覆盖系统 SDK。
+# 仅全量相机集合需要；固定 librealsense 2.59.1 解包到 .deps/，不覆盖系统 SDK。
 bash tools/prepare_camera_sdk.sh
 
 # core 默认构建主控制链；full 构建完整的 37 个 ROS2 包。
