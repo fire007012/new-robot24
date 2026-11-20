@@ -13,6 +13,9 @@ output=root/'release.json'
 if output.exists():raise SystemExit('release.json already exists; use a new release directory')
 files={}
 for path in sorted(root.rglob('*')):
+    # Bytecode is a local cache and is not retained in Git deployment clones.
+    if '__pycache__' in path.relative_to(root).parts or path.suffix in ('.pyc', '.pyo'):
+        continue
     if path.is_symlink() and (path.is_dir() or not path.resolve().is_relative_to(root)):
         raise SystemExit('release must contain actual directories and no external symlinks: '+str(path))
     if not path.is_file():continue

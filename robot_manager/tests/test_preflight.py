@@ -14,6 +14,60 @@ sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from manager import Backend,Fault,identity
 
 class Tests(unittest.TestCase):
+    def test_servo_dependency_is_checked_only_for_selected_arm_with_servo_enabled(self):
+        with tempfile.TemporaryDirectory(prefix='robot-servo-preflight-') as folder:
+            root=Path(folder)
+            (root/'setup.bash').write_text('true\n')
+            (root/'release.json').write_text(json.dumps(dict(build_version='test',management_protocol=1,control_protocol=2,files={'setup.bash':hashlib.sha256((root/'setup.bash').read_bytes()).hexdigest()})))
+            backend=Backend(dict(build_version='test',setup=str(root/'setup.bash'),build_manifest=str(root/'release.json'),control_endpoint=dict(port=0)),root,root)
+            for groups,servo,required in ((['base'],True,False),(['arm'],False,False),(['arm'],True,True)):
+                calls=[]
+                def run(args,timeout):
+                    calls.append(args)
+                    if args == ['ros2','pkg','prefix','moveit_servo']:
+                        raise Fault('PROCESS','Servo package missing')
+                    return ''
+                backend.run=run
+                result=backend.preflight(dict(mode='mock',video=False,build_version='test',devices=[],requested_presets=groups,enable_servo=servo))
+                self.assertEqual(['ros2','pkg','prefix','moveit_servo'] in calls,required)
+                self.assertEqual(next(c for c in result['checks'] if c['name']=='ros_packages')['ok'],not required)
+
+    def test_controller_manager_is_checked_before_launch(self):
+        with tempfile.TemporaryDirectory(prefix='robot-controller-manager-check-') as folder:
+            root=Path(folder)
+            (root/'setup.bash').write_text('true\n')
+            (root/'release.json').write_text(json.dumps(dict(build_version='test',management_protocol=1,control_protocol=2,files={'setup.bash':hashlib.sha256((root/'setup.bash').read_bytes()).hexdigest()})))
+            config=dict(build_version='test',setup=str(root/'setup.bash'),build_manifest=str(root/'release.json'),control_endpoint=dict(port=0))
+            b=Backend(config,root,root)
+            def missing_controller_manager(args, timeout):
+                if args[:4] == ['ros2','pkg','prefix','controller_manager']:
+                    raise Fault('PROCESS','missing package')
+                return ''
+            b.run=missing_controller_manager
+            checks=b.preflight(dict(mode='mock',video=False,build_version='test',devices=[]))
+            self.assertFalse(checks['passed'])
+            self.assertFalse(next(c for c in checks['checks'] if c['name']=='ros_packages')['ok'])
+
+    def test_cold_launch_recovery_requires_known_error_and_empty_core_process_group(self):
+        with tempfile.TemporaryDirectory(prefix='robot-cold-launch-') as folder:
+            root=Path(folder)
+            backend=Backend({},root,root)
+            operation_id='04806f3d-5347-4053-b262-8279926c939d'
+            (root/(operation_id+'-core.process.log')).write_text(
+                "[ERROR] Caught exception in launch: package 'controller_manager' not found\n")
+            resources=[
+                dict(module='core',pid=2_000_000_000,identity=['old-boot','old-start'],pending=False),
+                dict(module='bridge',pid=2_000_000_001,identity=['old-boot','old-start'],pending=False),
+            ]
+            self.assertTrue(backend.cold_start_launch_rejected(resources,operation_id))
+            (root/(operation_id+'-core.process.log')).write_text(
+                "[ERROR] Caught exception in launch: hardware init failed\n")
+            self.assertFalse(backend.cold_start_launch_rejected(resources,operation_id))
+            (root/(operation_id+'-core.process.log')).write_text(
+                "[ERROR] Caught exception in launch: package 'controller_manager' not found\n")
+            resources.append(dict(module='video',pid=2_000_000_002,identity=['old-boot','old-start'],pending=False))
+            self.assertFalse(backend.cold_start_launch_rejected(resources,operation_id))
+
     def test_removed_safe_posture_option_is_rejected_and_never_forwarded(self):
         with tempfile.TemporaryDirectory() as folder:
             backend=Backend(dict(control_endpoint={'port':9090}),Path(folder),Path(folder))

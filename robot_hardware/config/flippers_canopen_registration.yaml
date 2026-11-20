@@ -1,0 +1,141 @@
+registration_status: current_configuration_registered
+date: '2026-11-20'
+canopen_interface: can1
+basis: operator_confirmed_existing_parameters_measured_and_working
+confirmation: 用户确认摆臂现有代码参数已实测可用，要求直接登记并部署
+device_io_performed: false
+axes:
+  left_front_arm_joint:
+    node_id: 1
+    physical_label: ROS1:left_front_arm_joint
+    direction_verified: true
+    counts_per_rev: 19857408
+    default_mode: 9
+    position_mode: 8
+    velocity_mode: 9
+    joint_limits:
+      lower: -3.665
+      upper: 0.524
+      effort: 50.0
+      velocity: 1.57
+    parameters:
+      name: left_front_arm_joint
+      canopen:
+        node_id: 1
+        verify_pdo_mapping: false
+        default_mode: 9
+      counts_per_rev: 19857408
+      rated_torque_nm: 1.0
+      position_lock_threshold: 15000
+      max_fault_resets: 3
+      fault_reset_hold_cycles: 5
+      ip_interpolation_period_ms: 5
+      max_velocity_for_clamp: 500000
+      velocity_scale: 1.0
+      torque_scale: 1.0
+      ip_max_velocity: 0.5
+      ip_max_acceleration: 0.5
+      ip_max_jerk: 5.0
+      ip_goal_tolerance: 0.001
+  right_front_arm_joint:
+    node_id: 2
+    physical_label: ROS1:right_front_arm_joint
+    direction_verified: true
+    counts_per_rev: 19857408
+    default_mode: 9
+    position_mode: 8
+    velocity_mode: 9
+    joint_limits:
+      lower: -3.665
+      upper: 0.524
+      effort: 50.0
+      velocity: 1.57
+    parameters:
+      name: right_front_arm_joint
+      canopen:
+        node_id: 2
+        verify_pdo_mapping: false
+        default_mode: 9
+      counts_per_rev: 19857408
+      rated_torque_nm: 1.0
+      position_lock_threshold: 15000
+      max_fault_resets: 3
+      fault_reset_hold_cycles: 5
+      ip_interpolation_period_ms: 5
+      max_velocity_for_clamp: 500000
+      velocity_scale: 1.0
+      torque_scale: 1.0
+      ip_max_velocity: 0.5
+      ip_max_acceleration: 0.5
+      ip_max_jerk: 5.0
+      ip_goal_tolerance: 0.001
+  left_rear_arm_joint:
+    node_id: 3
+    physical_label: ROS1:left_rear_arm_joint
+    direction_verified: true
+    counts_per_rev: 19857408
+    default_mode: 9
+    position_mode: 8
+    velocity_mode: 9
+    joint_limits:
+      lower: -0.524
+      upper: 3.665
+      effort: 50.0
+      velocity: 1.57
+    parameters:
+      name: left_rear_arm_joint
+      canopen:
+        node_id: 3
+        verify_pdo_mapping: false
+        default_mode: 9
+      counts_per_rev: 19857408
+      rated_torque_nm: 1.0
+      position_lock_threshold: 15000
+      max_fault_resets: 3
+      fault_reset_hold_cycles: 5
+      ip_interpolation_period_ms: 5
+      max_velocity_for_clamp: 500000
+      velocity_scale: 1.0
+      torque_scale: 1.0
+      ip_max_velocity: 0.5
+      ip_max_acceleration: 0.5
+      ip_max_jerk: 5.0
+      ip_goal_tolerance: 0.001
+  right_rear_arm_joint:
+    node_id: 4
+    physical_label: ROS1:right_rear_arm_joint
+    direction_verified: true
+    counts_per_rev: 19857408
+    default_mode: 9
+    position_mode: 8
+    velocity_mode: 9
+    joint_limits:
+      lower: -0.524
+      upper: 3.665
+      effort: 50.0
+      velocity: 1.57
+    parameters:
+      name: right_rear_arm_joint
+      canopen:
+        node_id: 4
+        verify_pdo_mapping: false
+        default_mode: 9
+      counts_per_rev: 19857408
+      rated_torque_nm: 1.0
+      position_lock_threshold: 15000
+      max_fault_resets: 3
+      fault_reset_hold_cycles: 5
+      ip_interpolation_period_ms: 5
+      max_velocity_for_clamp: 500000
+      velocity_scale: 1.0
+      torque_scale: 1.0
+      ip_max_velocity: 0.5
+      ip_max_acceleration: 0.5
+      ip_max_jerk: 5.0
+      ip_goal_tolerance: 0.001
+source_sha256:
+  robot_canopen_config/config/legacy_joints.yaml: a87e86e4a0589d28c94dd594cc17e3ee1c81a0416ef75b821509f435a7a331b2
+  robot_canopen_config/config/legacy_master.yaml: 48add4bc46b404d12c11287f6b086dbcc2c0c80a0e4e71f65fcf29b173615a86
+  robot_canopen_config/config/YiyouServo_V1.4.dcfgen.eds: cb4ba5ef63935f01841ff33e5125e984d35df8b76c5c8f75928134af78eb4683
+  robot_hardware/config/joint_limits.yaml: 60189ec89066ba8c377ef4297cc1f5932cdffe2f885239ae79cbeef89a4da9f6
+  robot_hardware/config/arm_registered_baseline.yaml: abd21b8eb8314895b52a277977dc958f7fa23e1c72d1763584d87a3e60a4cb5d

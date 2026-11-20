@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import platform
+import secrets
 import shutil
 import subprocess
 import sys
@@ -36,6 +37,28 @@ def verify_deployment(install, config):
                              '--config', str(config)], capture_output=True, text=True)
     if result.returncode:
         raise ValueError('deployment verification failed:\n' + result.stdout + result.stderr)
+
+
+def prepare(root):
+    """Create machine-local credentials/directories after cloning; never reset state."""
+    root = root.resolve(strict=True)
+    runtime = root / 'runtime'
+    config = read(runtime / 'manager.json')
+    token = (runtime / config['token_file']).resolve()
+    state = (runtime / config['state_dir']).resolve()
+    if not token.is_relative_to(runtime) or not state.is_relative_to(runtime):
+        raise ValueError('token_file and state_dir must stay inside runtime')
+    state.mkdir(parents=True, exist_ok=True, mode=0o700)
+    with (state / 'lock').open('a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        if token.exists():
+            if token.stat().st_mode & 0o777 != 0o600 or len(token.read_text().strip()) < 32:
+                raise ValueError('existing token must have mode 0600 and at least 32 characters')
+        else:
+            token.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+            with open(token, 'x', opener=lambda p, f: os.open(p, f, 0o600)) as stream:
+                stream.write(secrets.token_urlsafe(32) + '\n')
+    print('Local credentials and state directory ready; existing state preserved; service not started')
 
 
 def pack(args):
@@ -194,12 +217,14 @@ def main():
     export.add_argument('--config', type=Path, required=True)
     export.add_argument('--output', type=Path, required=True)
     export.add_argument('--advertise-host', help='target lower-computer IPv4 as reachable from Qt')
-    for command in ('check', 'libraries'):
+    for command in ('prepare', 'check', 'libraries'):
         sub.add_parser(command).add_argument('--root', type=Path, default=Path(__file__).resolve().parent)
     args = parser.parse_args()
     try:
         if args.command == 'pack':
             pack(args)
+        elif args.command == 'prepare':
+            prepare(args.root)
         elif args.command == 'check':
             check(args.root)
         else:

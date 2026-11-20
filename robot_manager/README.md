@@ -1,12 +1,14 @@
 # Robot24 独立管理服务
 
+2026-11-20 停止恢复更新：预检按所选组检查 `controller_manager`、MoveIt 及启用 Servo 时的 `moveit_servo` 包，依赖缺失时不派生启动组。若部分模拟启动失败且 runtime 无法确认 halt，仅对 `mode=mock` 的 core/bridge 软件残留提供回退清理：核对 boot ID、PID 启动时刻、会话、用户、可执行文件，以及 runtime 参数中的 `simulation=true` 和本部署 journal，随后使用 pidfd 逐个停止已验证进程。未知成员、PID 复用、未落盘身份或控制器/MoveIt 残留均拒绝此回退；hardware 始终保留原 halt 确认要求。最后仍经管理事务清除已停止资源、读回 stopped 和恢复标记，不能直接删除状态文件。
+
 当前双 CAN 约定（2026-11-20）：can_driver/private_interface=can0，CANopen/canopen_interface=can1；hardware 与 hardware-full 模板按此映射，旧 can0 共享接线记录仅为历史。机械臂启动需完整执行程序、Servo 就绪服务和 MoveIt 过滤状态输入，依赖与启动健康检查按所选组执行。
 
 历史记录（2026-11-17，已由上述双 CAN 约定取代）：hardware 档案使用显式 `can_interfaces`（canopen_interface/private_interface），与 devices/group_devices 一致校验。presets 继续传入实际 launch、裁剪组件/轴/控制器并限制 runtime 操作范围。base/flippers 分别使用 can0；未经核验的同接口跨后端组合报 CAN_TOPOLOGY。全车接线使用独立 hardware-full 档案。受控停机迁移工具为 `deploy_can0.py`；完整流程、限制和证据见 [实施验收 54](../docs/54_can0分组实机档案实施与验收.md)。
 
 2026-11-14 分组更新：预检/start 请求可传 `presets: ["base"]`、`["arm"]`、`["flippers"]` 或组合；机械臂展开为 arm+gripper。本次选择持久化在运行 profile 的 requested_presets，源档案不变。健康检查只要求所选组的软件服务/控制器及后端；不传时保持整车检查。hardware 档案可用 group_devices 显式映射四个组所用设备，预检据此只检查所选设备；未配置映射的旧档案仍保守检查全部 devices。设备映射的并集必须与 devices 一致。整车默认策略升级为 group-policy-v2；旧 v1 文件仍可显式选择。v2 默认没有待登记的组间机械关联，现场真实联锁应在 v2 策略显式配置，配置后未知/过期证据仍阻止对应目标组。
 
-管理服务仅依赖 Python 3.10 标准库；ROS 健康探针在 source 部署安装环境后独立运行。入口 `manager.py --config /etc/robot24/manager.json`，客户端 `client.py` 不需要 ROS。协议和 Qt 对接详见 [管理协议 39](../docs/archive/qt/39_下位机管理协议与Qt对接.md)。
+管理服务核心仅依赖 Python 3.10 标准库；模拟回退清理读取启动参数时使用部署已有的 `python3-yaml`，不导入 ROS。ROS 健康探针在 source 部署安装环境后独立运行。入口 `manager.py --config /etc/robot24/manager.json`，客户端 `client.py` 不需要 ROS。协议和 Qt 对接详见 [管理协议 39](../docs/archive/qt/39_下位机管理协议与Qt对接.md)。
 
 ## 进程归属与安全
 

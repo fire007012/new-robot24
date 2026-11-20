@@ -2,6 +2,22 @@
 
 本包与 `robot_canopen_config`、`robot_safety` 组成 CANopen 迁移后的 ROS2 控制链。目标环境为 ROS2 Humble，使用一个 controller_manager 管理六个 CANopen 轴和七个私有协议轴。六轴机械臂的 JTC 跨两个后端；摆臂 CSV/CSP 控制器互斥。旧 ROS1 包已归入 `reference/ros1/`，仅供行为参考，项目不再要求 ROS1 回退。
 
+## 当前配置的摆臂基线登记（2026-11-20）
+
+操作者已确认现有四摆臂参数实测可用。登记记录为 `config/flippers_canopen_registration.yaml`，在机械臂已登记基线上生成 `config/full_registered_baseline.yaml`，覆盖 arm/base/flippers/gripper。Node-ID 1～4、19,857,408 counts/rev、CSV 9 / CSP 8、can1 以及现有方向与限位均沿用当前参数，未改动驱动模式或比例。
+
+可从源码根目录重新生成到新文件：
+
+```bash
+python3 -B tools/register_flippers_baseline.py \
+  --baseline robot_hardware/config/arm_registered_baseline.yaml \
+  --registration robot_hardware/config/flippers_canopen_registration.yaml \
+  --bus ~/robot24-portable/install/robot_canopen_config/share/robot_canopen_config/config/bus.yml \
+  --output /tmp/commissioning-full-registered.yaml
+```
+
+工具核对节点、计数和生成总线模式，保留已有设备身份及持久参数；未知读回值保持未知。登记不进行设备 I/O。现有运行时仍核验在线身份、固件、PDO、零偏及维护 journal，不修改这些运行条件。独立部署的 hardware 档案使用 `runtime/profiles/commissioning-full-registered.yaml`，令牌和停止状态保留。
+
 完整操作及现场出口见 [CANopen 软件交付与实机验收](../docs/archive/28_CANopen软件交付与实机验收.md)。
 
 控制周期默认 5 ms / 200 Hz。调试安装可在构建 `robot_canopen_config` 时指定

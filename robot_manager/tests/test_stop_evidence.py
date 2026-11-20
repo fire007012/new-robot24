@@ -4,10 +4,16 @@ import sys
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from stop_evidence import cold_stopped
+from stop_evidence import cold_stopped, controller_manager_resolution_failed
 
 
 class ColdStopTests(unittest.TestCase):
+    def test_only_explicit_controller_manager_resolution_failure_is_cold_launch_evidence(self):
+        marker = "[ERROR] Caught exception in launch: package 'controller_manager' not found"
+        self.assertTrue(controller_manager_resolution_failed(marker))
+        self.assertFalse(controller_manager_resolution_failed("package 'controller_manager' not found"))
+        self.assertFalse(controller_manager_resolution_failed("Caught exception in launch: hardware init failed"))
+
     def test_partial_startup_requires_complete_fresh_stopped_evidence(self):
         hardware = dict(RobotCanopenSystem=1, CanDriverSystem=1)
         runtime = dict(state='Stopped', diagnostics=dict(readable=True),

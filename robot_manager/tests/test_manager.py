@@ -13,7 +13,7 @@ from client import request
 
 class Backend:
     def __init__(self):
-        self.started=[]; self.stopped=[]; self.bad=False; self.optional=False; self.wait=0
+        self.started=[]; self.stopped=[]; self.bad=False; self.optional=False; self.wait=0; self.cold_failure=False
     def validate(self,p): pass
     def preflight(self,p): return dict(passed=not self.bad,checks=[])
     def required(self,p): return ['core','bridge']
@@ -26,6 +26,7 @@ class Backend:
         return dict(modules=dict(core=dict(ok=not self.bad),bridge=dict(ok=not self.bad),video=dict(ok=not self.optional)),runtime=dict(state='Stopped'),observed_at=time.time())
     def halt(self,p): self.stopped.append('halt')
     def stop(self,r): self.stopped.append(r['module'])
+    def cold_start_launch_rejected(self,resources,operation_id): return self.cold_failure
 
 class Tests(unittest.TestCase):
     def setUp(self):
@@ -85,6 +86,50 @@ class Tests(unittest.TestCase):
         self.backend.health=lambda p:dict(modules=dict(core=dict(ok=False)),runtime=None)
         self.start();self.assertEqual(self.done()['error']['code'],'HEALTH')
         self.assertEqual(self.backend.stopped,['halt','bridge','core'])
+
+    def test_verified_cold_launch_failure_stops_owned_resources_without_halt_service(self):
+        operation_id='04806f3d-5347-4053-b262-8279926c939d'
+        self.m.data['profile']=dict(profile_id='mock')
+        self.m.data['operations'][operation_id]=dict(
+            operation_id=operation_id,method='start',state='failed',phase='reconcile',
+            profile_id='mock',error=dict(code='RECOVERY_REQUIRED'))
+        self.m.data['current']=operation_id
+        self.m.data['resources']=[dict(module='core'),dict(module='bridge')]
+        self.backend.cold_failure=True
+        self.m.stop_resources(self.m.data['profile'])
+        self.assertEqual(self.backend.stopped,['bridge','core'])
+        self.assertEqual(self.m.data['resources'],[])
+    def test_failed_halt_can_cleanup_only_a_verified_mock_and_preserves_hardware(self):
+        def halt(profile): raise Fault('PROCESS','halt failed')
+        self.backend.halt=halt
+        recovered=[]
+        def recover(profile,resources): recovered.append(True);return [123]
+        self.backend.recover_failed_mock=recover
+        for mode in ('hardware','mock'):
+            self.m.data['profile']=dict(profile_id=mode,mode=mode)
+            self.m.data['resources']=[dict(module='core'),dict(module='bridge')]
+            if mode=='hardware':
+                with self.assertRaises(Fault):self.m.stop_resources(self.m.data['profile'])
+                self.assertEqual(recovered,[])
+                self.assertEqual(len(self.m.data['resources']),2)
+            else:
+                self.m.data['current']='mock-recovery-test'
+                self.m.stop_resources(self.m.data['profile'])
+                self.assertEqual(recovered,[True])
+                self.assertEqual(self.m.data['resources'],[])
+        self.assertEqual(self.backend.stopped,['bridge','core'])
+
+    def test_unverified_mock_cleanup_retains_all_resources_and_original_halt_diagnostic(self):
+        def halt(profile):
+            error=Fault('PROCESS','halt failed');error.data['diagnostic']='ownership reconciliation in progress';raise error
+        def recover(profile,resources):raise ValueError('unverified process')
+        self.backend.halt=halt;self.backend.recover_failed_mock=recover
+        self.m.data['resources']=[dict(module='core'),dict(module='bridge')]
+        with self.assertRaises(Fault) as error:self.m.stop_resources(dict(profile_id='mock',mode='mock'))
+        self.assertEqual(error.exception.data['code'],'STOP_UNCONFIRMED')
+        self.assertIn('ownership',error.exception.data['diagnostic'])
+        self.assertEqual(self.m.data['resources'],[dict(module='core'),dict(module='bridge')])
+        self.assertEqual(self.backend.stopped,[])
     def test_degraded_and_bridge_crash(self):
         self.backend.optional=True
         self.start();self.done()

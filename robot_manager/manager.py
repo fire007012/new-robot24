@@ -21,6 +21,8 @@ from config_transactions import ConfigTransactions, METHODS as CONFIG_METHODS
 from group_selection import selected_groups, required_devices
 from can_config import validate_can, effective_can
 from deployment_paths import load_config
+from stop_evidence import controller_manager_resolution_failed
+from mock_recovery import recover_mock_resources
 
 VERSION = '2.1.0'
 METHODS = ['profiles', 'preflight', 'start', 'stop', 'operation', 'snapshot', 'logs'] + CONFIG_METHODS
@@ -282,18 +284,44 @@ class Manager:
     def stop_resources(self, profile, subset=None):
         resources = list(self.data['resources'] if subset is None else subset)
         if resources:
-            try:
-                self.backend.halt(profile)
-            except Exception as exc:
-                error = Fault('STOP_UNCONFIRMED', 'halt not confirmed; resources retained')
-                if isinstance(exc, Fault) and 'diagnostic' in exc.data:
-                    error.data['diagnostic'] = exc.data['diagnostic']
-                raise error
+            start_operation = self._cold_start_failure_operation(profile)
+            cold_check = getattr(self.backend, 'cold_start_launch_rejected', None)
+            cold_failure = bool(start_operation and cold_check and cold_check(resources, start_operation))
+            if cold_failure:
+                self.log(self.data.get('current'),
+                         'verified controller_manager launch resolution failure; stopping owned resources without runtime halt')
+            else:
+                try:
+                    self.backend.halt(profile)
+                except Exception as exc:
+                    recovery = getattr(self.backend, 'recover_failed_mock', None)
+                    try:
+                        if profile.get('mode') != 'mock' or recovery is None:
+                            raise ValueError('runtime halt is required')
+                        recovered = recovery(profile, resources)
+                        self.log(self.data.get('current'), 'verified partial mock cleanup: ' + json.dumps(recovered))
+                    except Exception as recovery_error:
+                        error = Fault('STOP_UNCONFIRMED', 'halt not confirmed; resources retained')
+                        if isinstance(exc, Fault) and 'diagnostic' in exc.data:
+                            error.data['diagnostic'] = exc.data['diagnostic']
+                        error.data['recovery_diagnostic'] = str(recovery_error)[:1000]
+                        raise error
         for resource in reversed(resources):
             self.backend.stop(resource)
             with self.lock:
                 self.data['resources'].remove(resource)
                 self.save()
+
+    def _cold_start_failure_operation(self, profile):
+        for operation in reversed(list(self.data['operations'].values())):
+            if operation.get('method') != 'start' or operation.get('profile_id') != profile.get('profile_id'):
+                continue
+            phase = operation.get('phase')
+            interrupted = (operation.get('state') == 'failed' and phase == 'reconcile'
+                           and operation.get('error', {}).get('code') == 'RECOVERY_REQUIRED')
+            starting = operation.get('state') == 'running' and phase in ('launch', 'health')
+            return operation.get('operation_id') if interrupted or starting else None
+        return None
 
     def probe(self, profile):
         health = self.backend.health(profile)
@@ -454,6 +482,11 @@ class Backend:
         try:
             self.run(['ros2', 'pkg', 'prefix', 'robot_bringup'], 5)
             self.run(['ros2', 'pkg', 'prefix', 'host_bridge'], 5)
+            self.run(['ros2', 'pkg', 'prefix', 'controller_manager'], 5)
+            if 'arm' in selected_groups(p.get('requested_presets')):
+                self.run(['ros2', 'pkg', 'prefix', 'moveit_ros_move_group'], 5)
+                if p.get('enable_servo', False):
+                    self.run(['ros2', 'pkg', 'prefix', 'moveit_servo'], 5)
             self.run([sys.executable, str(Path(__file__).with_name('ros_health.py')), 'preflight', json.dumps(p)], 5)
             ok = True
         except Exception as error:
@@ -535,6 +568,9 @@ class Backend:
         # the helper must otherwise confirm halt via the runtime service/state.
         self.run([sys.executable, str(Path(__file__).with_name('ros_health.py')), 'halt', json.dumps(p.get('requested_presets'))], 30)
 
+    def recover_failed_mock(self, profile, resources):
+        return recover_mock_resources(profile, resources, Path(self.config['build_manifest']).parent, self.state)
+
     def stop(self, r):
         if r.get('pending') or not r.get('identity'):
             raise Fault('RECOVERY_REQUIRED', 'spawn identity unknown; inspect service cgroup')
@@ -573,6 +609,35 @@ class Backend:
                 if int(fields[2]) == pid and fields[0] != 'Z':
                     raise Fault('RECOVERY_REQUIRED', 'descendant remains after stop')
             except (OSError, ValueError, IndexError): pass
+
+    def cold_start_launch_rejected(self, resources, operation_id):
+        if (not isinstance(operation_id, str) or len(operation_id) != 36
+                or set(r.get('module') for r in resources) != {'core', 'bridge'}
+                or len(resources) != 2):
+            return False
+        core = next(r for r in resources if r.get('module') == 'core')
+        if core.get('pending') or not core.get('identity'):
+            return False
+        current_identity = identity(core.get('pid'), include_zombie=True)
+        if current_identity is not None and current_identity != core.get('identity'):
+            return False
+        if identity(core.get('pid')) is not None:
+            return False
+        for stat in Path('/proc').glob('[0-9]*/stat'):
+            try:
+                fields = stat.read_text().rsplit(')', 1)[1].split()
+                if fields[0] != 'Z' and int(fields[2]) == core['pid']:
+                    return False
+            except (OSError, ValueError, IndexError):
+                pass
+        log = self.state / (operation_id + '-core.process.log')
+        try:
+            with log.open('rb') as stream:
+                stream.seek(max(0, log.stat().st_size - 262144))
+                text = stream.read().decode(errors='replace')
+        except OSError:
+            return False
+        return controller_manager_resolution_failed(text)
 
 class Handler(socketserver.StreamRequestHandler):
     def handle(self):

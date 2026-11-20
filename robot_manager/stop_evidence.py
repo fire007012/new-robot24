@@ -2,6 +2,13 @@
 import math
 
 
+def controller_manager_resolution_failed(log_text):
+    return (
+        "Caught exception in launch" in log_text
+        and "package 'controller_manager' not found" in log_text
+    )
+
+
 def cold_stopped(controllers, hardware, runtime, age, expected_backends=None):
     # The owned launch spawns controllers inactive. A partially loaded list
     # need not delay stopping hardware that has never been configured.

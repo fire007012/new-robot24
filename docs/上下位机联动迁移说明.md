@@ -49,6 +49,19 @@ python3 -B ~/ros2_ws_car/src/tools/portable_link.py pack \
   --output /tmp/robot24-portable-new.tar.gz
 ```
 
+## 从 Git 仓库克隆后的本机准备
+
+Git 不包含本地认证令牌与运行状态。新克隆在第一次启动前执行：
+
+```bash
+python3 -B ~/robot24-portable/portable_link.py prepare
+python3 -B ~/robot24-portable/portable_link.py check
+```
+
+`prepare` 仅在令牌不存在时生成权限为 0600 的新令牌，并创建状态目录；再次执行保留已有令牌、控制 journal 和急停锁存，不启动管理服务。已有服务运行时拒绝准备。Git 更新后无需重新生成令牌；上位机启动入口读取当前部署的令牌。
+
+发布清单不包含 `__pycache__`、`.pyc` 和 `.pyo`，避免克隆时因忽略缓存而误报缺失。依赖或部署程序改动后，由部署端重新生成与实际安装文件一致的发布清单和版本；不要通过删除完整性检查绕过差异。
+
 ## 导出前的停机要求
 
 先在 Qt 执行 stop，确认操作 succeeded、软件 stopped、无受管资源，然后正常退出管理服务。导出工具会持有管理锁并检查持久记录；服务仍在运行、存在未完成操作或资源时拒绝导出，不会替用户停止服务。使用前文的独立部署导出命令，输出文件必须不存在。

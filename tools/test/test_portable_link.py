@@ -35,6 +35,8 @@ class PortableTest(unittest.TestCase):
         # Fingerprint the content, then confirm an internal link is materialized on export.
         (install / 'library').unlink()
         (install / 'library').write_text(external.read_text())
+        (install / '__pycache__').mkdir()
+        (install / '__pycache__/cache.pyc').write_bytes(b'local cache')
         subprocess.run([sys.executable, '-B', str(manager / 'release_manifest.py'),
                         '--root', str(install), '--build-version', 'test'], check=True)
         (install / 'library').unlink()
@@ -72,6 +74,34 @@ class PortableTest(unittest.TestCase):
         (bundle / 'install/library').write_text('tampered')
         with self.assertRaisesRegex(ValueError, 'deployment verification failed'):
             portable.check(bundle, dependencies=False)
+
+    def test_release_excludes_disposable_bytecode(self):
+        manifest = portable.read(self.args.install / 'release.json')
+        self.assertFalse(any('__pycache__' in name or name.endswith('.pyc')
+                             for name in manifest['files']))
+        shutil.rmtree(self.args.install / '__pycache__')
+        portable.verify_deployment(self.args.install, self.args.config)
+
+    def test_prepare_clone_preserves_credentials_and_control_state(self):
+        runtime = self.args.config.parent
+        token = runtime / 'manager.token'
+        token.unlink()
+        original_state = (runtime / 'state/state.json').read_bytes()
+        original_control = (runtime / 'state/control/journal.json').read_bytes()
+        portable.prepare(runtime.parent)
+        secret = token.read_bytes()
+        self.assertGreaterEqual(len(secret.strip()), 32)
+        self.assertEqual(token.stat().st_mode & 0o777, 0o600)
+        portable.prepare(runtime.parent)
+        self.assertEqual(token.read_bytes(), secret)
+        self.assertEqual((runtime / 'state/state.json').read_bytes(), original_state)
+        self.assertEqual((runtime / 'state/control/journal.json').read_bytes(), original_control)
+
+    def test_missing_token_is_reported_without_traceback(self):
+        (self.args.config.parent / 'manager.token').unlink()
+        with self.assertRaisesRegex(ValueError, 'token_exists') as error:
+            portable.verify_deployment(self.args.install, self.args.config)
+        self.assertNotIn('Traceback', str(error.exception))
 
     def test_library_paths_with_spaces_and_external_dependency(self):
         root = self.root / 'bundle with spaces'
