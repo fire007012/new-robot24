@@ -1,6 +1,6 @@
 <?xml version='1.0' encoding='utf-8'?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
-  <xacro:macro name="private_can_control" params="can_interface:=canable1 mock:=false group_policy:=''">
+  <xacro:macro name="private_can_control" params="can_interface:=can0 mock:=false group_policy:=''">
     <ros2_control name="CanDriverSystem" type="system">
       <hardware>
         <xacro:if value="${mock}">

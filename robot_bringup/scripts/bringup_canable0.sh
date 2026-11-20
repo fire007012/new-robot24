@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-INTERFACE="${1:-canable0}"
+INTERFACE="${1:-can1}"
 BITRATE="${CAN_BITRATE:-1000000}"
 TX_QUEUE_LEN="${CAN_TXQUEUELEN:-10000}"
 

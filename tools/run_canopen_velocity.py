@@ -13,7 +13,7 @@ from motor_discovery import link_state, scan_can, select_target
 
 # None表示自动识别。速度比例须由该型号的606C/60FF单位确定，不从节点号推断。
 DEFAULT_MOTOR_ID = None
-DEFAULT_DEVICE = "canable0"
+DEFAULT_DEVICE = "can1"
 DEFAULT_SPEED = 0.1
 DEFAULT_DURATION = 1.0
 DEFAULT_VELOCITY_SCALE = None  # rad/s/raw；确认为counts/s时填2*pi/counts_per_rev

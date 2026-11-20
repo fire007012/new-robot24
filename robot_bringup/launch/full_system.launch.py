@@ -30,8 +30,8 @@ def generate_launch_description():
     policy = Path(get_package_share_directory('robot_safety')) / 'config/group_policy_v2.yaml'
     actions = [DeclareLaunchArgument('mock', default_value='false'),
         DeclareLaunchArgument('selected_groups', default_value='arm,base,flippers,gripper'),
-        DeclareLaunchArgument('canopen_interface', default_value='canable0'),
-        DeclareLaunchArgument('private_interface', default_value='canable1'),
+        DeclareLaunchArgument('canopen_interface', default_value='can1'),
+        DeclareLaunchArgument('private_interface', default_value='can0'),
         DeclareLaunchArgument('group_policy', default_value=str(policy)),
         DeclareLaunchArgument('baseline', default_value=str(hardware / 'config/commissioning.yaml')),
         DeclareLaunchArgument('journal', default_value=str(Path.home() / '.ros/robot_maintenance.json')),

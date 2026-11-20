@@ -14,6 +14,20 @@ def listed(**states):
 
 
 class ControllerStartupTests(unittest.TestCase):
+    def test_group_rpc_discovery_does_not_send_or_replay_operations(self):
+        node=Mock()
+        adapter=Adapter(node)
+        contract={'axes':{'a':{'group':'arm','backend':'RobotCanopenSystem'},
+                          'b':{'group':'arm','backend':'CanDriverSystem'}}}
+        adapter.prepare_clients(contract, {'arm'})
+        self.assertIn('/robot_runtime/groups/arm/acknowledge', adapter.clients)
+        self.assertIn('/robot_backend/RobotCanopenSystem/arm/prepare', adapter.clients)
+        self.assertIn('/robot_backend/CanDriverSystem/arm/prepare', adapter.clients)
+        count=node.create_client.call_count
+        adapter.prepare_clients(contract, {'arm'})
+        self.assertEqual(node.create_client.call_count,count)
+        node.create_client.return_value.call_async.assert_not_called()
+
     def test_waits_for_loaded_controller_to_finish_configuring(self):
         adapter = Adapter(Mock())
         adapter.call = Mock(side_effect=[listed(), listed(wheel_controller='unconfigured'),
@@ -74,12 +88,11 @@ class ControllerStartupTests(unittest.TestCase):
         with patch('robot_hardware_runtime.node.time.monotonic', side_effect=tick), \
                 patch('robot_hardware_runtime.node.threading.Event.wait'), \
                 patch('robot_hardware_runtime.node.rclpy.ok', return_value=True):
-            with self.assertRaisesRegex(RuntimeError, 'timeout'):
-                adapter.active_controllers()
+            self.assertEqual(adapter.active_controllers(), ['wheel_controller'])
             self.assertLess(now[0], 3.0)
             self.assertTrue(lost.cancelled())
             self.assertEqual(adapter.pending, {})
-            self.assertEqual(adapter.active_controllers(), ['wheel_controller'])
+            self.assertEqual(adapter.node.create_client.return_value.call_async.call_count,2)
 
 
 if __name__ == '__main__':

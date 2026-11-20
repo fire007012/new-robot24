@@ -361,9 +361,22 @@ class RosOutput(OutputAdapter):
             if mode not in ('arm','base','vehicle','servo','trajectory'):return False,2101,'unknown control mode'
             try:
                 result=self.request(SetBool,'/arm_control/set_servo_mode',SetBool.Request(data=mode in ('arm','servo')))
+                if result.success and mode in ('arm','servo'):
+                    return self.wait_servo_transport()
                 return result.success,0 if result.success else 2301,result.message
             except Exception as error:return False,2301,str(error)
         return self._call_trigger_service(path)
+    def wait_servo_transport(self, timeout=15):
+        # Mode completion means the gate can consume a fresh command, not just
+        # that the velocity controller was selected. Never queue operator input.
+        deadline=time.monotonic()+timeout
+        message='Servo transport is preparing'
+        while time.monotonic()<deadline:
+            ok,code,message=self._call_trigger_service('/arm_control/servo_transport_ready')
+            if ok:return True,0,'arm Servo ready; neutral input and explicit authorization required'
+            time.sleep(.05)
+        return False,2301,'Servo transport preparation timed out: '+message
+
     def call_named_service(self,service_name):return self._call_trigger_service(service_name)
     def _call_trigger_service(self,path,**kwargs):
         from std_srvs.srv import Trigger

@@ -424,12 +424,15 @@ class Backend:
             version_ok = False
         add('release_manifest', version_ok, 'DEPENDENCY', '部署匹配版本及文件 SHA256 清单')
         if p['mode'] == 'hardware':
+            baseline_hint = '真实基线未登记或配置无效: '+p['baseline']+'；按现场实测登记，不可直接改 commissioned'
             try:
                 self.run([sys.executable, str(Path(__file__).with_name('ros_health.py')), 'config', json.dumps(p)], 5)
                 baseline_ok = True
-            except Exception:
+            except Exception as error:
                 baseline_ok = False
-            add('real_baseline', baseline_ok, 'BASELINE', '真实基线未登记或配置无效: '+p['baseline']+'；按现场实测登记，不可直接改 commissioned')
+                if isinstance(error, Fault) and error.data.get('diagnostic'):
+                    baseline_hint = error.data['diagnostic']
+            add('real_baseline', baseline_ok, 'BASELINE', baseline_hint)
         for dev in required_devices(p):
             path = Path('/sys/class/net') / dev if not dev.startswith('/') else Path(dev)
             exists = path.exists()
@@ -447,18 +450,24 @@ class Backend:
             except OSError:
                 ok = False
             add('port:' + str(port), ok, 'PORT', '停止占用端口的非受管程序')
+        dependency_hint = '核对 setup 及安装包，启动按钮不会构建或下载'
         try:
             self.run(['ros2', 'pkg', 'prefix', 'robot_bringup'], 5)
             self.run(['ros2', 'pkg', 'prefix', 'host_bridge'], 5)
             self.run([sys.executable, str(Path(__file__).with_name('ros_health.py')), 'preflight', json.dumps(p)], 5)
             ok = True
-        except Exception:
+        except Exception as error:
             ok = False
-        add('ros_packages', ok, 'DEPENDENCY', '核对 setup 及安装包，启动按钮不会构建或下载')
+            if isinstance(error, Fault) and error.data.get('diagnostic'):
+                dependency_hint += ': ' + error.data['diagnostic']
+        add('ros_packages', ok, 'DEPENDENCY', dependency_hint)
         return dict(passed=all(x['ok'] for x in checks), checks=checks)
 
     def command(self, args):
-        return ['/bin/bash', '-c', 'source "$1" && shift && exec "$@"', 'robot-manager', self.config['setup'], *args]
+        # Keep one middleware across the launch tree and short-lived probes.
+        # Explicit site overrides remain possible; the released default avoids
+        # Fast DDS reply/discovery failures observed during field regression.
+        return ['/bin/bash', '-c', 'export RMW_IMPLEMENTATION="${RMW_IMPLEMENTATION:-rmw_cyclonedds_cpp}"; export CYCLONEDDS_URI="${CYCLONEDDS_URI:-file://$2}"; source "$1" && shift 2 && exec "$@"', 'robot-manager', self.config['setup'], str(Path(__file__).parent/'config/cyclonedds.xml'), *args]
 
     def run(self, args, timeout):
         # Helpers get their own process group so a timeout also kills descendants.
@@ -471,6 +480,12 @@ class Backend:
             raise Fault('TIMEOUT', 'helper timed out', True)
         if proc.returncode:
             error = Fault('PROCESS', 'helper failed', True)
+            if 'preflight' in args or 'config' in args:
+                for line in reversed(out.decode(errors='replace').splitlines()):
+                    try:
+                        detail=json.loads(line);detail=detail.get('dependency_error') or detail.get('baseline_error')
+                        if detail:error.data['diagnostic']=str(detail)[:500];break
+                    except (ValueError, AttributeError):pass
             if 'halt' in args:
                 # The halt probe only emits bounded runtime diagnostics, never
                 # credentials or video config contents.
@@ -510,7 +525,7 @@ class Backend:
 
     def health(self, p):
         try:
-            output = self.run([sys.executable, str(Path(__file__).with_name('ros_health.py')), 'health', str(self.config['control_endpoint']['port']), str(p['video']).lower(), json.dumps(p.get('requested_presets'))], 12)
+            output = self.run([sys.executable, str(Path(__file__).with_name('ros_health.py')), 'health', str(self.config['control_endpoint']['port']), str(p['video']).lower(), json.dumps(p.get('requested_presets')), str(p.get('enable_servo', False)).lower()], 12)
             return json.loads(output.strip().splitlines()[-1])
         except Exception:
             return dict(modules={k:dict(ok=False) for k in self.required(p)}, runtime=None, observed_at=time.time())

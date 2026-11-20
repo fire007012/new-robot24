@@ -4,7 +4,7 @@ from motor_velocity_common import main
 
 # 修改这里设置默认值；命令行参数优先。None表示自动识别。
 DEFAULT_MOTOR_ID = None
-DEFAULT_DEVICE = 'canable1'
+DEFAULT_DEVICE = 'can0'
 DEFAULT_SPEED = 0.2  # rad/s；负数反转
 DEFAULT_DURATION = 1.0   # 秒
 DEFAULT_POSITION_SCALE = 9.587379924285257e-05

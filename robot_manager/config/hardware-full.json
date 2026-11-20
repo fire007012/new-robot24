@@ -1,6 +1,6 @@
 {
   "profile_id": "hardware-full",
-  "config_revision": "topology-v1",
+  "config_revision": "dual-can-v1",
   "mode": "hardware",
   "enable_servo": true,
   "build_version": "robot24-release-1",
@@ -13,28 +13,28 @@
   "optional_modules": [],
   "baseline": "/etc/robot24/profiles/commissioning.yaml",
   "devices": [
-    "canable0",
-    "canable1"
+    "can0",
+    "can1"
   ],
   "group_devices": {
     "base": [
-      "canable1"
-    ],
-    "flippers": [
-      "canable0"
-    ],
-    "arm": [
-      "canable0",
-      "canable1"
+      "can0"
     ],
     "gripper": [
-      "canable1"
+      "can0"
+    ],
+    "flippers": [
+      "can1"
+    ],
+    "arm": [
+      "can0",
+      "can1"
     ]
   },
   "startup_timeout": 90,
   "robot_id": "robot24",
   "can_interfaces": {
-    "canopen_interface": "canable0",
-    "private_interface": "canable1"
+    "canopen_interface": "can1",
+    "private_interface": "can0"
   }
 }

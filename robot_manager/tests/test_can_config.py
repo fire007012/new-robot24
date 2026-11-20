@@ -28,9 +28,17 @@ class Tests(unittest.TestCase):
                     b.start('core', p, preset)
                     command = spawn.call_args.args[0]
                     for arg in ('mock:=false', 'selected_groups:='+groups,
-                                'private_interface:=can0', 'canopen_interface:=can0'):
+                                'private_interface:=can0', 'canopen_interface:=can1'):
                         self.assertIn(arg, command)
                     self.assertNotIn('enable_servo:=true', command)
+            # The configured two buses support arm and mixed groups. Reject a
+            # deliberately shared bus independently of the current defaults.
+            for presets in (['arm'], ['base','flippers'], ['arm','base','flippers']):
+                p['requested_presets'] = presets
+                self.assertEqual(effective_can(p), {'canopen_interface':'can1','private_interface':'can0'})
+            p['can_interfaces']['canopen_interface']='can0'
+            p['devices']=['can0']
+            p['group_devices']={g:['can0'] for g in ('arm','base','flippers','gripper')}
             for presets in (['arm'], ['base','flippers'], ['arm','base','flippers']):
                 p['requested_presets'] = presets
                 with patch('manager.subprocess.Popen') as spawn:
@@ -47,5 +55,5 @@ class Tests(unittest.TestCase):
         p['requested_presets']=['arm']
         self.assertEqual(effective_can(p), p['can_interfaces'])
         self.assertEqual(effective_can({'mode':'mock'}), {})
-        p['group_devices']['base']=['can0']
+        p['group_devices']['base']=['can1']
         with self.assertRaises(ValueError):effective_can(p)

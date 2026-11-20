@@ -20,6 +20,11 @@ class Tests(unittest.TestCase):
         self.assertEqual(len(client.futures),2)
         client.futures[1].set_result({'controllers':['inactive']})
         self.assertEqual(probe.poll(),{'controllers':['inactive']})
+        probe.refresh()
+        self.assertIsNone(probe.poll())
+        self.assertEqual(len(client.futures),3)
+        client.futures[2].set_result({'controllers':['active']})
+        self.assertEqual(probe.poll(),{'controllers':['active']})
 
     def test_unavailable_or_failed_read_never_counts_as_healthy(self):
         class Client:

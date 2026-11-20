@@ -34,4 +34,16 @@ class Tests(unittest.TestCase):
         for value in ([],['base','base'],['unknown'],'base',[1],{}):
             with self.assertRaises(ValueError):selected_groups(value)
 
+class ArmServiceTests(unittest.TestCase):
+    def test_arm_servo_requires_readiness_and_transport_services(self):
+        from group_selection import arm_services
+        self.assertIn('/arm_control/check_servo_ready', arm_services(['arm'], True))
+        self.assertIn('/servo_server/start_servo', arm_services(['arm'], True))
+        self.assertIn('/arm_control/prepare_servo', arm_services(['arm'], True))
+
+    def test_base_and_planning_only_do_not_require_servo(self):
+        from group_selection import arm_services
+        self.assertEqual(arm_services(['base'], True), ())
+        self.assertEqual(arm_services(['arm'], False), ())
+
 if __name__=='__main__':unittest.main()

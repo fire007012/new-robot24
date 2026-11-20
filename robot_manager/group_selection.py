@@ -28,3 +28,12 @@ def required_devices(profile):
     if mapping is None or 'requested_presets' not in profile:
         return profile.get('devices', [])
     return sorted(set().union(*(set(mapping[g]) for g in selected_groups(profile['requested_presets']))))
+
+
+def arm_services(presets=None, enable_servo=False):
+    """Read-only discovery requirements; existence never grants motion permission."""
+    if 'arm' not in selected_groups(presets) or not enable_servo:
+        return ()
+    return ('/arm_control/check_servo_ready', '/servo_server/start_servo',
+            '/servo_server/stop_servo', '/servo_server/unpause_servo', '/arm_control/prepare_servo',
+            '/arm_control/servo_transport_ready')

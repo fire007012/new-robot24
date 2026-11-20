@@ -50,7 +50,7 @@ def prepare(output):
         else:
             configured = private_axes[name]
             expected = {
-                'interface': 'canable1', 'protocol': configured['protocol'],
+                'interface': 'can0', 'protocol': configured['protocol'],
                 'motor_id': int(configured['motor_id'], 0),
                 'control_mode': configured['control_mode'],
                 'direction_sign': float(configured.get('direction_sign', '1')),
@@ -86,7 +86,7 @@ def prepare(output):
         'buses': {name: {'configured_bitrate': 1000000,
                         'actual_bitrate': None, 'unique_master_verified': False,
                         'interface_evidence_path': None}
-                  for name in ('canable0', 'canable1')},
+                  for name in ('can1', 'can0')},
     }, sort_keys=False, allow_unicode=True))
     (output / 'safety_evidence.yaml').write_text(yaml.safe_dump({
         'status': 'worksheet_only_not_loaded_by_runtime', 'conditions': conditions,

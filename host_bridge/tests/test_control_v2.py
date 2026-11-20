@@ -58,6 +58,13 @@ class Tests(unittest.TestCase):
         self.output.gate.set()
         self.c.close()
         self.tmp.cleanup()
+    def test_unreadable_snapshot_never_advertises_fresh_runtime(self):
+        self.output.runtime_state['diagnostics']={'readable':False}
+        status=self.call('control_status')
+        self.assertTrue(status['ok'])
+        self.assertFalse(status['result']['runtime_fresh'])
+        self.assertFalse(status['result']['motion_permitted'])
+        self.assertIsNone(status['result']['runtime_global_inhibit'])
     def hello(self, conn='owner', role='control'):
         r = self.c.handle(conn,dict(type='control_hello',protocol_version=2,robot_id=self.core.robot_id,role=role,capabilities=CAPABILITIES))
         if conn == 'owner' and r['ok']:

@@ -1,0 +1,113 @@
+# 上下位机联动部署迁移
+
+迁移包用于同一机器人控制部署搬到另一目录或兼容的下位机。目标机需要与导出机相同的 Linux 发行版、版本和 CPU 架构，以及 ROS2 Humble 和运行依赖；它不是包含操作系统的镜像。上位机 Qt 程序仍需在上位机单独安装。
+
+## 本机日常联动入口
+
+当前运行部署独立放在 `~/robot24-portable`，源码与编译仍放在 `~/ros2_ws_car`，上位机工程仍为 `~/hostcomputer`。
+
+管理服务启动的 ROS 节点与健康检查统一默认使用 Cyclone DDS。随包依赖安装脚本包含 `ros-humble-rmw-cyclonedds-cpp`，`install/manager/config/cyclonedds.xml` 配置本机发现与参与者数量；路径随部署定位。日常使用管理入口无需另外设置 DDS 环境变量，显式设置过的站点环境变量仍会优先使用。
+
+现场统一使用两路 CAN：`can_driver` 私有 CAN 为 `can0`，CANopen 为 `can1`。机械臂（含夹爪）需要两路都在线；底盘使用 can0，摆臂使用 can1。目标机须核对实际 USB 卡与接口名的对应关系，不能只按插入顺序推断。
+
+两路均按当前记录的 1 Mbps 配置，重新插卡后分别执行：
+
+```bash
+sudo ip link set can0 type can bitrate 1000000
+sudo ip link set can0 txqueuelen 1000
+sudo ip link set can0 up
+sudo ip link set can1 type can bitrate 1000000
+sudo ip link set can1 txqueuelen 1000
+sudo ip link set can1 up
+ip -details link show can0
+ip -details link show can1
+```
+
+已启用的接口需要改参数时先 `sudo ip link set can0 down`（另一接口对应 can1）。接口 UP 只证明系统配置，电机身份与现场基线仍需核验。
+
+终端 1：
+
+```bash
+python3 -B ~/robot24-portable/portable_link.py check
+bash ~/robot24-portable/run_manager.sh
+```
+
+终端 2：
+
+```bash
+bash ~/hostcomputer/scripts/run_linked.sh
+```
+
+上位机默认读取 `~/robot24-portable/runtime/manager.json`；可通过 `HOSTCOMPUTER_MANAGEMENT_CONFIG` 指定其他部署。停止与退出仍按原流程操作，迁移不会自动启动服务或使能设备。源码工作区顶层只保留 build、install、log、src；旧联动构建、兼容链接、验证归档和旧部署备份已清理。日常运行只使用独立部署，不再使用 linked-* 路径。
+
+从当前独立部署重新导出，在源码仓库可执行：
+
+```bash
+python3 -B ~/ros2_ws_car/src/tools/portable_link.py pack \
+  --install ~/robot24-portable/install \
+  --config ~/robot24-portable/runtime/manager.json \
+  --output /tmp/robot24-portable-new.tar.gz
+```
+
+## 导出前的停机要求
+
+先在 Qt 执行 stop，确认操作 succeeded、软件 stopped、无受管资源，然后正常退出管理服务。导出工具会持有管理锁并检查持久记录；服务仍在运行、存在未完成操作或资源时拒绝导出，不会替用户停止服务。使用前文的独立部署导出命令，输出文件必须不存在。
+
+若 Qt 在另一台机器，导出时追加 `--advertise-host 目标下位机IPv4`，例如 `--advertise-host 192.168.1.20`，将控制桥公布地址设置为目标下位机 IP，并允许管理和控制桥监听外部连接。该地址应为 Qt 可访问的可信局域网地址。省略时保留原配置；现有配置的 127.0.0.1 仅适用于 Qt 与下位机同机。
+
+导出会校验当前 release.json、复制完整安装产物、将软链接实体化并重新生成发布摘要。保留原 build_version，源部署不被覆盖。会输出整个压缩包的 SHA256；传输后可用 `sha256sum robot24-portable.tar.gz` 对比。压缩包权限为 0600，其中包含认证令牌和现场配置，请按部署凭据保管。
+
+导出仅支持当前关闭配置事务的部署；开启配置事务的部署会明确拒绝，避免遗漏活动 bundle。
+
+## 目标机解包、检查和启动
+
+选择一个新目录，勿覆盖正在使用的部署：
+
+```bash
+cd ~
+tar -xzf /实际路径/robot24-portable.tar.gz
+python3 -B robot24-portable/portable_link.py check
+```
+
+检查会核对系统/CPU、发布文件摘要、配置、令牌权限、ROS 包来自新目录，以及安装目录中 ELF 文件的动态库依赖，不连接管理 API、不启动 ROS 节点或 CAN 硬件。检查通过不等同于真实设备验收或所有功能测试通过。
+
+缺少系统依赖时，可先检查随包附带的安装脚本，再在目标机运行。安装会使用 apt、需要网络与管理员权限；工具不会自动执行：
+
+```bash
+bash robot24-portable/install_dependencies.sh --dry-run
+bash robot24-portable/install_dependencies.sh
+python3 -B robot24-portable/portable_link.py check
+```
+
+确认检查通过、原部署已经停用后，显式启动：
+
+```bash
+bash robot24-portable/run_manager.sh
+```
+
+Qt 连接目标下位机 IP、管理端口 9091，使用 `runtime/manager.token` 中同一令牌；控制桥端口默认 9090，由管理接口公布。刷新 profiles，获取新的实际档案列表与 revision，再按原流程选择 mock/hardware、分组并启动。管理服务不会自动 init、enable 或 resume。令牌文件不在终端、聊天或日志中打印。
+
+如果解包后才修改目标 IP，编辑 `runtime/manager.json`：设置 `control_endpoint.host` 为 Qt 能访问的目标 IP；远程连接时 `bind` 与 `bridge_bind` 设置为 `0.0.0.0`，并在确认网络策略后设置 `network_policy_confirmed: true`。端口、robot_id 和令牌需与 Qt 一致。
+
+## 包含的内容
+
+```text
+robot24-portable/
+  install/                  完整 ROS 安装、管理程序和发布清单
+  runtime/
+    manager.json            相对路径配置
+    manager.token           原部署令牌，0600
+    profiles/               mock/hardware 档案及其引用的现场基线
+    state/                  原管理历史、控制 journal 和锁存状态
+  run_manager.sh            按自身位置定位，可从任意工作目录启动
+  portable_link.py           目标机只读检查
+  platform.json             导出机系统、架构及构建版本
+  install_dependencies.sh   可选的目标机依赖准备
+  README.md                 本说明
+```
+
+不携带构建缓存、ROS 运行日志和无关备份。当前档案引用的现场基线已完整保存在 runtime/profiles 中，运行不依赖源码工作区的旧 commissioning 或 validation 目录。state 中的操作日志随状态保留。
+
+为保留急停与未知操作的约束，state 不会被重置。此流程用于已有部署迁移，不用于克隆成另一台机器人的新身份；不同机器人需要独立的 robot_id、令牌和经过核验的硬件配置。包内 CAN 接口与电机参数沿用原部署，换硬件后必须重新核对。
+
+迁移包中的 setup.bash/local_setup.bash 支持按新位置加载；不保证生成的 setup.sh 和历史构建元数据支持任意路径。请使用本说明的 Bash 启动方式。更换 CPU 或系统版本应从源码重新构建；本工具不打包 Qt 程序、系统服务、CAN 接口配置、外部 RTSP 服务或未纳入安装目录的模型/数据。

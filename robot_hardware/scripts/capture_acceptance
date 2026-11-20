@@ -18,7 +18,7 @@ from robot_hardware_runtime.capture import CanStatistics, open_channel, receive_
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--interfaces', nargs='*', default=['canable0', 'canable1'])
+    parser.add_argument('--interfaces', nargs='*', default=['can1', 'can0'])
     parser.add_argument('--seconds', type=float, default=60)
     parser.add_argument('--bitrate', type=int, default=1000000)
     parser.add_argument('--output', required=True)

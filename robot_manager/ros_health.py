@@ -8,7 +8,7 @@ import time
 from video_probe import video_frames
 from stop_evidence import cold_stopped
 from read_probe import ReadProbe
-from group_selection import requirements
+from group_selection import requirements, arm_services
 import rclpy
 from rclpy.node import Node
 from std_msgs.msg import String
@@ -30,6 +30,8 @@ def probe():
                     if (baseline.get('schema_version') != 'robot24-parameter-baseline-v2' or
                             baseline.get('parameters_verified') is not True or
                             not groups <= set(baseline.get('commissioned_groups', []))):
+                        print(json.dumps({'baseline_error': '现场 CANopen 身份/基线尚未完成登记，涉及组: ' +
+                                          ','.join(sorted(groups - set(baseline.get('commissioned_groups', []))))}, ensure_ascii=False))
                         return 1
         if profile['video']:
             with open(profile['video_config']) as stream:
@@ -38,6 +40,25 @@ def probe():
                     return 1
         if sys.argv[1] == 'config':
             return 0
+        if 'arm' in requirements(profile.get('requested_presets'))[0]:
+            from pathlib import Path
+            import os
+            from ament_index_python.packages import get_package_prefix
+            packages = ['arm_control', 'car_control', 'car_moveit_config', 'moveit_ros_move_group']
+            if profile.get('enable_servo', False):
+                packages.append('moveit_servo')
+            try:
+                prefixes = {package: Path(get_package_prefix(package)) for package in packages}
+                executables = ['arm_goal_executor', 'wrist_roll_service_node', 'gripper_cmd_node']
+                if profile.get('enable_servo', False):
+                    executables.append('servo_readiness')
+                for executable in executables:
+                    path = prefixes['arm_control'] / 'lib/arm_control' / executable
+                    if not path.is_file() or not os.access(path, os.X_OK):
+                        raise RuntimeError('missing arm_control executable: ' + executable)
+            except Exception as error:
+                print(json.dumps({'dependency_error': str(error)}))
+                return 1
         rclpy.init()
         node = Node('robot_manager_preflight')
         deadline = time.monotonic()+1
@@ -136,6 +157,15 @@ def probe():
     reads = [ReadProbe(client, kind.Request) for client,kind in zip(clients,(ListControllers,ListHardwareComponents))]
     groups, required, backends = requirements(json.loads(sys.argv[4]) if len(sys.argv)>4 else None)
     action = ActionClient(node, ExecuteArmGoal, '/arm_control/execute_goal') if 'arm' in groups else None
+    servo_required = len(sys.argv)>5 and sys.argv[5]=='true'
+    service_names = arm_services(json.loads(sys.argv[4]) if len(sys.argv)>4 else None, servo_required)
+    servo_services = [node.create_client(Trigger, name) for name in service_names]
+    planner = None
+    if 'arm' in groups:
+        from moveit_msgs.srv import GetPlanningScene
+        planner = node.create_client(GetPlanningScene, '/get_planning_scene')
+    if service_names:
+        required.add('arm_servo_controller')
     deadline = time.monotonic()+7
     core = False
     hardware = None
@@ -149,9 +179,22 @@ def probe():
             core = (required <= {c.name for c in cs if c.state in ('inactive','active')}
                     and backends <= {h.name for h in hs}
                     and time.monotonic()-latest['at'] < .5 and (action is None or action.server_is_ready())
-                    and latest['value'].get('diagnostics',{}).get('readable') is True)
+                    and latest['value'].get('diagnostics',{}).get('readable') is True
+                    and all(client.service_is_ready() for client in servo_services)
+                    and (planner is None or planner.service_is_ready()))
             if core: break
-    modules = dict(core=dict(ok=core))
+            # Controllers may still be loading/switching after the first reply.
+            # Retry only reads; never replay lifecycle or enable operations.
+            for read in reads:
+                read.refresh()
+    missing_services=[name for name, client in zip(service_names, servo_services) if not client.service_is_ready()]
+    if planner is not None and not planner.service_is_ready():missing_services.append('/get_planning_scene')
+    modules = dict(core=dict(ok=core, missing_services=missing_services,
+                            missing_controllers=sorted(required - {c.name for c in values[0].controller if c.state in ('inactive','active')}) if values[0] else sorted(required),
+                            missing_backends=sorted(backends - set(hardware or {})),
+                            runtime_readable=latest.get('value',{}).get('diagnostics',{}).get('readable') is True,
+                            runtime_age_seconds=round(time.monotonic()-latest['at'],3) if latest else None,
+                            arm_action_ready=action.server_is_ready() if action else None))
     # This monitor handshake never takes control or resets the operator session.
     bridge = False
     bridge_state = None

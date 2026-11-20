@@ -110,6 +110,13 @@ class MoveItSmoke(unittest.TestCase):
             result = self.completed(handle)
             self.assertFalse(result.success)
             self.assertEqual(result.error_code, result.ERROR_PREEMPTED)
+            # Cancellation acknowledges the action before the measured arm has
+            # necessarily settled. A new plan requires stationary feedback.
+            self.wait(lambda: all(abs(self.velocities.get(name, float('inf'))) < 0.01
+                                  for name in ('shoulder_yaw_joint', 'shoulder_pitch_joint',
+                                               'elbow_pitch_joint', 'wrist_pitch_joint',
+                                               'wrist_yaw_joint', 'wrist_roll_joint')))
+            time.sleep(0.1)  # Allow all feedback subscribers to observe the settled sample.
             self.phase = 0
             handle = self.goal('joints', 0.25)
             self.assertTrue(handle.accepted)

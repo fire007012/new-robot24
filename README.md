@@ -44,6 +44,8 @@ bash tools/validate_ros2.sh /tmp/robot24-ros2 full
 
 构建、安装、CTest 和 ROS 日志均写入指定的 `/tmp` 前缀。`core` 和 `full` 均包含桥接/管理单元测试；`full` 还验证控制 ROS mock、配置事务和管理异常恢复。集成测试需要本机回环 DDS/TCP/UDP；Fortress 软件渲染需要 X display。`test/`、`tests/` 和 `tools/test/` 是持续回归源码，应保留；完成批次的日志、截图、evidence 和缓存不放在源码树。
 
+当前实机接口统一为私有 CAN（can_driver）`can0`、CANopen `can1`；运行档案与所选组预检使用同一映射。
+
 ## 启动
 
 ```bash
@@ -72,3 +74,5 @@ ros2 launch robot_simulation full_system_simulate.launch.py gui:=false
 [文档索引](docs/README.md) · [系统架构](docs/06_项目架构图与数据流向图.md) · [实施计划与待办](docs/archive/25_ROS1迁移ROS2实施计划.md)
 
 Qt 对接阶段的协议与交付记录见 [专题归档](docs/archive/qt/README.md)。控制 v2 及管理配置事务已完成最终整车 full、47 项新增单元测试及持久证据归档，见 [记录 43](docs/archive/43_ROS2软件验证闭环记录.md)；旧 Qt 仅能只读监控，运动控制需按新契约适配。
+
+已有上下位机联动部署可导出为独立迁移包，包含相对路径启动脚本、现场档案与状态保留、目标机依赖检查，见 [上下位机联动迁移说明](docs/上下位机联动迁移说明.md)。

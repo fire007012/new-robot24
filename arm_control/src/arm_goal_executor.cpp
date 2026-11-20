@@ -74,17 +74,32 @@ public:
         joints_at_ = Steady::now();
       });
     poll_ = create_wall_timer(250ms, [this]() {
-      if (!controllers_->service_is_ready() || polling_.exchange(true)) return;
-      controllers_->async_send_request(std::make_shared<controller_manager_msgs::srv::ListControllers::Request>(),
-        [this](rclcpp::Client<controller_manager_msgs::srv::ListControllers>::SharedFuture future) {
-          std::lock_guard<std::mutex> guard(mutex_);
-          controller_active_ = false;
-          try { for (const auto & c : future.get()->controller)
-            if (c.name == "arm_position_controller" && c.state == "active") controller_active_ = true;
-            controllers_at_ = Steady::now();
-          } catch (const std::exception &) {}
-          polling_ = false;
-        });
+      const auto now = Steady::now();
+      if (polling_) {
+        if (now-controllers_request_at_ < 500ms) return;
+        controllers_->remove_pending_request(controllers_request_id_);
+        ++controllers_generation_;  // A late response must not refresh old evidence.
+        polling_ = false;
+      }
+      if (!controllers_->service_is_ready()) return;
+      polling_ = true; controllers_request_at_ = now;
+      const auto generation = ++controllers_generation_;
+      try {
+        auto pending = controllers_->async_send_request(
+          std::make_shared<controller_manager_msgs::srv::ListControllers::Request>(),
+          [this, generation](rclcpp::Client<controller_manager_msgs::srv::ListControllers>::SharedFuture future) {
+            if (generation != controllers_generation_) return;
+            std::lock_guard<std::mutex> guard(mutex_);
+            controller_active_ = false;
+            try {
+              for (const auto & c : future.get()->controller)
+                if (c.name == "arm_position_controller" && c.state == "active") controller_active_ = true;
+              controllers_at_ = Steady::now();
+            } catch (const std::exception &) {}
+            polling_ = false;
+          });
+        controllers_request_id_ = pending.request_id;
+      } catch (const std::exception &) { polling_ = false; }
     });
     server_ = rclcpp_action::create_server<Action>(self, "/arm_control/execute_goal",
       [this](const rclcpp_action::GoalUUID &, std::shared_ptr<const Action::Goal>) {
@@ -108,6 +123,17 @@ private:
   bool ready(const std::string & token = "") {
     std::lock_guard<std::mutex> guard(mutex_);
     return ready_locked(token);
+  }
+  std::string readiness_problem(const std::string & token = "") {
+    std::lock_guard<std::mutex> guard(mutex_);
+    const auto now = Steady::now();
+    if (!arm_running_) return "arm group is not Running";
+    if (!controller_active_) return "arm trajectory controller is not active";
+    if (now-state_at_ >= 500ms) return "runtime state is stale";
+    if (now-joints_at_ >= 300ms) return "six-axis measured feedback is stale or invalid";
+    if (now-controllers_at_ >= 1s) return "controller state readback is stale";
+    if (!token.empty() && token != token_) return "arm operation session changed";
+    return "arm readiness changed";
   }
   bool interrupted(const std::shared_ptr<Handle> & handle, const std::string & token) {
     return stopping_ || !rclcpp::ok() || handle->is_canceling() || !ready(token);
@@ -173,7 +199,7 @@ private:
       feedback(handle, Action::Feedback::PHASE_WAITING_READY, "Checking runtime, feedback and controller");
       const auto deadline = Steady::now()+2s;
       while (!ready() && Steady::now()<deadline && !handle->is_canceling() && !stopping_ && rclcpp::ok()) std::this_thread::sleep_for(20ms);
-      if (!ready() || handle->is_canceling()) { finish(handle, Action::Result::ERROR_NOT_READY, "Arm not Running with fresh feedback and active JTC"); return; }
+      if (!ready() || handle->is_canceling()) { finish(handle, Action::Result::ERROR_NOT_READY, "Arm not ready: " + readiness_problem()); return; }
       std::string token;
       { std::lock_guard<std::mutex> guard(mutex_); token=token_; }
       moveit_msgs::msg::RobotState start;
@@ -246,16 +272,21 @@ private:
       const auto & duration = execution.trajectory.points.back().time_from_start;
       const auto execute_deadline = Steady::now()+std::chrono::duration<double>(duration.sec+duration.nanosec*1e-9+5.0);
       bool canceled = false;
+      std::string stop_reason;
       while (outcome.wait_for(20ms)!=std::future_status::ready) {
         if (interrupted(handle, token) || Steady::now()>execute_deadline) {
           feedback(handle, Action::Feedback::PHASE_STOPPING, "Canceling controller trajectory");
+          stop_reason = handle->is_canceling() ? "client cancellation" :
+            Steady::now()>execute_deadline ? "trajectory execution deadline exceeded" : readiness_problem(token);
           auto cancellation = trajectory_->async_cancel_goal(controller_goal);
           if (cancellation.wait_for(2s)!=std::future_status::ready || cancellation.get()->goals_canceling.empty() ||
-              outcome.wait_for(2s)!=std::future_status::ready) emergency_halt();
+              outcome.wait_for(2s)!=std::future_status::ready) {
+            emergency_halt(); stop_reason = "cancellation confirmation timeout; halt requested";
+          }
           canceled = true; break;
         }
       }
-      if (canceled) { finish(handle, Action::Result::ERROR_EXECUTION_FAILED, "Execution canceled, runtime permission lost or timeout"); return; }
+      if (canceled) { finish(handle, Action::Result::ERROR_EXECUTION_FAILED, "Execution stopped: " + stop_reason); return; }
       const auto result = outcome.get();
       if (result.code != rclcpp_action::ResultCode::SUCCEEDED || !result.result || result.result->error_code!=0) {
         finish(handle, Action::Result::ERROR_EXECUTION_FAILED, "Controller execution failed"); return;
@@ -271,6 +302,9 @@ private:
   }
   const std::vector<std::string> names_{"shoulder_yaw_joint", "shoulder_pitch_joint", "elbow_pitch_joint", "wrist_pitch_joint", "wrist_yaw_joint", "wrist_roll_joint"};
   std::atomic<bool> busy_{false}, stopping_{false}, polling_{false};
+  std::atomic<uint64_t> controllers_generation_{0};
+  int64_t controllers_request_id_{0};
+  Steady::time_point controllers_request_at_{};
   std::thread worker_;
   std::mutex mutex_;
   bool arm_running_=false, controller_active_=false;

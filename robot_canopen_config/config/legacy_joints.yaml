@@ -1,7 +1,7 @@
 # 每个关节的运行时参数配置。
 
 canopen:
-  interface: "canable0"      # CAN 总线接口名
+  interface: "can1"      # CAN 总线接口名
   master_node_id: 127     # 主站 CANopen 节点 ID
   loop_hz: 200.0          # 控制循环频率（Hz）
   auto_write_soft_limits_from_urdf: true  # 每次 init 后按 URDF 自动写 0x2003/0x607D

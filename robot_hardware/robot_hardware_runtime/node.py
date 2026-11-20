@@ -33,6 +33,28 @@ class Adapter:
         self.client_lock = threading.Lock()
         self.sdo_lock = threading.RLock()
         self.heartbeat_publisher = None
+    def prepare_clients(self, contract, groups):
+        # Discover both request and response endpoints before the first operator
+        # mutation. A just-created Fast DDS client can lose an immediate reply;
+        # mutation replay is unsafe, so establish clients during software startup.
+        triggers={'/robot_runtime/status', '/robot_runtime/owner_lost',
+                  '/arm_control/check_servo_ready'}
+        for group in groups:
+            for operation in ('maintenance_clear','acknowledge','arm','run','halt','maintenance_lock'):
+                triggers.add('/robot_runtime/groups/'+group+'/'+operation)
+            backends={axis['backend'] for axis in contract['axes'].values() if axis['group']==group}
+            for backend in backends:
+                for operation in ('initialize','prepare'):
+                    triggers.add('/robot_backend/'+backend+'/'+group+'/'+operation)
+        requests=[(Trigger,path) for path in sorted(triggers)]
+        requests += [(kind,'/controller_manager/'+name) for kind,name in (
+            (ListControllers,'list_controllers'),(ListHardwareComponents,'list_hardware_components'),
+            (SetHardwareComponentState,'set_hardware_component_state'),(SwitchController,'switch_controller'))]
+        with self.client_lock:
+            for kind,path in requests:
+                if path not in self.clients:
+                    self.clients[path]=self.node.create_client(kind,path,callback_group=self.group)
+
     def begin_scope(self, group):
         self.scope.group = group
     def ensure_settled(self, group):
@@ -79,12 +101,21 @@ class Adapter:
         if not client.wait_for_service(timeout_sec=3.0): raise RuntimeError(f'{service}: unavailable')
         future = client.call_async(request)
         event = threading.Event()
-        future.add_done_callback(lambda _: event.set())
+        future.add_done_callback(lambda _, done=event: done.set())
         deadline = time.monotonic() + (self.timeout if timeout is None else timeout)
+        retry_at = time.monotonic() + .1
         while not event.is_set() and time.monotonic() < deadline:
             if not rclpy.ok(context=self.node.context):
                 raise RuntimeError(f'{service}: context closed; remote outcome unknown')
             event.wait(min(.1, max(0., deadline-time.monotonic())))
+            if not mutation and not event.is_set() and time.monotonic() >= retry_at and time.monotonic() < deadline:
+                # Retry observations within the existing deadline. Cancel uses
+                # callbacks too, so give each attempt its own completion event.
+                future.cancel()
+                future = client.call_async(request)
+                event = threading.Event()
+                future.add_done_callback(lambda _, done=event: done.set())
+                retry_at = time.monotonic() + .1
         if not event.is_set():
             # Local timeout cannot cancel remote effects. Keep the future and fence re-arming
             # until the server has actually completed the old operation.
@@ -95,6 +126,7 @@ class Adapter:
                     if resource: self.pending.setdefault(resource, []).append(future)
             else:
                 future.cancel()
+                raise RuntimeError(f'{service}: read timeout; no fresh observation')
             raise RuntimeError(f'{service}: timeout; outcome unknown')
         result = future.result()
         if result is None: raise RuntimeError(f'{service}: no response')
@@ -190,6 +222,7 @@ class RuntimeNode(Node):
             contract = yaml.safe_load(Path(self.get_parameter('group_policy').value).read_text())
             if self.get_parameter('enable_servo').value:contract['groups']['arm']['controllers'].append('arm_servo_controller')
             self.coordinator = GroupCoordinator(self.io, self.policy, contract, self.get_parameter('selected_groups').value)
+            self.io.prepare_clients(contract, self.coordinator.allowed_groups)
         else:
             self.coordinator = Coordinator(self.io, self.policy)
         from ament_index_python.packages import get_package_share_directory

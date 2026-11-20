@@ -16,6 +16,7 @@ robot_dependencies=(
   ros-humble-ament-lint-auto ros-humble-ament-lint-common
   ros-humble-rosidl-default-generators ros-humble-ros2-control ros-humble-ros2-controllers
   ros-humble-lely-core-libraries
+  ros-humble-rmw-cyclonedds-cpp
   ros-humble-moveit ros-humble-moveit-servo ros-humble-ros-gz ros-humble-ign-ros2-control
   ros-humble-xacro ros-humble-robot-state-publisher ros-humble-joint-state-publisher-gui
   ros-humble-joy ros-humble-rviz2 ros-humble-cv-bridge ros-humble-image-transport

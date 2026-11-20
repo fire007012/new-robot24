@@ -10,6 +10,10 @@ class ReadProbe:
         self.sent_at = 0
         self.result = None
 
+    def refresh(self):
+        """Discard a completed observation so a later controller state is read."""
+        self.result = None
+
     def poll(self):
         now = self.clock()
         if self.future is not None:

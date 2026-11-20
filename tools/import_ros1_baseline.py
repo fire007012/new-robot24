@@ -5,6 +5,7 @@ No ROS/CAN I/O and no device parameter writes. Without --snapshot the output
 remains uncommissioned. A snapshot is the JSON message from /robot_runtime/snapshot.
 """
 import argparse
+import copy
 import hashlib
 import json
 from pathlib import Path
@@ -19,14 +20,18 @@ SOURCE='reference/ros1/Eyou_Canopen_Master/config/joints.yaml'
 def build(snapshot=None):
     legacy=yaml.safe_load((ROOT/SOURCE).read_text())
     current=yaml.safe_load((ROOT/'robot_canopen_config/config/legacy_joints.yaml').read_text())
-    if legacy!=current:raise ValueError('ROS2 CANopen parameters differ from confirmed ROS1 source; reconcile before import')
+    # The interface name is deployment topology, not a motor parameter. The
+    # explicit can1 assignment must not invalidate unchanged confirmed values.
+    comparable=copy.deepcopy(current)
+    comparable['canopen']['interface']=legacy['canopen']['interface']
+    if legacy!=comparable:raise ValueError('ROS2 CANopen parameters differ from confirmed ROS1 source; reconcile before import')
     baseline=yaml.safe_load((ROOT/'robot_hardware/config/commissioning.yaml').read_text())
     baseline['commissioned']=False
     baseline['parameter_reference']={
         'path':SOURCE, 'sha256':hashlib.sha256((ROOT/SOURCE).read_bytes()).hexdigest(),
         'confirmation':'user_confirmed_working_ros1_parameters',
         'identity_source':'actual_runtime_snapshot_required',
-        'automatic_device_parameter_writes':False}
+        'automatic_device_parameter_writes':False, 'runtime_canopen_interface':current['canopen']['interface']}
     joints={j['name']:j for j in legacy['joints']}
     if snapshot is not None and (not isinstance(snapshot,dict) or not isinstance(snapshot.get('axes'),dict)):
         raise ValueError('snapshot must contain axes from /robot_runtime/snapshot')

@@ -57,7 +57,7 @@ def generate_launch_description():
     share = Path(get_package_share_directory('robot_hardware'))
     defaults = {'start_controller_manager':'true', 'enable_servo':'false', 'group_policy':'',
         'selected_groups':'arm,base,flippers,gripper', 'mock':'false',
-        'canopen_interface':'canable0', 'private_interface':'canable1',
+        'canopen_interface':'can1', 'private_interface':'can0',
         'baseline':str(share/'config/commissioning.yaml'),
         'journal':str(Path.home()/'.ros/robot_maintenance.json')}
     return LaunchDescription([DeclareLaunchArgument(k, default_value=v) for k, v in defaults.items()] +

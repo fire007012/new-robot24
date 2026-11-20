@@ -37,4 +37,4 @@ def setup(context):
     return [Node(package='controller_manager',executable='ros2_control_node',parameters=[{'robot_description':E.tostring(root,encoding='unicode')},path],output='screen'),
       *[Node(package='controller_manager',executable='spawner',arguments=[name,'--inactive'],output='screen') for name in ['joint_state_broadcaster','axis_controller']]]
 def generate_launch_description():
-    return LaunchDescription([DeclareLaunchArgument('joint',default_value='shoulder_yaw_joint'),DeclareLaunchArgument('can_interface',default_value='canable0'),OpaqueFunction(function=setup)])
+    return LaunchDescription([DeclareLaunchArgument('joint',default_value='shoulder_yaw_joint'),DeclareLaunchArgument('can_interface',default_value='can1'),OpaqueFunction(function=setup)])

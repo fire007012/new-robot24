@@ -236,7 +236,7 @@ class ControlV2:
         diagnostics = diagnostics.get('groups')
         diagnostics = diagnostics if isinstance(diagnostics, dict) else {}
         at = getattr(output, 'runtime_received', None)
-        fresh = at is not None and self.clock() - at < self.RUNTIME_SEC
+        fresh = readable and at is not None and self.clock() - at < self.RUNTIME_SEC
         def condition_status(a):
             if not fresh or not readable: return 'stale'
             if a.get('evidence',0) and a.get('valid_until_ns',0) <= self.clock()*1e9: return 'expired'

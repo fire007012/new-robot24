@@ -67,7 +67,6 @@ class Policy:
     def verify(self, joints=None, allow_dirty=False):
         selected = set(AXES if joints is None else joints)
         if selected & self.dirty_axes and not allow_dirty: raise RuntimeError('maintenance outcome unresolved; restore/read back first')
-        if not self.baseline.get('commissioned'): raise RuntimeError('现场基线尚未登记并确认')
         axes = self.baseline.get('axes', {})
         selected = set(AXES if joints is None else joints)
         if not selected or not selected <= set(AXES) or not selected <= set(axes):
@@ -75,13 +74,35 @@ class Policy:
         for joint in selected:
             node, _ = AXES[joint]
             entry = axes[joint]
+            registration = entry.get('parameter_registration', {})
+            configured = (self.baseline.get('schema_version') == 'robot24-parameter-baseline-v2'
+                          and self.baseline.get('parameters_verified') is True
+                          and registration.get('mode') == 'operator_confirmed_configuration'
+                          and registration.get('confirmed') is True)
+            if not self.baseline.get('commissioned') and not configured:
+                raise RuntimeError('现场基线尚未登记并确认')
             if entry.get('node_id') != node or not entry.get('physical_label') or not entry.get('direction_verified'):
                 raise RuntimeError(f'{joint}: incomplete physical baseline')
             expected = entry.get('identity', {})
-            if set(expected) != {key(i, s) for i, s in IDENTITY} or any(v is None for v in expected.values()):
+            if set(expected) != {key(i, s) for i, s in IDENTITY} or (not configured and any(v is None for v in expected.values())):
                 raise RuntimeError(f'{joint}: incomplete identity/firmware baseline')
             actual = self.read_objects(joint, IDENTITY)
-            if actual != expected: raise RuntimeError(f'{joint}: identity/firmware mismatch: {actual}')
+            if configured:
+                # Explicit operator registration binds the current node/configuration,
+                # without claiming unknown historical serial/firmware readbacks.
+                bus = self.bus[joint]
+                if (bus['node_id'] != node or registration.get('counts_per_rev') != AXES[joint][1]
+                        or registration.get('position_mode') != bus['position_mode']
+                        or not math.isclose(bus['scale_pos_to_dev'], AXES[joint][1] / (2 * math.pi))):
+                    raise RuntimeError(f'{joint}: registered parameters differ from bus')
+                firmware = actual.get('100A:00')
+                if (not isinstance(firmware, str) or not firmware.strip() or 'mock' in firmware.lower()
+                        or any(type(actual.get(key(i, s))) is not int
+                               or not 0 <= actual[key(i, s)] <= 0xFFFFFFFF
+                               or actual[key(i, s)] == 0x4D4F434B for i, s in IDENTITY[:-1])):
+                    raise RuntimeError(f'{joint}: invalid live identity/firmware')
+            if any(value is not None and actual.get(obj) != value for obj, value in expected.items()):
+                raise RuntimeError(f'{joint}: identity/firmware mismatch: {actual}')
             for obj, value in expected_pdos(self.bus, joint).items():
                 index, sub = (int(x, 16) for x in obj.split(':'))
                 if self.io.read(joint, index, sub) != value:

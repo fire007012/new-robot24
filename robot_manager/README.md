@@ -1,6 +1,8 @@
 # Robot24 独立管理服务
 
-2026-11-17 can0 更新：hardware 档案使用显式 `can_interfaces`（canopen_interface/private_interface），与 devices/group_devices 一致校验。presets 继续传入实际 launch、裁剪组件/轴/控制器并限制 runtime 操作范围。base/flippers 分别使用 can0；未经核验的同接口跨后端组合报 CAN_TOPOLOGY。全车接线使用独立 hardware-full 档案。受控停机迁移工具为 `deploy_can0.py`；完整流程、限制和证据见 [实施验收 54](../docs/54_can0分组实机档案实施与验收.md)。
+当前双 CAN 约定（2026-11-20）：can_driver/private_interface=can0，CANopen/canopen_interface=can1；hardware 与 hardware-full 模板按此映射，旧 can0 共享接线记录仅为历史。机械臂启动需完整执行程序、Servo 就绪服务和 MoveIt 过滤状态输入，依赖与启动健康检查按所选组执行。
+
+历史记录（2026-11-17，已由上述双 CAN 约定取代）：hardware 档案使用显式 `can_interfaces`（canopen_interface/private_interface），与 devices/group_devices 一致校验。presets 继续传入实际 launch、裁剪组件/轴/控制器并限制 runtime 操作范围。base/flippers 分别使用 can0；未经核验的同接口跨后端组合报 CAN_TOPOLOGY。全车接线使用独立 hardware-full 档案。受控停机迁移工具为 `deploy_can0.py`；完整流程、限制和证据见 [实施验收 54](../docs/54_can0分组实机档案实施与验收.md)。
 
 2026-11-14 分组更新：预检/start 请求可传 `presets: ["base"]`、`["arm"]`、`["flippers"]` 或组合；机械臂展开为 arm+gripper。本次选择持久化在运行 profile 的 requested_presets，源档案不变。健康检查只要求所选组的软件服务/控制器及后端；不传时保持整车检查。hardware 档案可用 group_devices 显式映射四个组所用设备，预检据此只检查所选设备；未配置映射的旧档案仍保守检查全部 devices。设备映射的并集必须与 devices 一致。整车默认策略升级为 group-policy-v2；旧 v1 文件仍可显式选择。v2 默认没有待登记的组间机械关联，现场真实联锁应在 v2 策略显式配置，配置后未知/过期证据仍阻止对应目标组。
 
@@ -69,3 +71,11 @@ PYTHONDONTWRITEBYTECODE=1 python3 robot_manager/tests/integration.py \
 当前控制端点版本为2，旧Qt不能直接运动。部署控制journal位于state_dir/control，保持持久权限0700；不要删除该目录规避未知结果或清除急停。发布清单control_protocol=2，管理version仍为1。只读部署检查：`python3 deployment_check.py --config /etc/robot24/manager.json`；安装/卸载回退与本轮证据见[交付与部署42](../docs/archive/qt/42_P0配置事务交付与验证.md)。
 
 统一软件回归已包含本服务：`bash tools/validate_ros2.sh /tmp/robot24-ros2 full`。仅运行无 ROS 专项可用 `bash tools/validate_management.sh /tmp/robot24-units core`；输出前缀须位于源码树外。full 还运行控制 ROS mock、配置事务及管理进程/桥接异常恢复、Running 停止。最新结果见 [验证记录 43](../docs/archive/43_ROS2软件验证闭环记录.md)。
+
+## 迁移现有上下位机联动部署
+
+提供 `tools/portable_link.py pack`：停机后导出独立压缩包，保留令牌、现场基线和控制 journal，使用相对路径启动；目标机执行 `portable_link.py check` 只读检查文件、系统兼容性和动态库依赖。步骤与 Qt 地址配置见 [上下位机联动迁移说明](../docs/上下位机联动迁移说明.md)。
+
+## ROS 通信运行依赖
+
+发布默认使用 `rmw_cyclonedds_cpp`，依赖准备脚本包含 `ros-humble-rmw-cyclonedds-cpp`。启动树和只读健康探针共用 `config/cyclonedds.xml`，本机非组播网络允许最多 121 个自动参与者索引。文件位置按管理程序自身路径定位，支持独立部署迁移；显式 `RMW_IMPLEMENTATION`/`CYCLONEDDS_URI` 站点设置优先。Qt 仍通过 TCP 连接管理/控制端口。

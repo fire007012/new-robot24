@@ -43,7 +43,7 @@ def validate_legacy(source, joints):
     require(source["master"]["node_id"] == 127, "master node ID changed")
     require(source["master"]["sync_period"] == 5000, "SYNC period changed")
     require(source["master"]["heartbeat_producer"] == 500, "master heartbeat changed")
-    require(joints["canopen"]["interface"] == "canable0", "CAN interface changed")
+    require(joints["canopen"]["interface"] == "can1", "CAN interface changed")
     require(joints["canopen"]["master_node_id"] == 127, "joint master ID changed")
     require(joints["canopen"]["loop_hz"] == 200.0, "legacy loop rate changed")
     joint_entries = {entry["name"]: entry for entry in joints["joints"]}

@@ -1,0 +1,81 @@
+schema_version: robot24-arm-canopen-registration-v1
+date: '2026-11-20'
+robot_id: robot24
+registration_status: current_configuration_registered
+confirmation:
+  by: operator
+  instruction: 机械臂的canopen身份基线登记一下，按目前的直接登记就好
+  basis: current_deployed_baseline_and_current_source_configuration
+canopen_interface: can1
+master_node_id: 127
+axes:
+  shoulder_yaw_joint:
+    node_id: 6
+    physical_label: ROS1:shoulder_yaw_joint
+    direction_verified: true
+    default_mode: 7
+    counts_per_rev: 6619136
+    eds: YiyouServo_V1.4.dcfgen.eds
+    identity:
+      '1000:00': null
+      '1018:01': null
+      '1018:02': null
+      '1018:03': null
+      '1018:04': null
+      100A:00: null
+    persistent: {}
+    identity_source: no_existing_device_readback
+    missing_readback:
+    - '1000:00'
+    - '1018:01'
+    - '1018:02'
+    - '1018:03'
+    - '1018:04'
+    - 100A:00
+    - 607C:00
+    - '2003:00'
+    - 607D:01
+    - 607D:02
+  shoulder_pitch_joint:
+    node_id: 5
+    physical_label: ROS1:shoulder_pitch_joint
+    direction_verified: true
+    default_mode: 7
+    counts_per_rev: 6619136
+    eds: YiyouServo_V1.4.dcfgen.eds
+    identity:
+      '1000:00': null
+      '1018:01': null
+      '1018:02': null
+      '1018:03': null
+      '1018:04': null
+      100A:00: null
+    persistent: {}
+    identity_source: no_existing_device_readback
+    missing_readback:
+    - '1000:00'
+    - '1018:01'
+    - '1018:02'
+    - '1018:03'
+    - '1018:04'
+    - 100A:00
+    - 607C:00
+    - '2003:00'
+    - 607D:01
+    - 607D:02
+source_sha256:
+  robot_canopen_config/config/legacy_joints.yaml: a87e86e4a0589d28c94dd594cc17e3ee1c81a0416ef75b821509f435a7a331b2
+  robot_canopen_config/config/legacy_master.yaml: 48add4bc46b404d12c11287f6b086dbcc2c0c80a0e4e71f65fcf29b173615a86
+  robot_canopen_config/config/YiyouServo_V1.4.dcfgen.eds: cb4ba5ef63935f01841ff33e5125e984d35df8b76c5c8f75928134af78eb4683
+  robot_hardware/config/joint_limits.yaml: 60189ec89066ba8c377ef4297cc1f5932cdffe2f885239ae79cbeef89a4da9f6
+deployed_profile:
+  path: /home/fire/robot24-portable/runtime/profiles/hardware.json
+  config_revision: 2a5fe4b04645439adcd5b751366c4b18504fbfe218fd34595caeac7551f2ac35
+  baseline: /home/fire/robot24-portable/runtime/profiles/commissioning-arm-registered.yaml
+  baseline_sha256: abd21b8eb8314895b52a277977dc958f7fa23e1c72d1763584d87a3e60a4cb5d
+device_io_performed: false
+device_identity_complete: false
+runtime_baseline_activated: true
+commissioned: false
+registration_mode: operator_confirmed_configuration
+identity_readback_required_before_registration: false

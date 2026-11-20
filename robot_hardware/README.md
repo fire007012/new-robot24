@@ -12,7 +12,7 @@
 在 50 Hz 调试档下正常周期也会计入，不能据此单项判断周期异常。
 
 只读采集 CAN 统计可在源码根目录执行
-`python3 tools/capture_can_health.py canable1 --samples 60 --interval 1 --output /tmp/can-health.json`。
+`python3 tools/capture_can_health.py can0 --samples 60 --interval 1 --output /tmp/can-health.json`。
 工具不发送 CAN 帧或重配接口，保留完整内核统计与逐段增量；接口重建、计数回退时标记不可比较。
 该结果用于通信排查，实际目标帧积压和机械停止时延还需要抓包及实机测量。
 
