@@ -1,0 +1,2 @@
+# Start after interface naming; CAN hardware type is ARPHRD_CAN (280).
+ACTION=="add", SUBSYSTEM=="net", KERNEL=="can[01]", ATTR{type}=="280", TAG+="systemd", ENV{SYSTEMD_WANTS}+="robot-can@%k.service"

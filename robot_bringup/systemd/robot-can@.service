@@ -1,0 +1,9 @@
+[Unit]
+Description=Configure robot CAN interface %I
+BindsTo=sys-subsystem-net-devices-%i.device
+After=sys-subsystem-net-devices-%i.device
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/libexec/robot-can/configure_can.sh %I
+RemainAfterExit=yes
