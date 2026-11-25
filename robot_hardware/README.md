@@ -12,11 +12,11 @@
 python3 -B tools/register_flippers_baseline.py \
   --baseline robot_hardware/config/arm_registered_baseline.yaml \
   --registration robot_hardware/config/flippers_canopen_registration.yaml \
-  --bus ~/robot24-portable/install/robot_canopen_config/share/robot_canopen_config/config/bus.yml \
+  --bus ~/ros2_ws_car/install/robot_canopen_config/share/robot_canopen_config/config/bus.yml \
   --output /tmp/commissioning-full-registered.yaml
 ```
 
-工具核对节点、计数和生成总线模式，保留已有设备身份及持久参数；未知读回值保持未知。登记不进行设备 I/O。现有运行时仍核验在线身份、固件、PDO、零偏及维护 journal，不修改这些运行条件。独立部署的 hardware 档案使用 `runtime/profiles/commissioning-full-registered.yaml`，令牌和停止状态保留。
+工具核对节点、计数和生成总线模式，保留已有设备身份及持久参数；未知读回值保持未知。登记不进行设备 I/O。现有运行时仍核验在线身份、固件、PDO、零偏及维护 journal，不修改这些运行条件。本地终端运行的 hardware 档案位于 `~/.local/share/robot24/profiles/commissioning-full-registered.yaml`（安装系统自启后为 `/etc/robot24/profiles/`），令牌和停止状态保留。
 
 完整操作及现场出口见 [CANopen 软件交付与实机验收](../docs/archive/28_CANopen软件交付与实机验收.md)。
 

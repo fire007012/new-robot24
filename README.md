@@ -59,7 +59,16 @@ ros2 launch robot_simulation full_system_simulate.launch.py gui:=false
 
 底盘双电机和四摆臂的独立按键窗口启动、按键及退出方式见 [简易键盘控制说明](docs/底盘与摆臂简易键盘控制启动说明.md)。
 
-一键启动管理服务及部署见 [robot_manager](robot_manager/README.md) 和 [管理协议归档 39](docs/archive/qt/39_下位机管理协议与Qt对接.md)，不自动初始化或放行运动。
+一键启动管理服务、终端自恢复入口与目标机 `systemd` 自启动部署见 [下位机管理服务与自启动部署说明](docs/下位机管理服务与自启动部署说明.md)、[robot_manager](robot_manager/README.md) 和 [管理协议归档 39](docs/archive/qt/39_下位机管理协议与Qt对接.md)，不自动初始化或放行运动：
+
+```bash
+# 终端开发/联调入口（使用 ~/ros2_ws_car/install 与 ~/.local/share/robot24，内置退避自恢复）
+bash ~/ros2_ws_car/src/tools/run_manager.sh
+
+# 目标机一键自启动预览与安装（非最终环境暂不执行 install）
+bash ~/ros2_ws_car/src/tools/install_autostart.sh plan
+# sudo bash ~/ros2_ws_car/src/tools/install_autostart.sh install --with-can
+```
 
 三个入口择一运行。整车入口默认启用 `robot_safety/config/group_policy_v1.yaml`，启动后硬件与运动控制器不会自动进入运行。mock 示例的显式操作见 [当前运行说明](docs/archive/36_ROS2迁移剩余事项清单.md)；实机操作见 [现场验收](docs/archive/28_CANopen软件交付与实机验收.md) 和 [分组操作](docs/archive/31_分组隔离与局部恢复实施验收.md)。`init → enable (Armed) → resume (Running)` 建立新会话；故障恢复后也需要显式放行并发送新目标。
 
@@ -75,4 +84,4 @@ ros2 launch robot_simulation full_system_simulate.launch.py gui:=false
 
 Qt 对接阶段的协议与交付记录见 [专题归档](docs/archive/qt/README.md)。控制 v2 及管理配置事务已完成最终整车 full、47 项新增单元测试及持久证据归档，见 [记录 43](docs/archive/43_ROS2软件验证闭环记录.md)；旧 Qt 仅能只读监控，运动控制需按新契约适配。
 
-已有上下位机联动部署可导出为独立迁移包，包含相对路径启动脚本、现场档案与状态保留、目标机依赖检查，见 [上下位机联动迁移说明](docs/上下位机联动迁移说明.md)。
+如需将运行包离线打包迁移到无源码环境，可使用 [上下位机联动迁移说明](docs/上下位机联动迁移说明.md) 中的 `portable_link.py pack`；日常本地联调已直接由 `~/ros2_ws_car/src/tools/run_manager.sh` 启动，不再依赖 `~/robot24-portable` 中间目录。

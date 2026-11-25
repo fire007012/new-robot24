@@ -60,7 +60,14 @@ class Manager:
         self.lock = threading.RLock()
         self.backend = backend or Backend(self.config, self.root, self.state_dir)
         self.path = self.state_dir / 'state.json'
-        self.data = json.loads(self.path.read_text()) if self.path.exists() else dict(operations={}, requests={}, resources=[], software_state='stopped', profile=None, health={})
+        if self.path.exists():
+            try:
+                self.data = json.loads(self.path.read_text())
+            except (OSError, ValueError) as exc:
+                self.lock_file.close()
+                raise RuntimeError(f'corrupt state file {self.path}: {exc}; inspect and reconcile before restarting') from exc
+        else:
+            self.data = dict(operations={}, requests={}, resources=[], software_state='stopped', profile=None, health={})
         self.last_health_monotonic = None
         self.recovery = bool(self.data['resources'])
         for op in self.data['operations'].values():
@@ -120,6 +127,8 @@ class Manager:
         return profile
 
     def log(self, oid, line):
+        if not oid:
+            return
         path = self.state_dir / (oid + '.log')
         if not path.exists() or path.stat().st_size < 1048576:
             with path.open('a') as out:
@@ -287,9 +296,14 @@ class Manager:
             start_operation = self._cold_start_failure_operation(profile)
             cold_check = getattr(self.backend, 'cold_start_launch_rejected', None)
             cold_failure = bool(start_operation and cold_check and cold_check(resources, start_operation))
+            stale_check = getattr(self.backend, 'stale_previous_boot', None)
+            stale_previous_boot = bool(not cold_failure and stale_check and stale_check(profile, resources))
             if cold_failure:
                 self.log(self.data.get('current'),
                          'verified controller_manager launch resolution failure; stopping owned resources without runtime halt')
+            elif stale_previous_boot:
+                self.log(self.data.get('current'),
+                         'verified host reboot (boot_id changed and no live runtime); clearing stale previous-boot resources')
             else:
                 try:
                     self.backend.halt(profile)
@@ -351,6 +365,8 @@ class Manager:
                     continue
                 self.data['health'] = health
                 self.data['software_state'] = ('failed' if any(not health['modules'].get(k, {}).get('ok') for k in self.backend.required(profile)) else 'ready' if all(v['ok'] for v in health['modules'].values()) else 'degraded')
+                if self.data['software_state'] == 'failed' and self.data['resources']:
+                    self.recovery = True
                 self.save()
 
 class Backend:
@@ -571,9 +587,34 @@ class Backend:
     def recover_failed_mock(self, profile, resources):
         return recover_mock_resources(profile, resources, Path(self.config['build_manifest']).parent, self.state)
 
+    def stale_previous_boot(self, profile, resources):
+        if not resources:
+            return False
+        current_boot = Path('/proc/sys/kernel/random/boot_id').read_text().strip()
+        for resource in resources:
+            ident = resource.get('identity')
+            if resource.get('pending') or not isinstance(ident, list) or len(ident) != 2 or not ident[0]:
+                return False
+            if ident[0] == current_boot:
+                return False
+        if profile:
+            probe_profile = copy.deepcopy(profile)
+            probe_profile.setdefault('video', False)
+            probe_profile.setdefault('enable_servo', False)
+            health = self.health(probe_profile)
+            if health.get('runtime') is not None:
+                return False
+            if any(v.get('ok') for v in health.get('modules', {}).values()):
+                return False
+        return True
+
     def stop(self, r):
         if r.get('pending') or not r.get('identity'):
             raise Fault('RECOVERY_REQUIRED', 'spawn identity unknown; inspect service cgroup')
+        current_boot = Path('/proc/sys/kernel/random/boot_id').read_text().strip()
+        if r['identity'][0] != current_boot:
+            # A process from a previous OS boot cannot exist in /proc; skip PID-reuse checks.
+            return
         pid = r['pid']
         child = self.children.get(pid)
         if child is not None:

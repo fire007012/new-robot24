@@ -8,7 +8,7 @@ import threading
 import time
 import unittest
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
-from manager import Manager, Fault, Server, wire
+from manager import Manager, Backend as RealBackend, Fault, Server, wire
 from client import request
 
 class Backend:
@@ -138,8 +138,28 @@ class Tests(unittest.TestCase):
         deadline=time.monotonic()+4
         while self.call('snapshot')['software_state']!='failed':
             self.assertLess(time.monotonic(),deadline);time.sleep(.05)
+        self.assertTrue(self.call('snapshot')['recovery_required'])
         self.assertEqual(self.call('hello')['protocol_version'],1)
         self.call('stop');self.done()
+    def test_stale_previous_boot_clears_resources_and_avoids_pid_reuse_deadlock(self):
+        real_backend = RealBackend(json.loads(self.config.read_text()), self.root / 'profiles', self.root / 'state')
+        real_backend.health = lambda p: dict(modules=dict(core=dict(ok=False), bridge=dict(ok=False)), runtime=None)
+        stale_resources = [
+            dict(module='core', pid=1, identity=['00000000-0000-0000-0000-000000000000', '1']),
+            dict(module='bridge', pid=1, identity=['00000000-0000-0000-0000-000000000000', '1']),
+        ]
+        self.m.closed.set(); self.m.lock_file.close()
+        self.m = Manager(self.config, real_backend)
+        self.m.data['current'] = 'reboot-recovery-test'
+        self.m.data['resources'] = list(stale_resources)
+        self.m.recovery = True
+        self.m.stop_resources(dict(profile_id='hardware', mode='hardware'))
+        self.assertEqual(self.m.data['resources'], [])
+    def test_corrupt_state_file_fails_explicitly(self):
+        self.m.closed.set(); self.m.lock_file.close()
+        (self.root / 'state/state.json').write_text('{corrupt')
+        with self.assertRaises(RuntimeError):
+            Manager(self.config, self.backend)
     def test_reconcile(self):
         self.start();self.done()
         self.m.data['operations'][self.m.data['current']]['state']='running'

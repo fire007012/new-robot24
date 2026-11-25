@@ -22,7 +22,11 @@ ready 要求所选组的控制器清单、所用硬件组件、实时 runtime �
 
 进程资源持久记录 Linux boot ID、PID、启动时刻及独立进程组；同状态目录 flock 排除第二管理实例。写入先落盘 spawn intent，再启动并落盘身份。重启将未完成操作标为失败/结果未知，不重放。存在资源时阻止直接 start，要求受控 stop 后再启动。身份改变、未落盘身份或未知孤儿组均不误杀，要求人工对账。旧健康记录不能恢复 ready。日志和操作记录持久保留；操作日志接口保留前 1 MiB，进程原始日志位于 `<state_dir>/<operation_id>-<module>.process.log`，运维定期归档这些原始日志。
 
-## 首次部署（本次未在真实机器执行）
+## 首次部署与本地终端入口（更新：2026-11-25）
+
+- **开发/非最终环境**：直接运行 `bash ~/ros2_ws_car/src/tools/run_manager.sh`，自动初始化 `~/.local/share/robot24` 并通过退避守护拉起本服务，无需依赖 `robot24-portable` 中间目录。
+- **目标车端一键自启动**：通过 `bash ~/ros2_ws_car/src/tools/install_autostart.sh plan` 预览或 `sudo bash ~/ros2_ws_car/src/tools/install_autostart.sh install --with-can` 完成以下标准部署（详述见 [下位机管理服务与自启动部署说明](../docs/下位机管理服务与自启动部署说明.md)）：
+- **自恢复补充**：`monitor()` 在运行中检测到必需模块失联时同步设置 `recovery_required=true`；主机重启导致 `boot_id` 变化且当前启动无存活 ROS runtime 时，`stop` 可安全清理上一轮旧 `boot_id` 残留资源而不触发 PID 复用死锁；`state.json` 损坏时显式拒绝启动以避免丢失资源归属。
 
 1. 使用已验证的安装产物放置 `/opt/robot24/install`；核对安装搬迁和所有依赖。开发时可使用已构建 `/tmp/...-install/setup.bash`，生产不使用临时路径。管理按钮不运行 colcon、apt 或下载。
 2. 创建 `robot24` 专用用户，加入现场设备所需组；将本目录顶层的全部 `.py` 文件 复制到 `/opt/robot24/manager/`。这些文件与 ROS 安装、配置均应由部署管理员拥有，运行用户只读。
