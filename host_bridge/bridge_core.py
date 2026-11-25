@@ -118,189 +118,42 @@ class BridgeCore:
 
     @staticmethod
     def scaled_levels(levels: Dict[int, float], configured_max: float, default_max: float) -> Dict[int, float]:
-        if configured_max <= 0.0:
-            return dict(levels)
-        scale = configured_max / default_max
-        return {level: value * scale for level, value in levels.items()}
+        import bridge_mapping as _mapping
+        return _mapping.scaled_levels(levels, configured_max, default_max)
 
     @staticmethod
     def normalized_levels(configured: Optional[Dict[int, float]], defaults: Dict[int, float]) -> Dict[int, float]:
-        values = dict(defaults)
-        if configured:
-            values.update({int(level): float(value) for level, value in configured.items()})
-        return values
+        import bridge_mapping as _mapping
+        return _mapping.normalized_levels(configured, defaults)
 
     @staticmethod
     def default_cameras() -> List[Dict[str, Any]]:
-        return [
-            {
-                "camera_id": 0,
-                "name": "front",
-                "online": False,
-                "rtsp_url": "",
-                "codec": "h264",
-                "width": 1280,
-                "height": 720,
-                "fps": 25,
-                "bitrate_kbps": 0,
-            }
-        ]
+        import bridge_messages as _messages
+        return _messages.default_cameras()
 
     def make_hello(self) -> Dict[str, Any]:
-        return {
-            "type": "hello",
-            "protocol_version": PROTOCOL_VERSION,
-            "seq": 0,
-            "timestamp_ms": now_ms(),
-            "bridge_name": "host_bridge_node",
-            "bridge_version": "loopback-mvp",
-            "robot_id": self.robot_id,
-        }
+        import bridge_messages as _messages
+        return _messages.build_hello(self.robot_id)
 
     def make_capabilities(self) -> Dict[str, Any]:
-        arm_named_targets_supported = bool(self.output.supports_arm_named_targets())
-        supports = [
-            "control_v2",
-            "legacy_readonly",
-            "operator_input",
-            "heartbeat_ack",
-            "critical_ack",
-            "sync_request",
-            "system_snapshot",
-            "camera_list_request",
-            "camera_list_response",
-            "camera_stream_request",
-            "emergency_state",
-            "watchdog",
-            "monotonic_watchdog",
-            "connection_control_owner",
-            "readonly_monitor",
-            "keyboard_base_arm_mapping",
-            "arm_servo_output",
-            "gripper_velocity_output",
-            "flipper_jog_output",
-            "joint_runtime_states",
-            "co2_data",
-            "hybrid_lifecycle_services",
-            "service_call_result",
-        ]
-        if arm_named_targets_supported:
-            supports.extend([
-                "arm_named_targets",
-                "move_arm_named_target",
-            ])
-        return {
-            "type": "capabilities",
-            "protocol_version": PROTOCOL_VERSION,
-            "seq": 0,
-            "timestamp_ms": now_ms(),
-            "supports": supports,
-            "arm_named_targets_supported": arm_named_targets_supported,
-            "control_protocol_version": 2,
-            "control_capabilities": __import__("control_v2").SUPPORTED_CAPABILITIES,
-            "motion_presets": __import__("motion_presets").PRESETS,
-            "speed_control": {
-                "command": "set_speed_level", "parameter": "level", "levels": [1,2,3,4,5],
-                "neutral_required": True, "reauthorize_required": True,
-                "base_linear_m_s": dict(self.base_linear), "base_angular_rad_s": dict(self.base_angular),
-                "arm_linear_m_s": dict(self.arm_linear), "arm_angular_rad_s": dict(self.arm_angular),
-                "gripper_m_s": dict(self.gripper_rates), "flipper_rad_s": dict(self.flipper_velocities),
-            },
-            "legacy_control_allowed": False,
-            "max_frame_bytes": MAX_FRAME_BYTES,
-            "watchdog_ms": self.watchdog_ms,
-            "gamepad_deadzone_percent": self.gamepad_deadzone * 100.0,
-            "keyboard_service_bindings": dict(self.keyboard_service_bindings),
-            "gamepad_service_bindings": dict(self.gamepad_service_bindings),
-            "keyboard_mapping": {
-                "mode_switch": "system_command set_control_mode",
-                "emergency": "emergency_stop (client translates space or l3+r3)",
-                "speed_levels": "system_command set_speed_level, params.level=1..5",
-                "vehicle": {
-                    "linear_x": {"positive": "w", "negative": "s"},
-                    "angular_z": {"positive": "a", "negative": "d"},
-                    "flippers": {
-                        "left_front_arm_joint": {"positive": "y", "negative": "h"},
-                        "right_front_arm_joint": {"positive": "u", "negative": "j"},
-                        "left_rear_arm_joint": {"positive": "i", "negative": "k"},
-                        "right_rear_arm_joint": {"positive": "o", "negative": "l"},
-                    },
-                },
-                "arm": {
-                    "linear_x": {"positive": "u", "negative": "o"},
-                    "linear_y": {"positive": "a", "negative": "d"},
-                    "linear_z": {"positive": "w", "negative": "s"},
-                    "angular_x": {"positive": "q", "negative": "e"},
-                    "angular_y": {"positive": "k", "negative": "i"},
-                    "angular_z": {"positive": "j", "negative": "l"},
-                    "gripper": {"open": "f", "close": "h"},
-                },
-            },
-            "cameras": self.current_cameras(),
-        }
+        import bridge_messages as _messages
+        return _messages.build_capabilities(self)
 
     def make_system_snapshot(self, seq: int) -> Dict[str, Any]:
-        cameras = self.current_cameras()
-        with self.state_lock:
-            return {
-                "type": "system_snapshot",
-                "protocol_version": PROTOCOL_VERSION,
-                "seq": seq,
-                "timestamp_ms": now_ms(),
-                "control_mode": self.state.control_mode,
-                "emergency": {
-                    "active": self.state.emergency_active,
-                    "source": self.state.emergency_source,
-                },
-                "motor": {
-                    "initialized": self.state.motor_initialized,
-                    "enabled": self.state.motor_enabled,
-                },
-                "modules": {
-                    "base": "online",
-                    "arm": "online",
-                    "camera": "online" if any(cam.get("online", False) for cam in cameras) else "offline",
-                },
-                "last_error": {
-                    "code": self.state.last_error_code,
-                    "message": self.state.last_error_message,
-                },
-                "last_operator_input_seq": self.state.last_operator_seq,
-                "watchdog_active": self.state.watchdog_active,
-                "speed_level": self.state.speed_level,
-                "last_twist": self.state.last_twist.to_dict(),
-                "last_servo": self.state.last_servo.to_dict(),
-                "last_flipper": self.state.last_flipper.to_dict(),
-                "gripper_velocity": self.state.gripper_velocity,
-                "flipper_profile": {
-                    "target": self.state.flipper_profile_target,
-                    "result": self.state.flipper_profile_result,
-                    "message": self.state.flipper_profile_message,
-                },
-            }
+        import bridge_messages as _messages
+        return _messages.build_system_snapshot(self, seq)
 
     def make_camera_list_response(self, seq: int) -> Dict[str, Any]:
-        return {
-            "type": "camera_list_response",
-            "protocol_version": PROTOCOL_VERSION,
-            "seq": seq,
-            "timestamp_ms": now_ms(),
-            "cameras": self.current_cameras(),
-        }
+        import bridge_messages as _messages
+        return _messages.build_camera_list_response(seq, self.current_cameras())
 
     def make_camera_info(self, camera: Dict[str, Any]) -> Dict[str, Any]:
-        message = dict(camera)
-        message["type"] = "camera_info"
-        message["protocol_version"] = PROTOCOL_VERSION
-        message["seq"] = 0
-        message["timestamp_ms"] = now_ms()
-        return message
+        import bridge_messages as _messages
+        return _messages.build_camera_info(camera)
 
     def make_co2_data(self, ppm: int) -> Dict[str, Any]:
-        return {
-            "type": "co2_data",
-            "ppm": int(ppm),
-        }
+        import bridge_messages as _messages
+        return _messages.build_co2_data(ppm)
 
     def make_arm_named_targets(
         self,
@@ -308,14 +161,8 @@ class BridgeCore:
         targets: List[Dict[str, str]],
         message: str = "",
     ) -> Dict[str, Any]:
-        return {
-            "type": "arm_named_targets",
-            "protocol_version": PROTOCOL_VERSION,
-            "seq": seq,
-            "timestamp_ms": now_ms(),
-            "targets": targets,
-            "message": message,
-        }
+        import bridge_messages as _messages
+        return _messages.build_arm_named_targets(seq, targets, message)
 
     def state_snapshot(self) -> Dict[str, Any]:
         with self.state_lock:
@@ -331,16 +178,8 @@ class BridgeCore:
         return self.camera_provider()
 
     def make_ack(self, msg: Dict[str, Any], ok: bool = True, code: int = 0, message: str = "ok") -> Dict[str, Any]:
-        return {
-            "type": "ack",
-            "protocol_version": PROTOCOL_VERSION,
-            "ack_type": str(msg.get("type", "unknown")),
-            "seq": int(msg.get("seq", 0) or 0),
-            "ok": ok,
-            "code": code,
-            "message": message,
-            "timestamp_ms": now_ms(),
-        }
+        import bridge_messages as _messages
+        return _messages.build_ack(msg, ok=ok, code=code, message=message)
 
     def make_protocol_error(self, msg: Dict[str, Any], code: int, message: str) -> Dict[str, Any]:
         with self.state_lock:
@@ -356,18 +195,11 @@ class BridgeCore:
         }
 
     def make_emergency_state(self, message: str) -> Dict[str, Any]:
+        import bridge_messages as _messages
         with self.state_lock:
             active = self.state.emergency_active
             source = self.state.emergency_source
-        return {
-            "type": "emergency_state",
-            "protocol_version": PROTOCOL_VERSION,
-            "seq": 0,
-            "timestamp_ms": now_ms(),
-            "active": active,
-            "source": source,
-            "message": message,
-        }
+        return _messages.build_emergency_state(active, source, message)
 
     def make_service_call_result(
         self,
@@ -380,19 +212,10 @@ class BridgeCore:
         message: str,
         duration_ms: int,
     ) -> Dict[str, Any]:
-        return {
-            "type": "service_call_result",
-            "protocol_version": PROTOCOL_VERSION,
-            "seq": int(msg.get("seq", 0) or 0),
-            "timestamp_ms": now_ms(),
-            "request_type": str(msg.get("type", "unknown")),
-            "command": command,
-            "service": service,
-            "ok": ok,
-            "code": code,
-            "message": message,
-            "duration_ms": duration_ms,
-        }
+        import bridge_messages as _messages
+        return _messages.build_service_call_result(
+            msg, command=command, service=service, ok=ok, code=code, message=message, duration_ms=duration_ms
+        )
 
     def call_configured_service_result(
         self,
@@ -853,45 +676,8 @@ class BridgeCore:
         return [self.input_status(seq, "accepted"), *service_results]
 
     def input_status(self, seq: int, status: str) -> Dict[str, Any]:
-        with self.state_lock:
-            twist = self.state.last_twist
-            servo = self.state.last_servo
-            flipper = self.state.last_flipper
-            gripper_velocity = self.state.gripper_velocity
-            watchdog_active = self.state.watchdog_active
-            emergency_active = self.state.emergency_active
-            control_mode = self.state.control_mode
-            speed_level = self.state.speed_level
-            flipper_profile_target = self.state.flipper_profile_target
-            flipper_profile_result = self.state.flipper_profile_result
-            flipper_profile_message = self.state.flipper_profile_message
-        return {
-            "type": "system_status",
-            "protocol_version": PROTOCOL_VERSION,
-            "seq": 0,
-            "timestamp_ms": now_ms(),
-            "last_operator_input_seq": seq,
-            "operator_input_status": status,
-            "watchdog_active": watchdog_active,
-            "emergency_active": emergency_active,
-            "control_mode": control_mode,
-            "speed_level": speed_level,
-            "cmd_vel": {
-                "linear_x": twist.linear_x,
-                "angular_z": twist.angular_z,
-                "source": twist.source,
-            },
-            "servo": servo.to_dict(),
-            "gripper": {
-                "velocity": gripper_velocity,
-            },
-            "flipper": flipper.to_dict(),
-            "flipper_profile": {
-                "target": flipper_profile_target,
-                "result": flipper_profile_result,
-                "message": flipper_profile_message,
-            },
-        }
+        import bridge_messages as _messages
+        return _messages.build_input_status(self, seq, status)
 
     def operator_input_to_outputs(
         self,
@@ -923,24 +709,16 @@ class BridgeCore:
         connected: bool,
         speed_level: int,
     ) -> Tuple[TwistCommand, ServoCommand, Optional[GripperCommand], FlipperCommand]:
-        linear_axis = self.axis_value(pressed, "w", "s")
-        angular_axis = self.axis_value(pressed, "a", "d")
-
-        if connected:
-            linear_axis += self.axis_float_value(axes.get("left_y", 0.0))
-            # Keep physical left aligned with keyboard "a": positive angular velocity.
-            left_rotation_axis = -self.axis_float_value(axes.get("left_x", 0.0))
-            right_rotation_axis = -self.axis_float_value(axes.get("right_x", 0.0))
-            angular_axis += self.strongest_axis_value(left_rotation_axis, right_rotation_axis)
-
-        twist = TwistCommand(
-            linear_x=clamp(linear_axis, -1.0, 1.0) * self.base_linear[speed_level],
-            angular_z=clamp(angular_axis, -1.0, 1.0) * self.base_angular[speed_level],
-            source="operator_input.vehicle",
-        )
-        servo = ServoCommand(frame_id=self.servo_frame, source="operator_input.vehicle_zero")
+        import bridge_mapping as _mapping
         flipper = self.operator_input_to_flipper_outputs(pressed, buttons, axes, connected, speed_level)
-        return twist, servo, None, flipper
+        return _mapping.map_vehicle_outputs(
+            pressed, axes, buttons, connected,
+            linear_scale=self.base_linear[speed_level],
+            angular_scale=self.base_angular[speed_level],
+            servo_frame=self.servo_frame,
+            deadzone=self.gamepad_deadzone,
+            flipper_cmd=flipper,
+        )
 
     def operator_input_to_arm_outputs(
         self,
@@ -952,63 +730,18 @@ class BridgeCore:
         previous_input_ms: int,
         current_ms: int,
     ) -> Tuple[TwistCommand, ServoCommand, Optional[GripperCommand], FlipperCommand]:
-        linear = self.arm_linear[speed_level]
-        angular = self.arm_angular[speed_level]
-
-        linear_x_axis = self.axis_value(pressed, "u", "o")
-        linear_y_axis = self.axis_value(pressed, "a", "d")
-        linear_z_axis = self.axis_value(pressed, "w", "s")
-        angular_x_axis = self.axis_value(pressed, "q", "e")
-        angular_y_axis = self.axis_value(pressed, "k", "i")
-        angular_z_axis = self.axis_value(pressed, "j", "l")
-
-        if connected:
-            # Keep physical left on the stick aligned with keyboard "a" / +linear.y.
-            linear_y_axis += -self.axis_float_value(axes.get("left_x", 0.0))
-            linear_z_axis += self.axis_float_value(axes.get("left_y", 0.0))
-            # Use right trigger for forward and left trigger for backward motion.
-            linear_x_axis += self.axis_float_value(axes.get("rt", 0.0)) - self.axis_float_value(axes.get("lt", 0.0))
-            angular_x_axis += self.bool_value(buttons.get("lb", False)) - self.bool_value(buttons.get("rb", False))
-            angular_y_axis += -self.axis_float_value(axes.get("right_y", 0.0))
-            angular_z_axis += self.axis_float_value(axes.get("right_x", 0.0))
-
-        angular_x = clamp(angular_x_axis, -1.0, 1.0) * angular
-        angular_y = clamp(angular_y_axis, -1.0, 1.0) * angular
-        angular_z = clamp(angular_z_axis, -1.0, 1.0) * angular
-        angular_x, angular_y, angular_z = self.apply_axis_direction_corrections(
-            angular_x,
-            angular_y,
-            angular_z,
-            self.servo_angular_direction_corrections,
+        import bridge_mapping as _mapping
+        return _mapping.map_arm_outputs(
+            pressed, axes, buttons, connected,
+            linear=self.arm_linear[speed_level],
+            angular=self.arm_angular[speed_level],
+            gripper_rate=self.gripper_rates[speed_level],
+            previous_input_ms=previous_input_ms,
+            servo_frame=self.servo_frame,
+            angular_direction_corrections=self.servo_angular_direction_corrections,
+            deadzone=self.gamepad_deadzone,
+            zero_flipper=self.zero_flipper_command("operator_input.arm_zero"),
         )
-
-        twist = TwistCommand(0.0, 0.0, "operator_input.arm_base_zero")
-        servo = ServoCommand(
-            linear_x=clamp(linear_x_axis, -1.0, 1.0) * linear,
-            linear_y=clamp(linear_y_axis, -1.0, 1.0) * linear,
-            linear_z=clamp(linear_z_axis, -1.0, 1.0) * linear,
-            angular_x=angular_x,
-            angular_y=angular_y,
-            angular_z=angular_z,
-            frame_id=self.servo_frame,
-            source="operator_input.arm",
-        )
-
-        gripper_axis = self.axis_value(pressed, "f", "h")
-        if connected:
-            gripper_axis += self.button_axis_value(
-                buttons,
-                positive_names=("x", "square"),
-                negative_names=("b", "circle"),
-            )
-        if previous_input_ms <= 0:
-            gripper_velocity = 0.0
-        else:
-            # Velocity mode must receive explicit zero when keys are released.
-            gripper_velocity = clamp(gripper_axis, -1.0, 1.0) * self.gripper_rates[speed_level]
-        gripper = GripperCommand(velocity=gripper_velocity, source="operator_input.arm")
-
-        return twist, servo, gripper, self.zero_flipper_command("operator_input.arm_zero")
 
     def operator_input_to_flipper_outputs(
         self,
@@ -1018,73 +751,23 @@ class BridgeCore:
         connected: bool,
         speed_level: int,
     ) -> FlipperCommand:
-        flipper_speed = self.flipper_velocities[speed_level]
-        logical_axes = {
-            "left_front_arm_joint": self.axis_value(pressed, "y", "h"),
-            "right_front_arm_joint": self.axis_value(pressed, "u", "j"),
-            "left_rear_arm_joint": self.axis_value(pressed, "i", "k"),
-            "right_rear_arm_joint": self.axis_value(pressed, "o", "l"),
-        }
-        if connected:
-            logical_axes["left_front_arm_joint"] += self.gamepad_button_axis_value(
-                buttons,
-                axes,
-                positive_button_names=("l1", "lb"),
-                negative_button_names=("l2", "lt"),
-                negative_axis_names=("lt",),
-            )
-            logical_axes["right_front_arm_joint"] += self.gamepad_button_axis_value(
-                buttons,
-                axes,
-                positive_button_names=("r1", "rb"),
-                negative_button_names=("r2", "rt"),
-                negative_axis_names=("rt",),
-            )
-            logical_axes["left_rear_arm_joint"] += self.gamepad_button_axis_value(
-                buttons,
-                axes,
-                positive_button_names=("dpad_up",),
-                negative_button_names=("dpad_down",),
-            )
-            logical_axes["right_rear_arm_joint"] += self.gamepad_button_axis_value(
-                buttons,
-                axes,
-                positive_button_names=("triangle", "y"),
-                negative_button_names=("cross", "a"),
-            )
-
-        velocities = [
-            clamp(logical_axes.get(joint_name, 0.0), -1.0, 1.0) * flipper_speed * correction
-            for joint_name, correction in zip(self.flipper_joint_names, self.flipper_direction_corrections)
-        ]
-        velocities = (velocities + [0.0] * len(self.flipper_joint_names))[: len(self.flipper_joint_names)]
-
-        return FlipperCommand(
-            joint_names=list(self.flipper_joint_names),
-            velocities=velocities,
-            duration=self.flipper_jog_duration,
-            source="operator_input.vehicle",
+        import bridge_mapping as _mapping
+        return _mapping.map_flipper_outputs(
+            pressed, buttons, axes, connected,
+            flipper_speed=self.flipper_velocities[speed_level],
+            joint_names=self.flipper_joint_names,
+            direction_corrections=self.flipper_direction_corrections,
+            jog_duration=self.flipper_jog_duration,
+            deadzone=self.gamepad_deadzone,
         )
 
     def normalized_pressed_keys(self, msg: Dict[str, Any]) -> Set[str]:
-        keyboard = msg.get("keyboard", {}) if isinstance(msg.get("keyboard", {}), dict) else {}
-        raw_pressed = keyboard.get("pressed_keys", []) or []
-        if not isinstance(raw_pressed, list):
-            return set()
-
-        pressed: Set[str] = set()
-        for raw_key in raw_pressed:
-            key = str(raw_key).strip().lower()
-            if not key:
-                continue
-            pressed.add(key)
-            if key.startswith("num_") and len(key) == 5 and key[-1].isdigit():
-                pressed.add(key[-1])
-        return pressed
+        import bridge_mapping as _mapping
+        return _mapping.normalized_pressed_keys(msg)
 
     def active_gamepad_buttons(self, gamepad: Dict[str, Any]) -> Set[str]:
-        buttons = self.normalized_gamepad_mapping(gamepad.get("buttons", {}))
-        return {name for name, value in buttons.items() if bool(value)}
+        import bridge_mapping as _mapping
+        return _mapping.active_gamepad_buttons(gamepad)
 
     def emergency_input_source(
         self,
@@ -1149,16 +832,8 @@ class BridgeCore:
 
     @staticmethod
     def normalized_service_bindings(bindings: Optional[Dict[str, str]]) -> Dict[str, str]:
-        if not bindings:
-            return {}
-        normalized: Dict[str, str] = {}
-        for raw_name, raw_service in bindings.items():
-            name = str(raw_name).strip().lower()
-            service = str(raw_service).strip()
-            if not name or not service:
-                continue
-            normalized[name] = service
-        return normalized
+        import bridge_mapping as _mapping
+        return _mapping.normalized_service_bindings(bindings)
 
     def handle_input_service_bindings(
         self,
@@ -1211,12 +886,8 @@ class BridgeCore:
         return max(1, min(5, int(level)))
 
     def axis_value(self, pressed: Set[str], positive_key: str, negative_key: str) -> float:
-        value = 0.0
-        if positive_key in pressed:
-            value += 1.0
-        if negative_key in pressed:
-            value -= 1.0
-        return value
+        import bridge_mapping as _mapping
+        return _mapping.axis_value(pressed, positive_key, negative_key)
 
     def normalized_flipper_direction_corrections(self, configured: Optional[List[float]]) -> List[float]:
         defaults = [1.0] * len(self.flipper_joint_names)
@@ -1227,11 +898,8 @@ class BridgeCore:
 
     @staticmethod
     def normalized_axis_direction_corrections(configured: Optional[List[float]]) -> List[float]:
-        defaults = [1.0, 1.0, 1.0]
-        if not configured:
-            return defaults
-        values = [float(value) for value in configured]
-        return (values + defaults)[0:3]
+        import bridge_mapping as _mapping
+        return _mapping.normalized_axis_direction_corrections(configured)
 
     @staticmethod
     def apply_axis_direction_corrections(
@@ -1240,47 +908,32 @@ class BridgeCore:
         z_value: float,
         corrections: List[float],
     ) -> Tuple[float, float, float]:
-        normalized = BridgeCore.normalized_axis_direction_corrections(corrections)
-        return (
-            x_value * normalized[0],
-            y_value * normalized[1],
-            z_value * normalized[2],
-        )
+        import bridge_mapping as _mapping
+        return _mapping.apply_axis_direction_corrections(x_value, y_value, z_value, corrections)
 
     @staticmethod
     def normalized_gamepad_mapping(raw: Any) -> Dict[str, Any]:
-        if not isinstance(raw, dict):
-            return {}
-        normalized: Dict[str, Any] = {}
-        for name, value in raw.items():
-            key = str(name).strip().lower()
-            if not key:
-                continue
-            normalized[key] = value
-        return normalized
+        import bridge_mapping as _mapping
+        return _mapping.normalized_gamepad_mapping(raw)
 
     @staticmethod
     def strongest_axis_value(*values: float) -> float:
-        strongest = 0.0
-        for value in values:
-            if abs(value) > abs(strongest):
-                strongest = value
-        return strongest
+        import bridge_mapping as _mapping
+        return _mapping.strongest_axis_value(*values)
 
     @staticmethod
     def float_value(value: Any) -> float:
-        try:
-            return float(value or 0.0)
-        except (TypeError, ValueError):
-            return 0.0
+        import bridge_mapping as _mapping
+        return _mapping.float_value(value)
 
     def axis_float_value(self, value: Any) -> float:
-        axis = self.float_value(value)
-        return 0.0 if abs(axis) <= self.gamepad_deadzone else axis
+        import bridge_mapping as _mapping
+        return _mapping.axis_float_value(value, self.gamepad_deadzone)
 
     @staticmethod
     def bool_value(value: Any) -> float:
-        return 1.0 if bool(value) else 0.0
+        import bridge_mapping as _mapping
+        return _mapping.bool_value(value)
 
     def button_axis_value(
         self,
@@ -1288,12 +941,8 @@ class BridgeCore:
         positive_names: Tuple[str, ...],
         negative_names: Tuple[str, ...],
     ) -> float:
-        value = 0.0
-        if any(bool(buttons.get(name, False)) for name in positive_names):
-            value += 1.0
-        if any(bool(buttons.get(name, False)) for name in negative_names):
-            value -= 1.0
-        return value
+        import bridge_mapping as _mapping
+        return _mapping.button_axis_value(buttons, positive_names, negative_names)
 
     def gamepad_button_axis_value(
         self,
@@ -1305,12 +954,15 @@ class BridgeCore:
         positive_axis_names: Tuple[str, ...] = (),
         negative_axis_names: Tuple[str, ...] = (),
     ) -> float:
-        value = 0.0
-        if self.gamepad_inputs_active(buttons, axes, positive_button_names, positive_axis_names):
-            value += 1.0
-        if self.gamepad_inputs_active(buttons, axes, negative_button_names, negative_axis_names):
-            value -= 1.0
-        return value
+        import bridge_mapping as _mapping
+        return _mapping.gamepad_button_axis_value(
+            buttons, axes,
+            deadzone=self.gamepad_deadzone,
+            positive_button_names=positive_button_names,
+            negative_button_names=negative_button_names,
+            positive_axis_names=positive_axis_names,
+            negative_axis_names=negative_axis_names,
+        )
 
     def gamepad_inputs_active(
         self,
@@ -1319,9 +971,8 @@ class BridgeCore:
         button_names: Tuple[str, ...],
         axis_names: Tuple[str, ...],
     ) -> bool:
-        if any(bool(buttons.get(name, False)) for name in button_names):
-            return True
-        return any(abs(self.axis_float_value(axes.get(name, 0.0))) > 0.0 for name in axis_names)
+        import bridge_mapping as _mapping
+        return _mapping.gamepad_inputs_active(buttons, axes, button_names, axis_names, self.gamepad_deadzone)
 
     def operator_input_age_ms(self, timestamp_ms: int, current_ms: int) -> Tuple[Optional[int], Optional[int], Optional[int]]:
         if timestamp_ms <= 0:

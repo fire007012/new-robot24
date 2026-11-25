@@ -3,9 +3,48 @@ import json
 import math
 from pathlib import Path
 
-AXES = {'left_front_arm_joint': (1, 19857408), 'right_front_arm_joint': (2, 19857408),
-        'left_rear_arm_joint': (3, 19857408), 'right_rear_arm_joint': (4, 19857408),
-        'shoulder_yaw_joint': (6, 6619136), 'shoulder_pitch_joint': (5, 6619136)}
+def load_default_axes():
+    """Load canonical CANopen axis definitions (joint -> (node_id, counts_per_rev)) from robot_canopen_config."""
+    import math as _math
+    from pathlib import Path as _Path
+    import yaml as _yaml
+
+    candidates = []
+    try:
+        from ament_index_python.packages import get_package_share_directory
+        cfg_dir = _Path(get_package_share_directory('robot_canopen_config')) / 'config'
+        candidates.append(('joints', cfg_dir / 'legacy_joints.yaml'))
+        candidates.append(('bus', cfg_dir / 'bus.yml'))
+    except Exception:
+        pass
+    src_joints = _Path(__file__).resolve().parents[2] / 'robot_canopen_config' / 'config' / 'legacy_joints.yaml'
+    candidates.append(('joints', src_joints))
+
+    for kind, path in candidates:
+        if not path.is_file():
+            continue
+        data = _yaml.safe_load(path.read_text(encoding='utf-8')) or {}
+        if kind == 'joints' and isinstance(data.get('joints'), list):
+            axes = {
+                entry['name']: (int(entry['canopen']['node_id']), int(entry['counts_per_rev']))
+                for entry in data['joints']
+                if isinstance(entry, dict) and 'name' in entry and 'canopen' in entry and 'counts_per_rev' in entry
+            }
+            if axes:
+                return axes
+        if kind == 'bus' and isinstance(data, dict):
+            axes = {
+                name: (int(cfg['node_id']), int(round(float(cfg['scale_pos_to_dev']) * 2.0 * _math.pi)))
+                for name, cfg in data.items()
+                if name not in ('options', 'master')
+                and isinstance(cfg, dict) and 'node_id' in cfg and 'scale_pos_to_dev' in cfg
+            }
+            if axes:
+                return axes
+    raise RuntimeError('unable to load CANopen axis config from robot_canopen_config')
+
+
+AXES = load_default_axes()
 MAINTENANCE = ((0x607C, 0), (0x2003, 0), (0x607D, 1), (0x607D, 2))
 IDENTITY = ((0x1000, 0), (0x1018, 1), (0x1018, 2), (0x1018, 3), (0x1018, 4), (0x100A, 0))
 

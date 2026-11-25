@@ -13,16 +13,18 @@ from robot_hardware_runtime.selection import parse_groups, select_description, s
 
 def launch_selected(context):
     get = lambda name: LaunchConfiguration(name).perform(context)
+    raw_policy = get('group_policy')
+    group_policy = '' if raw_policy in ('', 'none', 'disabled') else raw_policy
     share = Path(get_package_share_directory('robot_hardware'))
     canopen = Path(get_package_share_directory('robot_canopen_config')) / 'config'
     groups = parse_groups(get('selected_groups'))
-    if not get('group_policy') and groups != {'arm', 'base', 'flippers', 'gripper'}:
+    if not group_policy and groups != {'arm', 'base', 'flippers', 'gripper'}:
         raise ValueError('partial hardware selection requires group_policy')
-    policy_path = get('group_policy') or str(Path(get_package_share_directory('robot_safety'))/'config/group_policy_v2.yaml')
+    policy_path = group_policy or str(Path(get_package_share_directory('robot_safety'))/'config/group_policy_v2.yaml')
     contract = yaml.safe_load(Path(policy_path).read_text())
     raw = subprocess.check_output(['xacro', str(share/'urdf/robot.urdf.xacro'),
         'mock:='+get('mock'), 'canopen_interface:='+get('canopen_interface'),
-        'private_interface:='+get('private_interface'), 'group_policy:='+get('group_policy')], text=True)
+        'private_interface:='+get('private_interface'), 'group_policy:='+group_policy], text=True)
     backends = {a['backend'] for a in contract['axes'].values() if a['group'] in groups}
     if (get('mock') != 'true' and len(backends) > 1 and
             get('canopen_interface') == get('private_interface')):
@@ -45,7 +47,7 @@ def launch_selected(context):
         actions.append(Node(package='controller_manager', executable='ros2_control_node',
             parameters=[{'robot_description': description}, str(parameter_path)], output='screen'))
     actions.append(Node(package='robot_hardware', executable='robot_runtime', parameters=[{
-        'enable_servo': get('enable_servo') == 'true', 'group_policy': get('group_policy'),
+        'enable_servo': get('enable_servo') == 'true', 'group_policy': group_policy,
         'selected_groups': sorted(groups), 'simulation': get('mock') == 'true',
         'bus_config': str(canopen/'bus.yml'), 'baseline': get('baseline'), 'journal': get('journal')}], output='screen'))
     actions.append(Node(package='controller_manager', executable='spawner', arguments=controllers +
@@ -55,7 +57,8 @@ def launch_selected(context):
 
 def generate_launch_description():
     share = Path(get_package_share_directory('robot_hardware'))
-    defaults = {'start_controller_manager':'true', 'enable_servo':'false', 'group_policy':'',
+    default_policy = str(Path(get_package_share_directory('robot_safety')) / 'config/group_policy_v2.yaml')
+    defaults = {'start_controller_manager':'true', 'enable_servo':'false', 'group_policy':default_policy,
         'selected_groups':'arm,base,flippers,gripper', 'mock':'false',
         'canopen_interface':'can1', 'private_interface':'can0',
         'baseline':str(share/'config/commissioning.yaml'),

@@ -154,5 +154,36 @@ class GroupOperations(unittest.TestCase):
             with self.assertRaises(ValueError):self.c.maintain('shoulder_yaw_joint',operation,lower,upper,False)
         self.assertEqual(self.io.events,before)
         self.assertEqual(self.c.states['arm'],'Running')
+    def test_fault_reason_survives_stop_and_monitor_fault(self):
+        self.c.init(['arm'])
+        self.io.fail=('prepare','RobotCanopenSystem','arm')
+        with self.assertRaises(RuntimeError):self.c.enable(['arm'])
+        self.assertIn('injected operation failure', self.c.fault_reasons['arm'])
+        self.io.fail=None
+        self.start(['base'])
+        self.io.active.clear()
+        self.c.monitor()
+        self.assertEqual(self.c.states['base'], 'Fault')
+        self.assertIn('active controller mismatch', self.c.fault_reasons['base'])
+        self.c.halt(['base'])
+        self.assertEqual(self.c.fault_reasons['base'], '')
+        self.io.fail=('prepare','RobotCanopenSystem','arm')
+        with self.assertRaises(RuntimeError):self.c.recover(['arm'])
+        self.assertIn('injected operation failure', self.c.fault_reasons['arm'])
+        self.io.fail=None
+        self.c.shutdown(['arm'])
+        self.assertEqual(self.c.states['arm'], 'Stopped')
+        self.assertEqual(self.c.fault_reasons['arm'], '')
+
+    def test_aggregate_state_prioritizes_fault_over_partial_running(self):
+        self.start(['base'])
+        self.assertEqual(self.c.state, 'PartialRunning')
+        self.c.init(['arm'])
+        self.io.fail = ('prepare', 'RobotCanopenSystem', 'arm')
+        with self.assertRaises(RuntimeError):
+            self.c.enable(['arm'])
+        self.assertEqual(self.c.states['base'], 'Running')
+        self.assertEqual(self.c.states['arm'], 'Fault')
+        self.assertEqual(self.c.state, 'Fault')
 
 if __name__=='__main__':unittest.main()

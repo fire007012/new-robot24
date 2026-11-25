@@ -26,6 +26,7 @@ class GroupCoordinator:
         self.states = {g: 'Stopped' for g in self.locks}
         self.generations = {g: 0 for g in self.locks}
         self.operations = {}
+        self.fault_reasons = {g: '' for g in self.locks}
         self.operation_context = threading.local()
         self.diagnostics = {}
         self.requested = set()
@@ -65,9 +66,11 @@ class GroupCoordinator:
     @property
     def state(self):
         values = list(self.states.values())
+        if 'Fault' in values:
+            return 'Fault'
         if 'Running' in values:
             return 'Running' if all(v == 'Running' for v in values) else 'PartialRunning'
-        for state in ('Fault', 'Armed', 'Initialized', 'Halted'):
+        for state in ('Armed', 'Initialized', 'Halted'):
             if state in values:
                 return state
         return 'Stopped'
@@ -161,6 +164,7 @@ class GroupCoordinator:
             self.io.initialize('RobotCanopenSystem', group)
             self.policy.verify(canopen_axes)
         self.states[group] = 'Initialized'
+        self.fault_reasons[group] = ''
 
     def _prepare(self, group):
         self.io.ensure_settled(group)
@@ -193,6 +197,7 @@ class GroupCoordinator:
         self.io.group_operation(group, 'arm')
         self.generations[group] += 1
         self.states[group] = 'Armed'
+        self.fault_reasons[group] = ''
 
     def _enable(self, group):
         self._prepare(group)
@@ -231,14 +236,16 @@ class GroupCoordinator:
                         self.io.begin_scope(group)
                         step(group)
                     except Exception as error:
+                        reason = str(error)
+                        self.fault_reasons[group] = reason
                         try:
                             self._stop(group)
                         except Exception:
                             pass
                         self.states[group] = 'Fault'
-                        self.operations[group].update(state='failed', reason=str(error))
+                        self.operations[group].update(state='failed', reason=reason)
                         failed.add(group)
-                        errors.append(group + ': ' + str(error))
+                        errors.append(group + ': ' + reason)
                     finally:
                         self.io.begin_scope(None)
             for group in set(selected) - failed:
@@ -270,7 +277,10 @@ class GroupCoordinator:
         self._apply(groups, 'resume', None, {'Armed', 'Halted'}, [prepare, acknowledge, arm, start])
 
     def halt(self, groups=None):
-        self._apply(groups, 'halt', self._stop)
+        def stop_and_clear(group):
+            self._stop(group)
+            self.fault_reasons[group] = ''
+        self._apply(groups, 'halt', stop_and_clear)
 
     def recover(self, groups=None):
         self._apply(groups, 'recover', None, phases=[self._stop, self._init, self._prepare,
@@ -297,6 +307,7 @@ class GroupCoordinator:
             for group in selected:
                 self._stop(group)
                 self.states[group] = 'Stopped'
+                self.fault_reasons[group] = ''
             for component in self.COMPONENTS:
                 users = {g for g in self.allowed_groups if component in self.backends(g)}
                 if users <= set(selected):
@@ -328,7 +339,8 @@ class GroupCoordinator:
                     self.io.controllers(self.controllers('flippers'), [])
                     self.io.group_operation('flippers', 'run')
                     self.states['flippers'] = 'Running'
-                except Exception:
+                except Exception as error:
+                    self.fault_reasons['flippers'] = str(error)
                     self.converge(['flippers'])
                     raise
 
@@ -351,7 +363,8 @@ class GroupCoordinator:
                     if profile == 'servo': self.io.check_servo_ready()
                     self.io.controllers(self.controllers('arm'),[])
                     self.io.group_operation('arm','run');self.states['arm']='Running'
-                except Exception:
+                except Exception as error:
+                    self.fault_reasons['arm'] = str(error)
                     self.converge(['arm']);raise
 
     def maintain(self, joint, operation, lower, upper, save):
@@ -411,6 +424,11 @@ class GroupCoordinator:
                         # Never revoke a newer session using an older observation.
                         if observed[group] != (self.generations[group], self.states[group]):
                             continue
+                        if status['groups'][group]['state'] != expected_state:
+                            reason = f"{group}: guard state mismatch (expected {expected_state}, got {status['groups'][group]['state']})"
+                        else:
+                            reason = f"{group}: active controller mismatch (expected {sorted(expected)}, got {sorted(actual)})"
+                        self.fault_reasons[group] = reason
                         self.io.begin_scope(group)
                         self._stop(group)
                         self.states[group] = 'Fault'

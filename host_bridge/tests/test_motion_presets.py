@@ -293,16 +293,19 @@ class Tests(unittest.TestCase):
     def test_adapter_uses_single_group_service(self):
         output = RosOutput.__new__(RosOutput)
         requests = []
-        def request(kind, path, value):
-            requests.append((path, value))
+        def request(kind, path, value, seconds=30):
+            requests.append((path, value, seconds))
             return SimpleNamespace(success=True, operation_id='ros-op', message='ok')
         output.request = request
         fake = SimpleNamespace(GroupOperation=SimpleNamespace(Request=lambda **kw: SimpleNamespace(**kw)))
         with patch.dict(sys.modules, {'robot_hardware.srv': fake}):
             result = output.call_group_operation('enable', ['arm','gripper'])
+            output.call_group_operation('halt', ['arm'])
         self.assertEqual(requests[0][0], '/robot_runtime/group_operation')
         self.assertEqual(requests[0][1].groups, ['arm','gripper'])
         self.assertEqual(requests[0][1].resource, '')
+        self.assertGreater(requests[0][2], 30.0)
+        self.assertEqual(requests[1][2], 30.0)
         self.assertEqual(result['operation_id'], 'ros-op')
 
 

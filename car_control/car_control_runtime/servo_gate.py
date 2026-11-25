@@ -6,6 +6,9 @@ from std_msgs.msg import String,Float64MultiArray
 from geometry_msgs.msg import TwistStamped
 from std_srvs.srv import Trigger
 
+STATE_TIMEOUT=0.6
+MAX_FUTURE_STAMP_NS=50_000_000
+
 class ServoGate(Node):
     def __init__(self):
         super().__init__('servo_gate');self.session=None;self.ready=False;self.last_input=0.;self.state_at=0.;self.input=None;self.pending=None;self.retry_at=0.;self.servo_at=0.
@@ -19,7 +22,7 @@ class ServoGate(Node):
         self.transport_status=self.create_service(Trigger,'/arm_control/servo_transport_ready',self.status)
     def status(self, request, response):
         response.success=bool(self.ready and self.session and self.session[0] and
-                              time.monotonic()-self.state_at<.3 and self.input is not None and
+                              time.monotonic()-self.state_at<STATE_TIMEOUT and self.input is not None and
                               self.pub.get_subscription_count()>0 and time.monotonic()-self.servo_at<.3)
         response.message='Servo transport ready; fresh input required' if response.success else 'Servo transport is preparing'
         return response
@@ -28,9 +31,11 @@ class ServoGate(Node):
         try:
             state=json.loads(msg.data)
             running=state.get('groups',{}).get('arm')=='Running' and state.get('arm_profile')=='servo'
-            session=(running,json.dumps(state.get('operations',{}).get('arm',{}),sort_keys=True))
+            epochs=state.get('input_epochs') or {}
+            token=epochs['arm'] if 'arm' in epochs else json.dumps(state.get('operations',{}).get('arm',{}),sort_keys=True)
+            session=(running,token)
         except (ValueError,TypeError):running=False;session=(False,'invalid')
-        if session!=self.session or time.monotonic()-self.state_at>.3:
+        if session!=self.session or time.monotonic()-self.state_at>STATE_TIMEOUT:
             self.ready=False;self.last_input=0.;self.servo_at=0.;self.session=session
             if self.input:self.destroy_subscription(self.input);self.input=None
             self.output.publish(Float64MultiArray(data=[0.]*6))
@@ -73,27 +78,27 @@ class ServoGate(Node):
         self.ready=True;self.activated=self.get_clock().now().nanoseconds
         self.input=self.create_subscription(TwistStamped,'/servo_server/delta_twist_cmds',lambda m,t=token:self.twist(m,t),1)
     def twist(self,msg,token):
-        if token!=self.session or not self.ready or time.monotonic()-self.state_at>.3:return
+        if token!=self.session or not self.ready or time.monotonic()-self.state_at>STATE_TIMEOUT:return
         values=[getattr(vector,axis) for vector in (msg.twist.linear,msg.twist.angular) for axis in ('x','y','z')]
         stamp=msg.header.stamp.sec*10**9+msg.header.stamp.nanosec
         if not all(math.isfinite(x) for x in values) or not msg.header.frame_id:return
-        if stamp<self.activated or stamp>self.get_clock().now().nanoseconds:return
+        if stamp<self.activated or stamp>self.get_clock().now().nanoseconds+MAX_FUTURE_STAMP_NS:return
         self.last_input=time.monotonic();self.pub.publish(msg)
     def command(self,msg):
         if (self.ready and len(msg.data)==6 and all(math.isfinite(x) for x in msg.data)
                 and all(abs(x)<1e-6 for x in msg.data)):
             self.servo_at=time.monotonic()
-        if not self.ready or time.monotonic()-self.last_input>.1 or time.monotonic()-self.state_at>.3:return
+        if not self.ready or time.monotonic()-self.last_input>.1 or time.monotonic()-self.state_at>STATE_TIMEOUT:return
         if len(msg.data)==6 and all(math.isfinite(x) for x in msg.data):self.output.publish(msg)
     def watchdog(self):
-        if time.monotonic()-self.state_at<=.3:
+        if time.monotonic()-self.state_at<=STATE_TIMEOUT:
             self.try_start()
             if self.ready and time.monotonic()-self.last_input>.1:
                 # Warm the calculation loop with neutral input before reporting
                 # mode readiness. This never grants or forwards operator motion.
                 neutral=TwistStamped();neutral.header.stamp=self.get_clock().now().to_msg()
                 neutral.header.frame_id='grasp_tcp';self.pub.publish(neutral)
-        if not self.ready or time.monotonic()-self.last_input>.1 or time.monotonic()-self.state_at>.3:
+        if not self.ready or time.monotonic()-self.last_input>.1 or time.monotonic()-self.state_at>STATE_TIMEOUT:
             self.output.publish(Float64MultiArray(data=[0.]*6))
 
 def main():

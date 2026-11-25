@@ -325,3 +325,11 @@ TEST_F(GroupDomain, RuntimeOwnerLeaseExpiresGloballyAndRenewalCannotReplayOldSes
  EXPECT_THROW(d.renewOwner(100,now-100),std::invalid_argument);
  EXPECT_THROW(d.renewOwner(100,now+1),std::invalid_argument);
 }
+TEST_F(GroupDomain, DiagnosticsPrioritizesFaultOverPartialRunning) {
+  d.configure(axes, {}, "group-policy-v2");
+  d.reportAxis("left", true); d.reportAxis("right", true);
+  start("base");
+  EXPECT_NE(d.diagnostics().find("\"aggregate_state\":\"PartialRunning\""), std::string::npos);
+  d.event(failure("shoulder"));
+  EXPECT_NE(d.diagnostics().find("\"aggregate_state\":\"Restricted\""), std::string::npos);
+}

@@ -29,7 +29,7 @@ from robot_hardware.srv import SetProfile, Maintain
 
 class HybridSmoke(unittest.TestCase):
     LAUNCH='hardware.launch.py'
-    ARGUMENTS=['mock:=true']
+    ARGUMENTS=['mock:=true', 'group_policy:=none']
     DOMAIN='89'
     @classmethod
     def setUpClass(cls):

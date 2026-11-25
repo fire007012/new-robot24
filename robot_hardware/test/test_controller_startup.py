@@ -94,6 +94,40 @@ class ControllerStartupTests(unittest.TestCase):
             self.assertEqual(adapter.pending, {})
             self.assertEqual(adapter.node.create_client.return_value.call_async.call_count,2)
 
+    def test_group_operation_schema_and_rejection_isolation(self):
+        import json
+        from robot_hardware_runtime.node import RuntimeNode
+        coordinator = Mock()
+        coordinator.states = {'arm': 'Initialized', 'base': 'Running', 'flippers': 'Stopped', 'gripper': 'Stopped'}
+        coordinator.operations = {'arm': {'id': 'old-op', 'state': 'complete'}}
+        coordinator.operation_context = SimpleNamespace(id='')
+        coordinator.selected = lambda groups: list(groups)
+        coordinator.enable.side_effect = RuntimeError('invalid group state')
+        coordinator.resource_groups.return_value = ['arm', 'flippers']
+        stub = SimpleNamespace(grouped=True, coordinator=coordinator, refresh_joint_states=Mock())
+
+        req = SimpleNamespace(operation='enable', groups=['arm'], resource='')
+        resp = SimpleNamespace(success=False, operation_id='', message='')
+        out = RuntimeNode.group_operation(stub, req, resp)
+        self.assertFalse(out.success)
+        payload = json.loads(out.message)
+        self.assertEqual(payload['operations'], {})
+        self.assertEqual(out.operation_id, '')
+
+        def fake_recover_resource(_resource):
+            coordinator.operation_context.id = 'rec-op'
+            coordinator.operations['arm'] = {'id': 'rec-op', 'state': 'complete'}
+            coordinator.operations['flippers'] = {'id': 'rec-op', 'state': 'complete'}
+        coordinator.recover_resource.side_effect = fake_recover_resource
+        req2 = SimpleNamespace(operation='recover_resource', groups=[], resource='RobotCanopenSystem')
+        resp2 = SimpleNamespace(success=False, operation_id='', message='')
+        out2 = RuntimeNode.group_operation(stub, req2, resp2)
+        self.assertTrue(out2.success)
+        payload2 = json.loads(out2.message)
+        self.assertIn('reason', payload2)
+        self.assertIn('operations', payload2)
+        self.assertEqual(set(payload2['operations']), {'arm', 'flippers'})
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -88,12 +88,21 @@ class ControlV2:
 
     def close(self):
         self.closed.set()
-        self.worker.join(1)
-        self.safety_worker.join(1)
-        self.global_safety_worker.join(1)
-        if self.journal_lock and not any(t.is_alive() for t in (self.worker,self.safety_worker,self.global_safety_worker)) and not self.reserved_waiting and not self.disk_lock.locked():
-            self.journal_lock.close()
-            self.journal_lock = None
+        self.worker.join(2)
+        self.safety_worker.join(2)
+        self.global_safety_worker.join(2)
+        if self.journal_lock:
+            locked = self.disk_lock.acquire(timeout=1.0)
+            try:
+                if (
+                    not any(t.is_alive() for t in (self.worker, self.safety_worker, self.global_safety_worker))
+                    and not self.reserved_waiting
+                ) or locked:
+                    self.journal_lock.close()
+                    self.journal_lock = None
+            finally:
+                if locked:
+                    self.disk_lock.release()
 
     def _save(self):
         if not self.path:

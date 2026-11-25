@@ -624,16 +624,20 @@ class Backend:
             if Path(f'/proc/{pid}').exists() and identity(pid, include_zombie=True) != r['identity']:
                 raise Fault('RECOVERY_REQUIRED', 'process identity changed')
             # Only signal a group while its verified leader remains alive.
-            # Unknown orphan groups require operator reconciliation.
-            members = []
-            for stat in Path('/proc').glob('[0-9]*/stat'):
-                try:
-                    fields = stat.read_text().rsplit(')',1)[1].split()
-                    if int(fields[2]) == pid and fields[0] != 'Z': members.append(stat)
-                except (OSError, ValueError, IndexError): pass
-            if members:
-                raise Fault('RECOVERY_REQUIRED', 'orphan group requires reconciliation')
-            return
+            # Give exiting descendants a brief grace window before requiring manual reconciliation.
+            grace_deadline = time.monotonic() + 2.0
+            while True:
+                members = []
+                for stat in Path('/proc').glob('[0-9]*/stat'):
+                    try:
+                        fields = stat.read_text().rsplit(')',1)[1].split()
+                        if int(fields[2]) == pid and fields[0] != 'Z': members.append(stat)
+                    except (OSError, ValueError, IndexError): pass
+                if not members:
+                    return
+                if time.monotonic() >= grace_deadline:
+                    raise Fault('RECOVERY_REQUIRED', 'orphan group requires reconciliation')
+                time.sleep(.1)
         os.killpg(pid, signal.SIGINT)
         deadline = time.monotonic() + 8
         while identity(pid) == r['identity'] and time.monotonic() < deadline:

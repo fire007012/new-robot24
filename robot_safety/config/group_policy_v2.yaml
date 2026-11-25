@@ -18,6 +18,7 @@ axes:
 groups:
   arm:
     controllers: [arm_position_controller]
+    optional_controllers: [arm_servo_controller]
     task: six_axis_trajectory
   flippers:
     controllers: [flipper_csv_forward_controller, flipper_csp_controller]

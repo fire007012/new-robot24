@@ -20,6 +20,7 @@ public:
       return result;
     };
     rate_=positive("control_rate_hz",50.0); timeout_=positive("timeout_sec",0.3);
+    state_timeout_sec_=positive("state_timeout_sec",0.6);
     vmax_={positive("max_linear_x",0.8),positive("max_angular_z",1.5)};
     amax_={positive("max_linear_acc",1.0),positive("max_angular_acc",2.0)};
     jmax_={positive("max_linear_jerk",4.0),positive("max_angular_jerk",8.0)};
@@ -45,24 +46,32 @@ private:
     received_=Clock::time_point{};
     otg_->reset();
   }
+  static std::string baseEpochToken(const YAML::Node & node) {
+    if (node["input_epochs"] && node["input_epochs"]["base"])
+      return YAML::Dump(node["input_epochs"]["base"]);
+    if (node["operations"] && node["operations"]["base"])
+      return YAML::Dump(node["operations"]["base"]);
+    return "global";
+  }
   void state(const std::string & data) {
     try {
       const auto node=YAML::Load(data);
       const auto running=(node["groups"] && node["groups"]["base"] ? node["groups"]["base"] : node["state"]).as<std::string>()=="Running";
-      const auto operation=node["operations"] && node["operations"]["base"] ? YAML::Dump(node["operations"]["base"]) : "global";
-      const auto token=(running?"running:":"stopped:")+operation;
+      const auto token=(running?"running:":"stopped:")+baseEpochToken(node);
       const auto now=Clock::now();
-      if (token!=token_ || now-state_at_>std::chrono::milliseconds(300)) {
+      const auto state_timeout=std::chrono::duration<double>(state_timeout_sec_);
+      if (token!=token_ || now-state_at_>state_timeout) {
         reset(); stop(); token_=token; ++session_; command_.reset();
         if (running) {
           const auto session=session_;
           command_=create_subscription<Twist>(topic_,rclcpp::QoS(1).durability_volatile(),
             [this,session](Twist::ConstSharedPtr msg) {
-              if (!running_ || session!=session_ || Clock::now()-state_at_>std::chrono::milliseconds(300)) return;
+              const auto now_cb=Clock::now();
+              if (!running_ || session!=session_ || now_cb-state_at_>std::chrono::duration<double>(state_timeout_sec_)) return;
               for (double value : {msg->linear.x,msg->linear.y,msg->linear.z,msg->angular.x,msg->angular.y,msg->angular.z})
                 if (!std::isfinite(value)) { reset();stop();return; }
               input_.target_velocity={std::clamp(msg->linear.x,-vmax_[0],vmax_[0]),std::clamp(msg->angular.z,-vmax_[1],vmax_[1])};
-              received_=Clock::now();
+              received_=now_cb;
             });
         }
       }
@@ -71,15 +80,26 @@ private:
   }
   void step() {
     const auto now=Clock::now();const auto elapsed=now-last_step_;last_step_=now;
-    if (!running_ || now-state_at_>std::chrono::milliseconds(300) ||
-        received_==Clock::time_point{} || std::chrono::duration<double>(now-received_).count()>timeout_ ||
-        elapsed>std::chrono::milliseconds(100)) { reset();stop();return; }
+    const auto state_timeout=std::chrono::duration<double>(state_timeout_sec_);
+    if (!running_ || now-state_at_>state_timeout || elapsed>std::chrono::milliseconds(150)) {
+      reset();stop();return;
+    }
+    if (received_==Clock::time_point{}) { stop(); return; }
+    if (std::chrono::duration<double>(now-received_).count()>timeout_) {
+      // Decelerate smoothly via Ruckig on cmd_vel timeout instead of snapping to 0.
+      input_.target_velocity={0.0,0.0};
+      input_.target_acceleration={0.0,0.0};
+      if (std::abs(input_.current_velocity[0])<1e-6 && std::abs(input_.current_velocity[1])<1e-6 &&
+          std::abs(input_.current_acceleration[0])<1e-6 && std::abs(input_.current_acceleration[1])<1e-6) {
+        stop(); return;
+      }
+    }
     const auto result=otg_->update(input_,output_);
     if (result<0) { reset();stop();return; }
     Twist out;out.linear.x=output_.new_velocity[0];out.angular.z=output_.new_velocity[1];
     output_.pass_to_input(input_);pub_->publish(out);
   }
-  double rate_,timeout_;
+  double rate_,timeout_,state_timeout_sec_;
   std::array<double,2> vmax_,amax_,jmax_;
   std::unique_ptr<ruckig::Ruckig<2>> otg_;
   ruckig::InputParameter<2> input_;

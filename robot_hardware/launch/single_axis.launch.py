@@ -8,8 +8,9 @@ from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 from ament_index_python.packages import get_package_share_directory
 from robot_hardware_runtime.control_period import control_rate
+from robot_hardware_runtime.policy import AXES as POLICY_AXES
 
-AXES={'left_front_arm_joint':1,'right_front_arm_joint':2,'left_rear_arm_joint':3,'right_rear_arm_joint':4,'shoulder_yaw_joint':6,'shoulder_pitch_joint':5}
+AXES = {joint: node_id for joint, (node_id, _) in POLICY_AXES.items()}
 def setup(context):
     joint=LaunchConfiguration('joint').perform(context)
     if joint not in AXES:raise ValueError('unknown CANopen joint')

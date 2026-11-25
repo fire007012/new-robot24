@@ -16,6 +16,8 @@ class SessionDiffDriveController : public diff_drive_controller::DiffDriveContro
     bool active=false;
     int64_t activated=0;
     std::atomic<int64_t> receipt{0};
+    std::atomic<bool> zeroed{true};
+    std::shared_ptr<Message> zero_msg=std::make_shared<Message>();
   };
   std::shared_ptr<Input> input_=std::make_shared<Input>();
   static int64_t steady() {
@@ -27,12 +29,13 @@ class SessionDiffDriveController : public diff_drive_controller::DiffDriveContro
   }
   void retire() {
     std::lock_guard<std::mutex> lock(input_->mutex);
-    input_->active=false;++input_->epoch;input_->receipt=0;
+    input_->active=false;++input_->epoch;input_->receipt=0;input_->zeroed=true;
     velocity_command_subscriber_.reset();velocity_command_unstamped_subscriber_.reset();
-    received_velocity_msg_ptr_.set(std::make_shared<Message>());
+    received_velocity_msg_ptr_.set(input_->zero_msg);
   }
   void clearHistory() {
     auto zero=std::make_shared<Message>();zero->header.stamp=get_node()->now();
+    input_->zero_msg=zero;input_->zeroed=true;
     received_velocity_msg_ptr_.set(zero);
     previous_commands_={};previous_commands_.push(*zero);previous_commands_.push(*zero);
     input_->receipt=0;
@@ -60,14 +63,14 @@ public:
         const auto stamp=rclcpp::Time(message->header.stamp,now.get_clock_type()).nanoseconds();
         if(stamp && (stamp<input->activated||stamp>now.nanoseconds()))return;
         if(!stamp)message->header.stamp=now;
-        input->receipt=steady();received_velocity_msg_ptr_.set(message);
+        input->zeroed=false;input->receipt=steady();received_velocity_msg_ptr_.set(message);
       });
     else velocity_command_unstamped_subscriber_=get_node()->create_subscription<geometry_msgs::msg::Twist>("~/cmd_vel_unstamped",rclcpp::SystemDefaultsQoS(),
       [this,input,epoch](std::shared_ptr<geometry_msgs::msg::Twist> message) {
         std::lock_guard<std::mutex> guard(input->mutex);
         if(!input->active||input->epoch!=epoch||!finite(*message))return;
         auto stamped=std::make_shared<Message>();stamped->twist=*message;stamped->header.stamp=get_node()->now();
-        input->receipt=steady();received_velocity_msg_ptr_.set(stamped);
+        input->zeroed=false;input->receipt=steady();received_velocity_msg_ptr_.set(stamped);
       });
     return result;
   }
@@ -82,8 +85,9 @@ public:
   }
   controller_interface::return_type update(const rclcpp::Time & time,const rclcpp::Duration & period) override {
     const auto received=input_->receipt.load();
-    if(!received || (cmd_vel_timeout_.count()>0 && steady()-received>=cmd_vel_timeout_.count()*1000000LL)) {
-      auto zero=std::make_shared<Message>();zero->header.stamp=time;received_velocity_msg_ptr_.set(zero);
+    if((!received || (cmd_vel_timeout_.count()>0 && steady()-received>=cmd_vel_timeout_.count()*1000000LL)) &&
+       !input_->zeroed.exchange(true)) {
+      received_velocity_msg_ptr_.set(input_->zero_msg);
     }
     return DiffDriveController::update(time,period);
   }

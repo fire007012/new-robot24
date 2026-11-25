@@ -971,6 +971,7 @@ def main() -> None:
         server.runtime.stop_event.set()
 
     finally:
+        server.control.close()
         if isinstance(output,RosOutput):output.close()
 
 if __name__ == "__main__":

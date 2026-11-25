@@ -39,6 +39,14 @@ Policy Policy::load(const std::string & path) {
     if (list.empty() || (group == "flippers" ?
       list.size() != 2 || entry.second["controller_selection"].as<std::string>() != "exactly_one" : list.size() != 1))
       throw std::invalid_argument("invalid controller selection");
+    if (entry.second["optional_controllers"]) {
+      if (group != "arm" || !entry.second["optional_controllers"].IsSequence())
+        throw std::invalid_argument("invalid optional controller declaration");
+      for (const auto & optional : entry.second["optional_controllers"]) {
+        const auto name = optional.as<std::string>();
+        if (name.empty() || !owners.insert(name).second) throw std::invalid_argument("optional controller ownership conflict");
+      }
+    }
   }
   if (out.controllers.size() != groups.size()) throw std::invalid_argument("missing policy group");
   for (const auto & entry : root["conditions"]) {

@@ -9,6 +9,9 @@ from rclpy.node import Node
 from std_msgs.msg import Bool, Float64, Float64MultiArray, String
 
 
+STATE_TIMEOUT_SEC = 0.6
+
+
 class GripperCmdNode(Node):
     def __init__(self):
         super().__init__('gripper_cmd_node')
@@ -32,12 +35,14 @@ class GripperCmdNode(Node):
         try:
             state = json.loads(message.data)
             running = state.get('groups', {}).get('gripper', state['state']) == 'Running'
-            token = (running, json.dumps(state.get('operations', {}).get('gripper', {}), sort_keys=True))
+            epochs = state.get('input_epochs') or {}
+            epoch_val = epochs['gripper'] if 'gripper' in epochs else json.dumps(state.get('operations', {}).get('gripper', {}), sort_keys=True)
+            token = (running, epoch_val)
         except (ValueError, KeyError, TypeError):
             self.running = False
             self.velocity, self.deadline = 0.0, 0.0
             return
-        if token != self.token or time.monotonic() - self.state_at > 0.3:
+        if token != self.token or time.monotonic() - self.state_at > STATE_TIMEOUT_SEC:
             self.velocity, self.deadline = 0.0, 0.0
             self.token = token
             for sub in self.subs:
@@ -54,7 +59,7 @@ class GripperCmdNode(Node):
         self.running, self.state_at = running, time.monotonic()
 
     def command(self, value, session):
-        if session != self.token or not self.running or time.monotonic() - self.state_at > 0.3:
+        if session != self.token or not self.running or time.monotonic() - self.state_at > STATE_TIMEOUT_SEC:
             return
         limit = self.params['max_abs_velocity']
         self.velocity = max(-limit, min(limit, value)) if math.isfinite(value) else 0.0
@@ -66,7 +71,7 @@ class GripperCmdNode(Node):
 
     def step(self):
         now = time.monotonic()
-        if not self.running or now - self.state_at > 0.3 or now >= self.deadline:
+        if not self.running or now - self.state_at > STATE_TIMEOUT_SEC or now >= self.deadline:
             self.velocity, self.deadline = 0.0, 0.0
         self.publish(self.velocity)
 

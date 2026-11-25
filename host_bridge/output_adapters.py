@@ -335,11 +335,25 @@ class RosOutput(OutputAdapter):
     def reset_global_stop(self):
         return self._call_trigger_service('/robot_runtime/reset_global_stop')
 
+    GROUP_OPERATION_TIMEOUTS = {
+        'init': 55.0,
+        'enable': 55.0,
+        'recover': 55.0,
+        'recover_resource': 55.0,
+        'resume': 45.0,
+        'halt': 30.0,
+        'shutdown': 30.0,
+    }
+
     def call_group_operation(self, command, groups):
         from robot_hardware.srv import GroupOperation
         # Let timeouts propagate: the control journal must retain result_unknown.
+        # Multi-group init/enable/recover runs bounded backend prepare/verify steps
+        # sequentially, so budget slightly below Qt's 60s stage timeout instead of 30s.
+        timeout = float(self.GROUP_OPERATION_TIMEOUTS.get(command, 55.0))
         result = self.request(GroupOperation, '/robot_runtime/group_operation',
-                              GroupOperation.Request(groups=list(groups), operation=command, resource=''))
+                              GroupOperation.Request(groups=list(groups), operation=command, resource=''),
+                              seconds=timeout)
         return dict(success=result.success, operation_id=result.operation_id, message=result.message)
     def lifecycle_service_name(self,command):return '/robot_runtime/'+command
     def command_service_name(self,command,params=None):
@@ -369,20 +383,29 @@ class RosOutput(OutputAdapter):
     def wait_servo_transport(self, timeout=15):
         # Mode completion means the gate can consume a fresh command, not just
         # that the velocity controller was selected. Never queue operator input.
-        deadline=time.monotonic()+timeout
-        message='Servo transport is preparing'
-        while time.monotonic()<deadline:
-            ok,code,message=self._call_trigger_service('/arm_control/servo_transport_ready')
-            if ok:return True,0,'arm Servo ready; neutral input and explicit authorization required'
+        deadline = time.monotonic() + timeout
+        message = 'Servo transport is preparing'
+        while True:
+            now = time.monotonic()
+            if now >= deadline:
+                break
+            per_call = min(2.0, max(0.05, deadline - now))
+            try:
+                ok, code, message = self._call_trigger_service('/arm_control/servo_transport_ready', timeout=per_call)
+            except TypeError:
+                ok, code, message = self._call_trigger_service('/arm_control/servo_transport_ready')
+            if ok:
+                return True, 0, 'arm Servo ready; neutral input and explicit authorization required'
             time.sleep(.05)
-        return False,2301,'Servo transport preparation timed out: '+message
+        return False, 2301, 'Servo transport preparation timed out: ' + message
 
     def call_named_service(self,service_name):return self._call_trigger_service(service_name)
-    def _call_trigger_service(self,path,**kwargs):
+    def _call_trigger_service(self, path, timeout=30.0, **kwargs):
         from std_srvs.srv import Trigger
         if not path:return False,2302,'no service configured'
         try:
-            result=self.request(Trigger,path,Trigger.Request());return result.success,0 if result.success else 2301,result.message
+            result = self.request(Trigger, path, Trigger.Request(), seconds=timeout)
+            return result.success, 0 if result.success else 2301, result.message
         except Exception as error:return False,2301,str(error)
     def list_arm_named_targets(self):
         from pathlib import Path

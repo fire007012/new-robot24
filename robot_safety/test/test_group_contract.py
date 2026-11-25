@@ -45,7 +45,7 @@ class GroupContract(unittest.TestCase):
         seen = set()
         for group, definition in self.contract['groups'].items():
             axes = {name for name, axis in self.contract['axes'].items() if axis['group'] == group}
-            for controller in definition['controllers']:
+            for controller in list(definition['controllers']) + list(definition.get('optional_controllers', [])):
                 self.assertNotIn(controller, seen)
                 seen.add(controller)
                 parameters = self.controllers[controller]['ros__parameters']

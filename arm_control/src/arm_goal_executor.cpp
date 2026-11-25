@@ -60,7 +60,9 @@ public:
         try {
           const auto state = YAML::Load(msg->data);
           arm_running_ = (state["groups"] && state["groups"]["arm"] ? state["groups"]["arm"] : state["state"]).as<std::string>() == "Running";
-          token_ = state["operations"] && state["operations"]["arm"] ? YAML::Dump(state["operations"]["arm"]) : "global";
+          token_ = (state["input_epochs"] && state["input_epochs"]["arm"])
+            ? YAML::Dump(state["input_epochs"]["arm"])
+            : (state["operations"] && state["operations"]["arm"] ? YAML::Dump(state["operations"]["arm"]) : "global");
           state_at_ = Steady::now();
         } catch (const std::exception &) { arm_running_ = false; }
       });
@@ -117,8 +119,8 @@ public:
 private:
   bool ready_locked(const std::string & token = "") const {
     const auto now = Steady::now();
-    return arm_running_ && controller_active_ && now-state_at_ < 500ms && now-joints_at_ < 300ms &&
-      now-controllers_at_ < 1s && (token.empty() || token == token_);
+    return arm_running_ && controller_active_ && now-state_at_ < 800ms && now-joints_at_ < 500ms &&
+      now-controllers_at_ < 2s && (token.empty() || token == token_);
   }
   bool ready(const std::string & token = "") {
     std::lock_guard<std::mutex> guard(mutex_);
@@ -129,9 +131,9 @@ private:
     const auto now = Steady::now();
     if (!arm_running_) return "arm group is not Running";
     if (!controller_active_) return "arm trajectory controller is not active";
-    if (now-state_at_ >= 500ms) return "runtime state is stale";
-    if (now-joints_at_ >= 300ms) return "six-axis measured feedback is stale or invalid";
-    if (now-controllers_at_ >= 1s) return "controller state readback is stale";
+    if (now-state_at_ >= 800ms) return "runtime state is stale";
+    if (now-joints_at_ >= 500ms) return "six-axis measured feedback is stale or invalid";
+    if (now-controllers_at_ >= 2s) return "controller state readback is stale";
     if (!token.empty() && token != token_) return "arm operation session changed";
     return "arm readiness changed";
   }

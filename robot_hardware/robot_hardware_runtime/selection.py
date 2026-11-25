@@ -44,6 +44,8 @@ def selected_controllers(contract, groups, servo):
     result = {'joint_state_broadcaster'}
     for group in groups:
         result.update(contract['groups'][group]['controllers'])
+        if servo and group == 'arm':
+            result.update(contract['groups'][group].get('optional_controllers', []))
     if servo and 'arm' in groups:
         result.add('arm_servo_controller')
     return sorted(result)

@@ -50,3 +50,21 @@ class RpcEpochTest(unittest.TestCase):
         gate.start.call_async.assert_not_called()
         resume.call_async.assert_called_once()
         self.assertIs(gate.pending,resumed)
+
+    def test_operations_progress_does_not_reset_active_epoch_session(self):
+        marker=object()
+        gate=SimpleNamespace(session=(True,3),state_at=time.monotonic(),ready=True,
+                             last_input=1.,servo_at=1.,pending=None,retry_at=0.,input=marker,
+                             pub=SimpleNamespace(publish=lambda msg:None),
+                             stop=SimpleNamespace(service_is_ready=lambda:False))
+        gate.output=gate.pub
+        gate.try_start=lambda:ServoGate.try_start(gate)
+        gate.destroy_subscription=lambda sub:self.fail('unexpected subscription rebuild')
+        for op_state in ('in_progress','complete'):
+            message=SimpleNamespace(data=json.dumps(dict(
+                groups={'arm':'Running'},arm_profile='servo',input_epochs={'arm':3},
+                operations={'arm':{'id':'op-1','state':op_state}})))
+            ServoGate.state(gate,message)
+            self.assertTrue(gate.ready)
+            self.assertIs(gate.input,marker)
+            self.assertEqual(gate.session,(True,3))

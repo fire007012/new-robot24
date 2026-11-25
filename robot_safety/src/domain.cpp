@@ -127,24 +127,35 @@ void Domain::propagate() const {
   expireOwner();
   for (auto & g : groups_) g.second.blockers.clear();
   for (const auto & entry : restrictions()) {
+    const bool dependency_only = entry.first.rfind("unavailable:", 0) == 0 ||
+      entry.first.rfind("interlock:", 0) == 0;
     for (const auto & name : entry.second.first) {
       auto & g = groups_.at(name);
       g.blockers.push_back(entry.first);
-      revoke(name, entry.second.second);
+      if (!dependency_only || g.state == State::Armed || g.state == State::Running)
+        revoke(name, entry.second.second);
     }
   }
 }
 void Domain::unprepareAxis(const std::string & name, const std::string & reason) {
   std::lock_guard<std::mutex> lock(mutex_);
-  auto & axis = axes_.at(name); axis.ready = false; axis.reason = reason;
+  auto & axis = axes_.at(name);
   auto & g = groups_.at(axis.group);
-  if (g.state == State::Running || g.state == State::Armed) revoke(axis.group, reason);
+  const bool moving = g.state == State::Running || g.state == State::Armed;
+  if (!axis.ready && axis.reason == reason && !moving) return;
+  axis.ready = false; axis.reason = reason;
+  if (moving) revoke(axis.group, reason);
   refreshGroups(); propagate();
 }
 void Domain::warning(const std::string & name, bool active, const std::string & reason) {
   std::lock_guard<std::mutex> lock(mutex_);
   const auto & axis = axes_.at(name); const auto id = "warning:" + name;
-  if (!active) { events_.erase(id); return; }
+  const auto existing = events_.find(id);
+  if (!active) {
+    if (existing != events_.end()) events_.erase(existing);
+    return;
+  }
+  if (existing != events_.end() && existing->second.reason == reason) return;
   Event e; e.id=id;e.axis=name;e.group=axis.group;e.backend=axis.backend;e.severity=Severity::Warn;
   e.category="feedback_warning";e.reason=reason;e.timestamp_ns=clock_();e.recovery="stable feedback window";
   if (events_.emplace(id,e).second) ++warning_counts_[name];
@@ -153,6 +164,9 @@ void Domain::reportAxis(const std::string & name, bool ready, const std::string 
                         const std::string & code, const std::string & category) {
   std::lock_guard<std::mutex> lock(mutex_);
   auto & axis = axes_.at(name);
+  const bool unchanged = (axis.ready == ready && axis.reason == reason);
+  if (unchanged && ready) return;
+  if (unchanged && !ready && events_.count("readiness:" + name) && groups_.at(axis.group).state == State::Fault) return;
   axis.ready = ready; axis.reason = reason;
   if (!ready) {
     Event event; event.id = "readiness:" + name; event.axis = name; event.group = axis.group;
@@ -429,8 +443,9 @@ std::string Domain::diagnostics() const {
   const char * legacy_summary = state_ == State::Running ? "Running" :
     state_ == State::Fault ? "Restricted" : state_ == State::Armed ? "Armed" : "Stopped";
   out << json(global_inhibit_ ? "GloballyInhibited" : groups_.empty() ? legacy_summary :
+    faulted ? "Restricted" :
     running ? (running == groups_.size() ? "Running" : "PartialRunning") :
-    faulted ? "Restricted" : armed ? "Armed" : "Stopped");
+    armed ? "Armed" : "Stopped");
   out << ",\"axes\":{"; first = true;
   for (const auto & entry : axes_) {
     if (!first) out << ','; first = false;
