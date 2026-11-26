@@ -25,4 +25,32 @@ class MiddlewareTests(unittest.TestCase):
     def test_explicit_site_override_is_preserved(self):
         self.assertEqual(self.selected('rmw_fastrtps_cpp'),'rmw_fastrtps_cpp')
 
+    def test_default_cyclonedds_clears_localhost_only_conflict(self):
+        with tempfile.TemporaryDirectory() as directory:
+            setup=Path(directory)/'setup.bash';setup.write_text('true\n')
+            backend=Backend.__new__(Backend);backend.config={'setup':str(setup)}
+            env=dict(os.environ, ROS_LOCALHOST_ONLY='1')
+            env.pop('RMW_IMPLEMENTATION',None)
+            env.pop('CYCLONEDDS_URI',None)
+            value=subprocess.check_output(backend.command([sys.executable,'-c',
+                'import os; print(os.environ.get("ROS_LOCALHOST_ONLY", ""))']),env=env,text=True).strip()
+            self.assertEqual(value,'0')
+
+    def test_cyclonedds_config_isolates_loopback_and_disables_multicast(self):
+        import xml.etree.ElementTree as ET
+        xml_path = Path(__file__).resolve().parents[1] / 'config' / 'cyclonedds.xml'
+        root = ET.parse(xml_path).getroot()
+        ns = ''
+        if root.tag.startswith('{'):
+            ns = root.tag.split('}', 1)[0] + '}'
+        allow_mcast = root.find(f'.//{ns}General/{ns}AllowMulticast')
+        self.assertIsNotNone(allow_mcast)
+        self.assertEqual(allow_mcast.text.strip().lower(), 'false')
+        iface = root.find(f'.//{ns}General/{ns}Interfaces/{ns}NetworkInterface')
+        self.assertIsNotNone(iface)
+        self.assertEqual(iface.attrib.get('address'), '127.0.0.1')
+        peer = root.find(f'.//{ns}Discovery/{ns}Peers/{ns}Peer')
+        self.assertIsNotNone(peer)
+        self.assertEqual(peer.attrib.get('Address'), '127.0.0.1')
+
 if __name__=='__main__':unittest.main()

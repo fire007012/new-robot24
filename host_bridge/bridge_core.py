@@ -113,6 +113,7 @@ class BridgeCore:
         )
         self.robot_id = "loopback_robot"
         self.state_lock = threading.Lock()
+        self._co2_seq = 0
         self.last_valid_input_monotonic = 0.0
         self.operator_input_clock_offset_ms: Optional[int] = None
 
@@ -153,7 +154,29 @@ class BridgeCore:
 
     def make_co2_data(self, ppm: int) -> Dict[str, Any]:
         import bridge_messages as _messages
-        return _messages.build_co2_data(ppm)
+        with self.state_lock:
+            self._co2_seq += 1
+            seq = self._co2_seq
+        return _messages.build_co2_data(ppm, seq=seq)
+
+    def make_co2_status(
+        self,
+        online: bool,
+        ppm: Optional[int] = None,
+        error: str = "",
+        timestamp_ms: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        import bridge_messages as _messages
+        with self.state_lock:
+            self._co2_seq += 1
+            seq = self._co2_seq
+        return _messages.build_co2_status(
+            online=online,
+            ppm=ppm,
+            error=error,
+            seq=seq,
+            timestamp_ms=timestamp_ms,
+        )
 
     def make_arm_named_targets(
         self,

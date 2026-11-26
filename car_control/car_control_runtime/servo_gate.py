@@ -12,6 +12,7 @@ MAX_FUTURE_STAMP_NS=50_000_000
 class ServoGate(Node):
     def __init__(self):
         super().__init__('servo_gate');self.session=None;self.ready=False;self.last_input=0.;self.state_at=0.;self.input=None;self.pending=None;self.retry_at=0.;self.servo_at=0.
+        self.retired_subscription_errors=0;self.last_subscription_retirement=0.0
         self.pub=self.create_publisher(TwistStamped,'/servo_internal/delta_twist_cmds',1)
         self.output=self.create_publisher(Float64MultiArray,'/arm_servo_controller/command',1)
         self.start=self.create_client(Trigger,'/servo_server/start_servo');self.stop=self.create_client(Trigger,'/servo_server/stop_servo')
@@ -37,7 +38,10 @@ class ServoGate(Node):
         except (ValueError,TypeError):running=False;session=(False,'invalid')
         if session!=self.session or time.monotonic()-self.state_at>STATE_TIMEOUT:
             self.ready=False;self.last_input=0.;self.servo_at=0.;self.session=session
-            if self.input:self.destroy_subscription(self.input);self.input=None
+            if self.input:
+                self.retired_subscription_errors=min(8,getattr(self,'retired_subscription_errors',0)+1)
+                self.last_subscription_retirement=time.monotonic()
+                self.destroy_subscription(self.input);self.input=None
             self.output.publish(Float64MultiArray(data=[0.]*6))
             # Keep any in-flight RPC until its callback drains. Clearing it
             # here would queue overlapping starts across runtime epochs.
@@ -86,7 +90,7 @@ class ServoGate(Node):
         self.last_input=time.monotonic();self.pub.publish(msg)
     def command(self,msg):
         if (self.ready and len(msg.data)==6 and all(math.isfinite(x) for x in msg.data)
-                and all(abs(x)<1e-6 for x in msg.data)):
+                and all(abs(x)<1e-3 for x in msg.data)):
             self.servo_at=time.monotonic()
         if not self.ready or time.monotonic()-self.last_input>.1 or time.monotonic()-self.state_at>STATE_TIMEOUT:return
         if len(msg.data)==6 and all(math.isfinite(x) for x in msg.data):self.output.publish(msg)
@@ -101,9 +105,21 @@ class ServoGate(Node):
         if not self.ready or time.monotonic()-self.last_input>.1 or time.monotonic()-self.state_at>STATE_TIMEOUT:
             self.output.publish(Float64MultiArray(data=[0.]*6))
 
+def spin_gate(node):
+    from rclpy._rclpy_pybind11 import InvalidHandle
+    while rclpy.ok():
+        try:
+            rclpy.spin(node)
+            return
+        except InvalidHandle:
+            if (not rclpy.ok() or node.retired_subscription_errors <= 0 or
+                    time.monotonic() - node.last_subscription_retirement > 1.0):
+                raise
+            node.retired_subscription_errors -= 1
+
 def main():
     rclpy.init();node=ServoGate()
-    try:rclpy.spin(node)
+    try:spin_gate(node)
     except KeyboardInterrupt:pass
     finally:
         signal.signal(signal.SIGINT, signal.SIG_IGN)

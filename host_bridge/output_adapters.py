@@ -228,34 +228,59 @@ class RosOutput(OutputAdapter):
         super().__init__(events)
         import rclpy,threading
         from rclpy.node import Node
-        from rclpy.executors import SingleThreadedExecutor
+        from rclpy.callback_groups import ReentrantCallbackGroup
+        from rclpy.executors import MultiThreadedExecutor
         from rclpy.signals import SignalHandlerOptions
         from geometry_msgs.msg import Twist,TwistStamped
         from control_msgs.msg import JointJog
         from std_msgs.msg import Float64,String
-        from robot_hardware.srv import SetProfile
-        from std_srvs.srv import Trigger
+        from robot_hardware.srv import GroupOperation,SetProfile
+        from std_srvs.srv import SetBool,Trigger
         from arm_control.action import ExecuteArmGoal
         from rclpy.action import ActionClient
         if not rclpy.ok():rclpy.init(signal_handler_options=SignalHandlerOptions.NO)
-        self.node=Node(node_name);self.executor=SingleThreadedExecutor();self.executor.add_node(self.node)
-        self.thread=threading.Thread(target=self.executor.spin);self.thread.start()
+        self.node=Node(node_name)
+        self._safety_group=ReentrantCallbackGroup()
+        self._service_group=ReentrantCallbackGroup()
+        self._telemetry_group=ReentrantCallbackGroup()
+        self.executor=MultiThreadedExecutor(num_threads=4)
+        self.executor.add_node(self.node)
+        self.thread=threading.Thread(target=self.executor.spin,daemon=True)
+        self.thread.start()
         self._twist_type,self._twist_stamped_type,self._joint_jog_type,self._float64_type=Twist,TwistStamped,JointJog,Float64
         self._cmd_vel_pub=self.node.create_publisher(Twist,cmd_vel_topic,1)
         self._servo_pub=self.node.create_publisher(TwistStamped,servo_topic,1)
         self._gripper_pub=self.node.create_publisher(Float64,gripper_velocity_topic,1)
         self._flipper_pub=self.node.create_publisher(JointJog,flipper_jog_topic,1)
-        self.flipper_profile_service=flipper_profile_service;self.hybrid_service_ns='/robot_runtime'
+        self.flipper_profile_service=flipper_profile_service
+        self.hybrid_service_ns=(hybrid_service_ns or '/robot_runtime').rstrip('/') or '/robot_runtime'
         self.service_commands=service_commands or {};self.vision_detection_service=vision_detection_service
-        # Discover the short safety RPCs before the first emergency. Creating a
-        # client only when its request is sent can race DDS response discovery
-        # for an immediate C++ reply, leaving an applied stop unconfirmed.
-        self.clients={path:self.node.create_client(Trigger,path) for path in (
-            '/robot_runtime/global_stop','/robot_runtime/reset_global_stop','/robot_runtime/halt')}
-        self.client_lock=threading.Lock();self.runtime_reset_callback=None;self.epoch=None
+        # Discover safety and business RPC endpoints up front to avoid DDS response
+        # discovery races on immediate replies and eliminate dynamic create_client during spin.
+        self.clients={}
+        for path in (
+            f'{self.hybrid_service_ns}/global_stop',
+            f'{self.hybrid_service_ns}/reset_global_stop',
+            f'{self.hybrid_service_ns}/halt',
+        ):
+            self.clients[path]=self.node.create_client(Trigger,path,callback_group=self._safety_group)
+        business_clients=[
+            (GroupOperation,f'{self.hybrid_service_ns}/group_operation'),
+            (SetBool,'/arm_control/set_servo_mode'),
+            (Trigger,'/arm_control/servo_transport_ready'),
+        ]
+        for cmd in ('init','enable','resume','recover','shutdown'):
+            business_clients.append((Trigger,f'{self.hybrid_service_ns}/{cmd}'))
+        if self.flipper_profile_service:
+            business_clients.append((SetProfile,self.flipper_profile_service))
+        for kind,path in business_clients:
+            if path not in self.clients:
+                self.clients[path]=self.node.create_client(kind,path,callback_group=self._service_group)
+        self.client_lock=threading.Lock();self.runtime_reset_callback=None;self.runtime_state_callback=None;self.epoch=None
         self.runtime_state=None;self.runtime_received=None
-        self._arm_type=ExecuteArmGoal;self.arm=ActionClient(self.node,ExecuteArmGoal,'/arm_control/execute_goal')
-        self.node.create_subscription(String,'/robot_runtime/state',self.state,1)
+        self._arm_type=ExecuteArmGoal
+        self.arm=ActionClient(self.node,ExecuteArmGoal,'/arm_control/execute_goal',callback_group=self._service_group)
+        self.node.create_subscription(String,'/robot_runtime/state',self.state,1,callback_group=self._telemetry_group)
 
     def state(self,message):
         import json
@@ -276,14 +301,17 @@ class RosOutput(OutputAdapter):
                                   for k in ('global_inhibit','owner_fresh','configuration_version'))
                 self.runtime_reset_callback(dict(type='runtime_epoch',groups=sorted(changed),global_change=global_change))
             self.epoch=epoch
+            state_cb=getattr(self,'runtime_state_callback',None)
+            if state_cb:
+                state_cb(state)
         except ValueError:pass
 
     def close(self):
         import rclpy
-        self.executor.shutdown();self.thread.join();self.node.destroy_node()
+        self.executor.shutdown();self.thread.join(2.0);self.node.destroy_node()
         if rclpy.ok():rclpy.shutdown()
 
-    def wait(self,future,seconds=30):
+    def wait(self,future,seconds=30,client=None):
         import threading
         done=threading.Event();future.add_done_callback(lambda _:done.set())
         if not done.wait(seconds):
@@ -295,15 +323,21 @@ class RosOutput(OutputAdapter):
                     except Exception as exc:response,error=None,type(exc).__name__
                     observer(oid,response,error)
                 future.add_done_callback(completed)
+            elif client is not None and hasattr(client,'remove_pending_request'):
+                try:client.remove_pending_request(future)
+                except Exception:pass
             raise TimeoutError('ROS2 request timeout; outcome uncertain')
         return future.result()
 
     def request(self,kind,path,request,seconds=30):
         with self.client_lock:
             client=self.clients.get(path)
-            if client is None:client=self.node.create_client(kind,path);self.clients[path]=client
-        if not client.wait_for_service(timeout_sec=2):raise RuntimeError(path+' unavailable')
-        return self.wait(client.call_async(request),seconds)
+            if client is None:
+                client=self.node.create_client(kind,path,callback_group=self._service_group)
+                self.clients[path]=client
+        wait_budget=min(2.0,max(0.05,float(seconds)))
+        if not client.wait_for_service(timeout_sec=wait_budget):raise RuntimeError(path+' unavailable')
+        return self.wait(client.call_async(request),seconds,client=client)
 
     def publish_twist(self,twist):
         msg=self._twist_type();msg.linear.x=twist.linear_x;msg.angular.z=twist.angular_z;self._cmd_vel_pub.publish(msg)
@@ -328,12 +362,15 @@ class RosOutput(OutputAdapter):
     def call_lifecycle(self,command):
         return self._call_trigger_service(self.lifecycle_service_name(command))
 
+    def _hybrid_ns(self):
+        return (getattr(self, 'hybrid_service_ns', '/robot_runtime') or '/robot_runtime').rstrip('/') or '/robot_runtime'
+
     def call_global_stop(self):
         # Independent C++ guard: never route an emergency through Python group locks.
-        return self._call_trigger_service('/robot_runtime/global_stop')
+        return self._call_trigger_service(f'{self._hybrid_ns()}/global_stop')
 
     def reset_global_stop(self):
-        return self._call_trigger_service('/robot_runtime/reset_global_stop')
+        return self._call_trigger_service(f'{self._hybrid_ns()}/reset_global_stop')
 
     GROUP_OPERATION_TIMEOUTS = {
         'init': 55.0,
@@ -351,11 +388,11 @@ class RosOutput(OutputAdapter):
         # Multi-group init/enable/recover runs bounded backend prepare/verify steps
         # sequentially, so budget slightly below Qt's 60s stage timeout instead of 30s.
         timeout = float(self.GROUP_OPERATION_TIMEOUTS.get(command, 55.0))
-        result = self.request(GroupOperation, '/robot_runtime/group_operation',
+        result = self.request(GroupOperation, f'{self._hybrid_ns()}/group_operation',
                               GroupOperation.Request(groups=list(groups), operation=command, resource=''),
                               seconds=timeout)
         return dict(success=result.success, operation_id=result.operation_id, message=result.message)
-    def lifecycle_service_name(self,command):return '/robot_runtime/'+command
+    def lifecycle_service_name(self,command):return f'{self._hybrid_ns()}/{command}'
     def command_service_name(self,command,params=None):
         if command=='set_control_mode':return '/arm_control/set_servo_mode'
         if command in VISION_MONITOR_COMMANDS:return self.vision_detection_service

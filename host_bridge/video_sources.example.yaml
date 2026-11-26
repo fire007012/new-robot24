@@ -38,9 +38,9 @@ direct_sources:
     enabled: false
 
 streams:
-  - camera_id: 0
+  - camera_id: 2
     source_id: arm_ros
-    slot_hint: 0
+    slot_hint: 2
     name: Arm ROS Stream
     image_topic: /arm_camera/image/compressed
     rtsp_path: arm_ros

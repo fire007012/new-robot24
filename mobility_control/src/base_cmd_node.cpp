@@ -6,7 +6,7 @@
 #include <rclcpp/rclcpp.hpp>
 #include <geometry_msgs/msg/twist.hpp>
 #include <std_msgs/msg/string.hpp>
-#include <yaml-cpp/yaml.h>
+#include <nlohmann/json.hpp>
 #include <ruckig/ruckig.hpp>
 
 class BaseCmd : public rclcpp::Node {
@@ -46,17 +46,27 @@ private:
     received_=Clock::time_point{};
     otg_->reset();
   }
-  static std::string baseEpochToken(const YAML::Node & node) {
-    if (node["input_epochs"] && node["input_epochs"]["base"])
-      return YAML::Dump(node["input_epochs"]["base"]);
-    if (node["operations"] && node["operations"]["base"])
-      return YAML::Dump(node["operations"]["base"]);
+  static std::string baseEpochToken(const nlohmann::json & node) {
+    if (node.contains("input_epochs") && node["input_epochs"].is_object() &&
+        node["input_epochs"].contains("base"))
+      return node["input_epochs"]["base"].dump();
+    if (node.contains("operations") && node["operations"].is_object() &&
+        node["operations"].contains("base"))
+      return node["operations"]["base"].dump();
     return "global";
   }
   void state(const std::string & data) {
     try {
-      const auto node=YAML::Load(data);
-      const auto running=(node["groups"] && node["groups"]["base"] ? node["groups"]["base"] : node["state"]).as<std::string>()=="Running";
+      const auto node=nlohmann::json::parse(data);
+      if (!node.is_object()) { running_=false;reset();stop();return; }
+      std::string base_state;
+      if (node.contains("groups") && node["groups"].is_object() &&
+          node["groups"].contains("base") && node["groups"]["base"].is_string()) {
+        base_state = node["groups"]["base"].get<std::string>();
+      } else if (node.contains("state") && node["state"].is_string()) {
+        base_state = node["state"].get<std::string>();
+      }
+      const auto running = (base_state == "Running");
       const auto token=(running?"running:":"stopped:")+baseEpochToken(node);
       const auto now=Clock::now();
       const auto state_timeout=std::chrono::duration<double>(state_timeout_sec_);

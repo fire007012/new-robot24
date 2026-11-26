@@ -1,5 +1,5 @@
 """Protocol payload builders for host_bridge telemetry, responses, and capabilities."""
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from bridge_protocol import MAX_FRAME_BYTES, PROTOCOL_VERSION, now_ms
 
@@ -56,6 +56,7 @@ def build_capabilities(core: Any) -> Dict[str, Any]:
         "flipper_jog_output",
         "joint_runtime_states",
         "co2_data",
+        "co2_status",
         "hybrid_lifecycle_services",
         "service_call_result",
     ]
@@ -181,10 +182,31 @@ def build_camera_info(camera: Dict[str, Any]) -> Dict[str, Any]:
     return message
 
 
-def build_co2_data(ppm: int) -> Dict[str, Any]:
+def build_co2_data(ppm: int, seq: int = 0) -> Dict[str, Any]:
     return {
         "type": "co2_data",
+        "protocol_version": PROTOCOL_VERSION,
+        "seq": int(seq),
+        "timestamp_ms": now_ms(),
         "ppm": int(ppm),
+    }
+
+
+def build_co2_status(
+    online: bool,
+    ppm: Optional[int] = None,
+    error: str = "",
+    seq: int = 0,
+    timestamp_ms: Optional[int] = None,
+) -> Dict[str, Any]:
+    return {
+        "type": "co2_status",
+        "protocol_version": PROTOCOL_VERSION,
+        "seq": int(seq),
+        "timestamp_ms": int(timestamp_ms) if timestamp_ms is not None else now_ms(),
+        "online": bool(online),
+        "ppm": int(ppm) if ppm is not None else None,
+        "error": str(error or ""),
     }
 
 

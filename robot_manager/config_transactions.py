@@ -153,7 +153,7 @@ class ConfigTransactions:
         running=self.m.data.get('profile')
         observed=self.m.data.get('health',{}).get('observed_at')
         healthy=(self.m.data['software_state'] in ('ready','degraded') and observed is not None and
-                 self.m.last_health_monotonic is not None and time.monotonic()-self.m.last_health_monotonic<5)
+                 self.m.last_health_monotonic is not None and time.monotonic()-self.m.last_health_monotonic<12)
         current_profiles=self._read(active)
         runtime_revision=(active if running and healthy and running==current_profiles.get(running.get('profile_id')) else None)
         candidates = [dict(candidate_revision=revision,

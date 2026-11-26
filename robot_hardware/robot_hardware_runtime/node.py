@@ -248,7 +248,11 @@ class RuntimeNode(Node):
         self.publisher = self.create_publisher(String, '~/state', 1)
         self.monitor_group = ReentrantCallbackGroup()
         self.monitor_lock = threading.Lock()
+        self.state_lock = threading.Lock()
+        self._last_monitor_ok_at = 0.0
+        self._monitor_stale_sec = 1.5
         self.timer = self.create_timer(0.1, self.monitor, callback_group=self.monitor_group)
+        self.publish_timer = self.create_timer(0.1, self.publish_state, callback_group=self.monitor_group)
         if self.grouped: self.heartbeat_timer = self.create_timer(.1, self.owner_heartbeat, callback_group=self.monitor_group)
     def arm_mode(self, request, response):
         try:
@@ -367,21 +371,47 @@ class RuntimeNode(Node):
         finally:
             self.monitor_lock.release()
 
+    def publish_state(self):
+        if self.grouped:
+            with self.state_lock:
+                diagnostics = dict(self.coordinator.diagnostics) if isinstance(self.coordinator.diagnostics, dict) else {'readable': False}
+                if self._last_monitor_ok_at > 0.0 and time.monotonic() - self._last_monitor_ok_at > self._monitor_stale_sec:
+                    diagnostics['readable'] = False
+                    diagnostics['error'] = diagnostics.get('error') or 'monitor stalled'
+                payload = {
+                    'state': self.coordinator.state,
+                    'input_epochs': dict(self.coordinator.generations),
+                    'groups': dict(self.coordinator.states),
+                    'fault_reasons': dict(self.coordinator.fault_reasons),
+                    'diagnostics': diagnostics,
+                    'operations': dict(self.coordinator.operations),
+                    'profile': self.coordinator.profile,
+                    'arm_profile': self.coordinator.arm_profile,
+                    'maintenance_dirty_axes': sorted(self.policy.dirty_axes),
+                }
+        else:
+            payload = {
+                'state': self.coordinator.state,
+                'profile': self.coordinator.profile,
+                'maintenance_dirty': self.policy.dirty,
+            }
+        self.publisher.publish(String(data=json.dumps(payload)))
+
     def _monitor(self):
         if self.grouped:
-            try: self.coordinator.monitor()
+            try:
+                self.coordinator.monitor()
+                with self.state_lock:
+                    self._last_monitor_ok_at = time.monotonic()
             except Exception as error:
                 self.get_logger().error(str(error))
                 if self.coordinator.owner_checked:
                     for g in self.coordinator.allowed_groups:
                         self.coordinator.fault_reasons[g] = str(error)
                     self.coordinator.converge()
-                self.coordinator.diagnostics = {'readable': False, 'error': str(error)}
-            self.publisher.publish(String(data=json.dumps({'state': self.coordinator.state,
-                'input_epochs': dict(self.coordinator.generations),
-                'groups': dict(self.coordinator.states), 'fault_reasons': dict(self.coordinator.fault_reasons), 'diagnostics': self.coordinator.diagnostics,
-                'operations': dict(self.coordinator.operations), 'profile': self.coordinator.profile, 'arm_profile': self.coordinator.arm_profile,
-                'maintenance_dirty_axes': sorted(self.policy.dirty_axes)})))
+                with self.state_lock:
+                    self.coordinator.diagnostics = {'readable': False, 'error': str(error)}
+            self.publish_state()
             return
         if not self.coordinator.lock.acquire(blocking=False): return
         try:
@@ -392,8 +422,7 @@ class RuntimeNode(Node):
                     if len(self.io.active_controllers()) != 4: raise RuntimeError('expected motion controller stopped')
                 except Exception as error:
                     self.get_logger().error(str(error)); self.coordinator.converge()
-            self.publisher.publish(String(data=json.dumps({'state': self.coordinator.state,
-                'profile': self.coordinator.profile, 'maintenance_dirty': self.policy.dirty})))
+            self.publish_state()
         finally: self.coordinator.lock.release()
 
 def spin_runtime(executor, node):

@@ -49,8 +49,8 @@ wrist_roll_joint:
   effort: 6.0
   velocity: 1.57
 right_gripper_finger_joint:
-  lower: -5.0
-  upper: 141.0
+  lower: -0.05
+  upper: 0.071
   effort: 20.0
   velocity: 0.2
 left_gripper_finger_joint:

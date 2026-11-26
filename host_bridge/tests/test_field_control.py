@@ -191,4 +191,212 @@ class Tests(unittest.TestCase):
         status=self.call('control_status')['result']['safety_conditions'][0]
         self.assertEqual(status['status'],'stale');self.assertFalse(status['satisfied'])
 
+    def test_joint_runtime_states_fault_semantics_and_throttling(self):
+        from host_bridge_node import HostBridgeServer
+        server = HostBridgeServer('127.0.0.1', 0, self.output, joint_runtime_topic='/robot_runtime/state')
+        sent = []
+        server.broadcast = sent.append
+        try:
+            server.start_joint_runtime_forwarder()
+            stopped_state = {
+                'groups': {'base': 'Stopped', 'arm': 'Fault'},
+                'diagnostics': {
+                    'readable': True,
+                    'axes': {
+                        'left_front_wheel_joint': {'group': 'base', 'backend': 'CanDriverSystem', 'ready': False},
+                        'shoulder_yaw_joint': {'group': 'arm', 'backend': 'RobotCanopenSystem', 'ready': False},
+                    },
+                    'events': [],
+                },
+            }
+            server._on_runtime_state(stopped_state)
+            server._on_runtime_state(stopped_state)  # Identical within 1s -> throttled
+            self.assertEqual(len(sent), 1)
+            by_name = {item['joint_name']: item for item in sent[0]['states']}
+            self.assertFalse(by_name['left_front_wheel_joint']['fault'])
+            self.assertFalse(by_name['left_front_wheel_joint']['online'])
+            self.assertTrue(by_name['shoulder_yaw_joint']['fault'])
+        finally:
+            server.control.close()
+
+    def test_detect_publish_host_offline_lan_and_hostname_fallback(self):
+        import socket
+        from unittest import mock
+        from host_bridge_node import detect_publish_host
+
+        class FakeUdpSocket:
+            def __init__(self):
+                self.target = None
+            def __enter__(self):
+                return self
+            def __exit__(self, *args):
+                return False
+            def connect(self, addr):
+                if addr[0] == '8.8.8.8':
+                    raise OSError(101, 'Network is unreachable')
+                self.target = addr[0]
+            def getsockname(self):
+                return ('192.168.1.50', 0)
+
+        with mock.patch('host_bridge_node.socket.socket', return_value=FakeUdpSocket()):
+            self.assertEqual(detect_publish_host(), '192.168.1.50')
+
+        class AlwaysFailSocket:
+            def __enter__(self):
+                return self
+            def __exit__(self, *args):
+                return False
+            def connect(self, _addr):
+                raise OSError(101, 'Network is unreachable')
+
+        fake_addrinfo = [
+            (socket.AF_INET, socket.SOCK_DGRAM, 0, '', ('127.0.1.1', 0)),
+            (socket.AF_INET, socket.SOCK_DGRAM, 0, '', ('10.20.30.40', 0)),
+        ]
+        with mock.patch('host_bridge_node.socket.socket', return_value=AlwaysFailSocket()), \
+             mock.patch('host_bridge_node.socket.getaddrinfo', return_value=fake_addrinfo):
+            self.assertEqual(detect_publish_host(), '10.20.30.40')
+
+        with mock.patch('host_bridge_node.socket.socket', return_value=AlwaysFailSocket()), \
+             mock.patch('host_bridge_node.socket.getaddrinfo', side_effect=OSError('no host')):
+            self.assertEqual(detect_publish_host(), '127.0.0.1')
+
+    def test_build_co2_data_and_unique_example_cameras(self):
+        import yaml
+        from bridge_messages import build_co2_data
+        from bridge_protocol import PROTOCOL_VERSION
+        from host_bridge_node import load_cameras_from_yaml
+
+        msg = build_co2_data(615, seq=3)
+        self.assertEqual(msg['type'], 'co2_data')
+        self.assertEqual(msg['protocol_version'], PROTOCOL_VERSION)
+        self.assertEqual(msg['seq'], 3)
+        self.assertEqual(msg['ppm'], 615)
+        self.assertIsInstance(msg['timestamp_ms'], int)
+        self.assertGreater(msg['timestamp_ms'], 0)
+
+        example_yaml = Path(__file__).resolve().parents[1] / 'video_sources.example.yaml'
+        raw = yaml.safe_load(example_yaml.read_text(encoding='utf-8'))
+        all_sources = list(raw.get('direct_sources', [])) + list(raw.get('streams', []))
+        raw_ids = [int(item['camera_id']) for item in all_sources]
+        self.assertGreaterEqual(len(raw_ids), 3)
+        self.assertEqual(len(raw_ids), len(set(raw_ids)))
+        cams = load_cameras_from_yaml(str(example_yaml), '127.0.0.1')
+        ids = [cam['camera_id'] for cam in cams]
+        self.assertGreaterEqual(len(ids), 1)
+        self.assertEqual(len(ids), len(set(ids)))
+
+    def test_video_manager_snapshot_fallback_and_stream_timeout(self):
+        from unittest import mock
+        from video_manager_ipc import VideoManagerClient
+        from video_manager_node import VideoManagerNode
+
+        example_yaml = Path(__file__).resolve().parents[1] / 'video_sources.example.yaml'
+        node = VideoManagerNode(str(example_yaml), '127.0.0.1', 0, dry_run=True)
+        release_evt = threading.Event()
+        # Hold _manager_lock from another thread so list_cameras hits the non-blocking fallback.
+        hold_ready = threading.Event()
+        def hold_lock():
+            node._manager_lock.acquire()
+            hold_ready.set()
+            release_evt.wait(2.0)
+            node._manager_lock.release()
+        holder = threading.Thread(target=hold_lock, daemon=True)
+        holder.start()
+        self.assertTrue(hold_ready.wait(1.0))
+        try:
+            resp = node._handle_request({'type': 'list_cameras', 'seq': 9})
+            self.assertTrue(resp['ok'])
+            self.assertEqual(resp['type'], 'camera_list')
+            self.assertGreaterEqual(len(resp['cameras']), 1)
+        finally:
+            release_evt.set()
+            holder.join(1.0)
+
+        client = VideoManagerClient('127.0.0.1', 18081, timeout=0.6)
+        with mock.patch.object(client, 'request', return_value={'ok': True}) as mock_req:
+            client.stream_request(2, 'start')
+            self.assertGreaterEqual(mock_req.call_args.kwargs['timeout'], 8.0)
+
+    def test_loopback_probe_disconnect_logged_as_debug(self):
+        import socket
+        from host_bridge_node import BridgeClient, HostBridgeServer
+        from output_adapters import DryRunOutput
+
+        server = HostBridgeServer('127.0.0.1', 0, DryRunOutput())
+        a, b = socket.socketpair()
+        b.settimeout(2.0)
+        client = BridgeClient(server, a, ('127.0.0.1', 55555))
+        server.active_clients.append(client)
+        thread = threading.Thread(target=client.run, daemon=True)
+        thread.start()
+        try:
+            with b.makefile('rb') as stream:
+                stream.readline()
+                stream.readline()
+                b.sendall(b'{"type":"heartbeat","protocol_version":1,"seq":1}\n')
+                ack = json.loads(stream.readline())
+                self.assertEqual(ack['type'], 'heartbeat_ack')
+            b.close()
+            thread.join(2.0)
+            events = [e for e in server.events.recent(20) if e['category'] == 'tcp']
+            connected = [e for e in events if e['message'] == 'client connected'][-1]
+            disconnected = [e for e in events if e['message'] == 'client disconnected'][-1]
+            self.assertEqual(connected['level'], 'debug')
+            self.assertEqual(disconnected['level'], 'debug')
+        finally:
+            try:
+                b.close()
+            except OSError:
+                pass
+            server.stop_event.set()
+            server.control.close()
+
+    def test_co2_data_seq_and_status_forwarding(self):
+        import builtins
+        from unittest import mock
+        from bridge_protocol import PROTOCOL_VERSION
+        from host_bridge_node import HostBridgeServer, parse_node_args
+        from output_adapters import DryRunOutput
+
+        d1 = self.core.make_co2_data(410)
+        d2 = self.core.make_co2_data(415)
+        st = self.core.make_co2_status(online=False, ppm=None, error='timeout', timestamp_ms=123456)
+        self.assertEqual(d1['seq'], 1)
+        self.assertEqual(d2['seq'], 2)
+        self.assertEqual(st['type'], 'co2_status')
+        self.assertEqual(st['protocol_version'], PROTOCOL_VERSION)
+        self.assertEqual(st['seq'], 3)
+        self.assertFalse(st['online'])
+        self.assertIsNone(st['ppm'])
+        self.assertEqual(st['error'], 'timeout')
+        self.assertEqual(st['timestamp_ms'], 123456)
+
+        server = HostBridgeServer('127.0.0.1', 0, DryRunOutput(), co2_status_topic='/co2_status')
+        sent = []
+        server.broadcast = sent.append
+        try:
+            self.assertIn('co2_status', server.core.make_capabilities()['supports'])
+            server._on_co2_status({'online': True, 'ppm': 450, 'error': ''})
+            server._on_co2_status({'online': True, 'ppm': 450, 'error': ''})
+            self.assertEqual(len(sent), 1)
+            server._on_co2_status({'online': False, 'ppm': None, 'error': 'conn reset'})
+            self.assertEqual(len(sent), 2)
+            self.assertFalse(sent[-1]['online'])
+            self.assertIsNone(sent[-1]['ppm'])
+            self.assertEqual(sent[-1]['error'], 'conn reset')
+        finally:
+            server.control.close()
+
+        orig_import = builtins.__import__
+        def fake_import(name, globals=None, locals=None, fromlist=(), level=0):
+            if name == 'rclpy.utilities' or name == 'rclpy':
+                raise ImportError('no rclpy')
+            return orig_import(name, globals, locals, fromlist, level)
+        with mock.patch('sys.argv', ['host_bridge_node.py', '--dry-run', '--port', '19090', '--ros-args', '-r', '__node:=x']), \
+             mock.patch('builtins.__import__', side_effect=fake_import):
+            _, args = parse_node_args()
+            self.assertTrue(args.dry_run)
+            self.assertEqual(args.port, 19090)
+
 if __name__=='__main__':unittest.main(verbosity=2)

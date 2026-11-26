@@ -27,6 +27,8 @@ class GripperCmdNode(Node):
         self.pub = self.create_publisher(Float64MultiArray, '/gripper_controller/command', 1)
         self.token, self.running, self.state_at = None, False, 0.0
         self.subs = []
+        self.retired_subscription_errors = 0
+        self.last_subscription_retirement = 0.0
         self.velocity, self.deadline = 0.0, 0.0
         self.state_sub = self.create_subscription(String, '/robot_runtime/state', self.state, 1)
         self.timer = self.create_timer(0.02, self.step, clock=Clock(clock_type=ClockType.STEADY_TIME))
@@ -46,6 +48,8 @@ class GripperCmdNode(Node):
             self.velocity, self.deadline = 0.0, 0.0
             self.token = token
             for sub in self.subs:
+                self.retired_subscription_errors = min(8, self.retired_subscription_errors + 1)
+                self.last_subscription_retirement = time.monotonic()
                 self.destroy_subscription(sub)
             self.subs = []
             if running:
@@ -76,11 +80,24 @@ class GripperCmdNode(Node):
         self.publish(self.velocity)
 
 
+def spin_node(node):
+    from rclpy._rclpy_pybind11 import InvalidHandle
+    while rclpy.ok():
+        try:
+            rclpy.spin(node)
+            return
+        except InvalidHandle:
+            if (not rclpy.ok() or node.retired_subscription_errors <= 0 or
+                    time.monotonic() - node.last_subscription_retirement > 1.0):
+                raise
+            node.retired_subscription_errors -= 1
+
+
 def main():
     rclpy.init()
     node = GripperCmdNode()
     try:
-        rclpy.spin(node)
+        spin_node(node)
     except KeyboardInterrupt:
         pass
     finally:

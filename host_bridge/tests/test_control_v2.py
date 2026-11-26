@@ -330,4 +330,34 @@ class Tests(unittest.TestCase):
         self.assertEqual(self.wait_op(op['operation_id'])['state'],'succeeded')
         print(json.dumps(dict(evidence='30s_service',elapsed=time.monotonic()-begin,outputs=self.output.outputs[-6:],calls=self.output.calls)))
 
+    def test_cache_eviction_and_safety_stop_when_full(self):
+        self.arm()
+        for idx in range(self.c.MAX_RECORDS):
+            oid = f'done-{idx}'
+            rid = f'req-done-{idx}'
+            self.c.operations[oid] = dict(operation_id=oid, request_id=rid, robot_id=self.core.robot_id,
+                                          command='init', state='succeeded', error=None, created_at=float(idx),
+                                          epoch=self.c.epoch, authorization_generation=0, invalidated=False, result=None)
+            self.c.requests[rid] = ['digest', oid]
+        r = self.call('system_command', request_id='after-evict', command='init')
+        self.assertTrue(r['ok'], r)
+        self.assertLessEqual(len(self.c.operations), self.c.MAX_RECORDS)
+        self.assertNotIn('done-0', self.c.operations)
+        self.assertEqual(self.wait_op(r['result']['operation_id'])['state'], 'succeeded')
+
+        # Now fill completely with unresolved result_unknown entries.
+        self.c.operations.clear()
+        self.c.requests.clear()
+        for idx in range(self.c.MAX_RECORDS):
+            oid = f'unk-{idx}'
+            rid = f'req-unk-{idx}'
+            self.c.operations[oid] = dict(operation_id=oid, request_id=rid, robot_id=self.core.robot_id,
+                                          command='init', state='result_unknown', error='TIMEOUT', created_at=float(idx),
+                                          epoch=self.c.epoch, authorization_generation=0, invalidated=False, result=None)
+            self.c.requests[rid] = ['digest', oid]
+        self.assertEqual(self.call('system_command', request_id='blocked-init', command='init')['error']['code'], 'CACHE_FULL')
+        halt_res = self.call('system_command', request_id='allowed-halt', command='halt')
+        self.assertTrue(halt_res['ok'], halt_res)
+        self.assertEqual(self.wait_op(halt_res['result']['operation_id'])['state'], 'succeeded')
+
 if __name__=='__main__':unittest.main(verbosity=2)

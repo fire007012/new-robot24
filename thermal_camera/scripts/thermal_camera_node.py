@@ -6,6 +6,8 @@
 
 import sys
 import os
+import threading
+import time
 import numpy as np
 import cv2
 import rclpy
@@ -54,9 +56,14 @@ class ThermalCameraNode(Node):
         self.pub_color = self.create_publisher(Image,'/thermal_camera/image_raw',1)
         self.bridge = CvBridge()
         self.camera = None
+        self._stop_event = threading.Event()
+        self._camera_lock = threading.Lock()
+        self._worker = None
+        self._last_error_log_monotonic = 0.0
 
     def open_camera(self):
         """打开 T2S+ 设备"""
+        cap = None
         try:
             if self.device:
                 from sys import platform
@@ -65,24 +72,39 @@ class ThermalCameraNode(Node):
                 else:
                     cap = cv2.VideoCapture(self.device)
                 if not cap.isOpened():
-                    self.get_logger().error("无法打开设备: %s" % (self.device))
+                    cap.release()
+                    cap = None
+                    now = time.monotonic()
+                    if now - self._last_error_log_monotonic >= 10.0:
+                        self._last_error_log_monotonic = now
+                        self.get_logger().error("无法打开设备: %s" % (self.device))
                     return False
                 video_dev = cap
             else:
                 video_dev = None
 
-            self.camera = Camera(
+            cam = Camera(
                 video_dev=video_dev,
                 camera_raw=self.camera_raw,
                 fixed_offset=self.fixed_offset,
             )
+            with self._camera_lock:
+                self.camera = cam
 
-            w, h = self.camera.get_resolution()
+            w, h = cam.get_resolution()
             self.get_logger().info("热成像相机已打开: %dx%d (raw=%s, offset=%.1f)" % (w, h, self.camera_raw, self.fixed_offset))
             return True
 
         except Exception as e:
-            self.get_logger().error("打开热成像相机失败: %s" % (e))
+            if cap is not None:
+                try:
+                    cap.release()
+                except Exception:
+                    pass
+            now = time.monotonic()
+            if now - self._last_error_log_monotonic >= 10.0:
+                self._last_error_log_monotonic = now
+                self.get_logger().error("打开热成像相机失败: %s" % (e))
             return False
 
     def auto_exposure(self, frame):
@@ -122,21 +144,92 @@ class ThermalCameraNode(Node):
         bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
         return bgr
 
+    def start_capture(self):
+        if self._worker is not None and self._worker.is_alive():
+            return
+        self._stop_event.clear()
+        self._worker = threading.Thread(
+            target=self._capture_loop, name='thermal_capture_worker', daemon=True
+        )
+        self._worker.start()
+
+    def _release_camera(self):
+        with self._camera_lock:
+            cam = self.camera
+            self.camera = None
+        if cam is not None:
+            try:
+                cam.release()
+            except Exception:
+                pass
+
+    def _capture_loop(self):
+        consecutive_errors = 0
+        period = 1.0 / max(1.0, float(self.frame_rate))
+        while not self._stop_event.is_set():
+            with self._camera_lock:
+                cam = self.camera
+            if cam is None:
+                if not self.open_camera():
+                    if self._stop_event.wait(2.0):
+                        break
+                    continue
+                consecutive_errors = 0
+                self._last_error_log_monotonic = 0.0
+                continue
+
+            started = time.monotonic()
+            try:
+                temperature = cam.get_frame()
+                self.auto_exposure(temperature)
+                colored = self.temp_to_color(temperature)
+                if self.upscale > 1:
+                    colored = cv2.resize(
+                        colored, None, fx=self.upscale, fy=self.upscale, interpolation=cv2.INTER_NEAREST
+                    )
+                if self._stop_event.is_set():
+                    break
+                msg = self.bridge.cv2_to_imgmsg(colored, encoding='bgr8')
+                msg.header.stamp = self.get_clock().now().to_msg()
+                msg.header.frame_id = 'thermal_camera'
+                self.pub_color.publish(msg)
+                consecutive_errors = 0
+            except Exception as error:
+                consecutive_errors += 1
+                now = time.monotonic()
+                if now - self._last_error_log_monotonic >= 5.0:
+                    self._last_error_log_monotonic = now
+                    self.get_logger().warning('thermal capture failed: %s' % (error,))
+                if consecutive_errors >= 3:
+                    self._release_camera()
+                    consecutive_errors = 0
+                    if self._stop_event.wait(2.0):
+                        break
+                    continue
+
+            remaining = period - (time.monotonic() - started)
+            if remaining > 0.0 and self._stop_event.wait(remaining):
+                break
+
+    def destroy_node(self):
+        self._stop_event.set()
+        worker = getattr(self, '_worker', None)
+        if worker is not None and worker.is_alive():
+            worker.join(timeout=1.5)
+        self._release_camera()
+        return super().destroy_node()
+
 
 def main():
-    rclpy.init();node=ThermalCameraNode()
+    rclpy.init()
+    node = ThermalCameraNode()
+    node.start_capture()
     try:
-        if not node.open_camera():raise RuntimeError('thermal camera unavailable')
-        def frame():
-            try:
-                temperature=node.camera.get_frame();node.auto_exposure(temperature);colored=node.temp_to_color(temperature)
-                if node.upscale>1:colored=cv2.resize(colored,None,fx=node.upscale,fy=node.upscale,interpolation=cv2.INTER_NEAREST)
-                msg=node.bridge.cv2_to_imgmsg(colored,encoding='bgr8');msg.header.stamp=node.get_clock().now().to_msg();msg.header.frame_id='thermal_camera';node.pub_color.publish(msg)
-            except Exception as error:node.get_logger().warning(str(error))
-        node.create_timer(1.0/float(node.frame_rate),frame);rclpy.spin(node)
-    except KeyboardInterrupt:pass
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        pass
     finally:
-        if node.camera is not None:node.camera.release()
         node.destroy_node()
-        if rclpy.ok():rclpy.shutdown()
+        if rclpy.ok():
+            rclpy.shutdown()
 if __name__=='__main__':main()

@@ -119,7 +119,7 @@ commissioned_scope: selected_groups_operator_confirmed_configuration
 parameter_sources:
   robot_hardware/urdf/private.ros2_control.xacro: fb246ea19e439a00f15b6800b9044ce6cd71027b589e9bf0c1c3822a0b732b40
   robot_canopen_config/config/legacy_joints.yaml: fc3d0adcb33896da2fc3d4bb871267d2d4a120b17d43b4ca06f3981cfc08618d
-  robot_hardware/config/joint_limits.yaml: 60189ec89066ba8c377ef4297cc1f5932cdffe2f885239ae79cbeef89a4da9f6
+  robot_hardware/config/joint_limits.yaml: f2f343729a6f484bba73cfcf18286c8afd0bc68286893ba29a2917bc9c2c0bd0
   robot_hardware/config/controllers.yaml: b4c8d0889f0a9e424bb3093b0c78e9e00b243aa5a81751edc4447cd4c8122501
   robot_safety/config/group_policy_v2.yaml: bac1f1d566f60f8464c3d0d0670ef7612f729a2a2250627bd0bf62094febed78
   reference/ros1/Eyou_Canopen_Master/config/joints.yaml: fc3d0adcb33896da2fc3d4bb871267d2d4a120b17d43b4ca06f3981cfc08618d
@@ -451,8 +451,8 @@ joint_limits:
     effort: 6.0
     velocity: 1.57
   right_gripper_finger_joint:
-    lower: -5.0
-    upper: 141.0
+    lower: -0.05
+    upper: 0.071
     effort: 20.0
     velocity: 0.2
   left_gripper_finger_joint:
@@ -771,4 +771,4 @@ arm_registration:
     robot_canopen_config/config/legacy_joints.yaml: a87e86e4a0589d28c94dd594cc17e3ee1c81a0416ef75b821509f435a7a331b2
     robot_canopen_config/config/legacy_master.yaml: 48add4bc46b404d12c11287f6b086dbcc2c0c80a0e4e71f65fcf29b173615a86
     robot_canopen_config/config/YiyouServo_V1.4.dcfgen.eds: cb4ba5ef63935f01841ff33e5125e984d35df8b76c5c8f75928134af78eb4683
-    robot_hardware/config/joint_limits.yaml: 60189ec89066ba8c377ef4297cc1f5932cdffe2f885239ae79cbeef89a4da9f6
+    robot_hardware/config/joint_limits.yaml: f2f343729a6f484bba73cfcf18286c8afd0bc68286893ba29a2917bc9c2c0bd0

@@ -6,7 +6,7 @@
 #include <mutex>
 #include <set>
 #include <thread>
-#include <yaml-cpp/yaml.h>
+#include <nlohmann/json.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <rclcpp_action/rclcpp_action.hpp>
 #include <moveit/move_group_interface/move_group_interface.h>
@@ -56,15 +56,40 @@ public:
     controllers_ = create_client<controller_manager_msgs::srv::ListControllers>("/controller_manager/list_controllers");
     state_sub_ = create_subscription<std_msgs::msg::String>("/robot_runtime/state", 1,
       [this](std_msgs::msg::String::ConstSharedPtr msg) {
-        std::lock_guard<std::mutex> guard(mutex_);
+        bool arm_running = false;
+        std::string token = "global";
+        bool parsed = false;
         try {
-          const auto state = YAML::Load(msg->data);
-          arm_running_ = (state["groups"] && state["groups"]["arm"] ? state["groups"]["arm"] : state["state"]).as<std::string>() == "Running";
-          token_ = (state["input_epochs"] && state["input_epochs"]["arm"])
-            ? YAML::Dump(state["input_epochs"]["arm"])
-            : (state["operations"] && state["operations"]["arm"] ? YAML::Dump(state["operations"]["arm"]) : "global");
-          state_at_ = Steady::now();
-        } catch (const std::exception &) { arm_running_ = false; }
+          const auto state = nlohmann::json::parse(msg->data);
+          if (state.is_object()) {
+            std::string arm_state;
+            if (state.contains("groups") && state["groups"].is_object() &&
+                state["groups"].contains("arm") && state["groups"]["arm"].is_string()) {
+              arm_state = state["groups"]["arm"].get<std::string>();
+            } else if (state.contains("state") && state["state"].is_string()) {
+              arm_state = state["state"].get<std::string>();
+            }
+            arm_running = (arm_state == "Running");
+            if (state.contains("input_epochs") && state["input_epochs"].is_object() &&
+                state["input_epochs"].contains("arm")) {
+              token = state["input_epochs"]["arm"].dump();
+            } else if (state.contains("operations") && state["operations"].is_object() &&
+                       state["operations"].contains("arm")) {
+              token = state["operations"]["arm"].dump();
+            }
+            parsed = true;
+          }
+        } catch (const std::exception &) {
+          arm_running = false;
+        }
+        std::lock_guard<std::mutex> guard(mutex_);
+        if (!parsed) {
+          arm_running_ = false;
+          return;
+        }
+        arm_running_ = arm_running;
+        token_ = std::move(token);
+        state_at_ = Steady::now();
       });
     joints_sub_ = create_subscription<sensor_msgs::msg::JointState>("/joint_states", 1,
       [this](sensor_msgs::msg::JointState::ConstSharedPtr msg) {

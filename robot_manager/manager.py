@@ -351,7 +351,11 @@ class Manager:
         return health
 
     def monitor(self):
-        while not self.closed.wait(2):
+        while True:
+            with self.lock:
+                interval = 4.0 if self.data['software_state'] == 'ready' else 2.0
+            if self.closed.wait(interval):
+                break
             with self.lock:
                 if self.active() or self.data['software_state'] not in ('ready', 'degraded'):
                     continue
@@ -516,7 +520,7 @@ class Backend:
         # Keep one middleware across the launch tree and short-lived probes.
         # Explicit site overrides remain possible; the released default avoids
         # Fast DDS reply/discovery failures observed during field regression.
-        return ['/bin/bash', '-c', 'export RMW_IMPLEMENTATION="${RMW_IMPLEMENTATION:-rmw_cyclonedds_cpp}"; export CYCLONEDDS_URI="${CYCLONEDDS_URI:-file://$2}"; source "$1" && shift 2 && exec "$@"', 'robot-manager', self.config['setup'], str(Path(__file__).parent/'config/cyclonedds.xml'), *args]
+        return ['/bin/bash', '-c', 'export RMW_IMPLEMENTATION="${RMW_IMPLEMENTATION:-rmw_cyclonedds_cpp}"; if [ -z "${CYCLONEDDS_URI:-}" ]; then export CYCLONEDDS_URI="file://$2"; if [ "$RMW_IMPLEMENTATION" = "rmw_cyclonedds_cpp" ]; then export ROS_LOCALHOST_ONLY=0; fi; fi; source "$1" && shift 2 && exec "$@"', 'robot-manager', self.config['setup'], str(Path(__file__).parent/'config/cyclonedds.xml'), *args]
 
     def run(self, args, timeout):
         # Helpers get their own process group so a timeout also kills descendants.
@@ -686,7 +690,13 @@ class Backend:
 
 class Handler(socketserver.StreamRequestHandler):
     def handle(self):
-        self.connection.settimeout(10)
+        self.connection.settimeout(60)
+        if self.connection.family in (socket.AF_INET, socket.AF_INET6):
+            try:
+                self.connection.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+                self.connection.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+            except OSError:
+                pass
         while True:
             req = None
             try:

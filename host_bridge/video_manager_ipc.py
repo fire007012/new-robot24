@@ -51,13 +51,17 @@ class VideoManagerClient:
         return response
 
     def stream_request(self, camera_id: int, action: str) -> Dict[str, Any]:
-        return self.request({
-            "type": "stream_request",
-            "camera_id": camera_id,
-            "action": action,
-        })
+        return self.request(
+            {
+                "type": "stream_request",
+                "camera_id": camera_id,
+                "action": action,
+            },
+            timeout=max(float(self.timeout), 8.0),
+        )
 
-    def request(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+    def request(self, payload: Dict[str, Any], timeout=None) -> Dict[str, Any]:
+        effective_timeout = self.timeout if timeout is None else float(timeout)
         with self._lock:
             self._seq += 1
             seq = self._seq
@@ -65,10 +69,14 @@ class VideoManagerClient:
         frame["seq"] = int(frame.get("seq", seq) or seq)
         line = json.dumps(frame, ensure_ascii=False, separators=(",", ":")) + "\n"
         try:
-            with socket.create_connection((self.host, self.port), timeout=self.timeout) as sock:
-                sock.settimeout(self.timeout)
+            with socket.create_connection((self.host, self.port), timeout=effective_timeout) as sock:
+                sock.settimeout(effective_timeout)
+                try:
+                    sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+                except OSError:
+                    pass
                 sock.sendall(line.encode("utf-8"))
-                response = _recv_json_line(sock, self.timeout)
+                response = _recv_json_line(sock, effective_timeout)
         except OSError as exc:
             raise VideoManagerClientError(
                 f"cannot reach video manager at {self.host}:{self.port}: {exc}"

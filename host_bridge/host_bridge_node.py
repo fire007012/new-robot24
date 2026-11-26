@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 import argparse
+from collections import deque
 import json
 import os
-import queue
 import time
 import signal
 import socket
@@ -279,6 +279,7 @@ class HostBridgeServer:
         video_poll_sec: float = 1.0,
         joint_runtime_topic: str = "",
         co2_topic: str = "",
+        co2_status_topic: str = "",
         events: Optional[EventSink] = None,
         control_state_dir: Optional[str] = None,
     ) -> None:
@@ -292,8 +293,16 @@ class HostBridgeServer:
         self.video_poll_sec = max(video_poll_sec, 0.1)
         self.joint_runtime_topic = joint_runtime_topic
         self.co2_topic = co2_topic
+        self.co2_status_topic = co2_status_topic
         self.joint_runtime_subscriber = None
         self.co2_subscriber = None
+        self.co2_status_subscriber = None
+        self._joint_runtime_lock = threading.Lock()
+        self._last_joint_runtime_states: Optional[List[Dict[str, Any]]] = None
+        self._last_joint_runtime_sent = 0.0
+        self._co2_status_lock = threading.Lock()
+        self._last_co2_status: Optional[Tuple[bool, Optional[int], str]] = None
+        self._last_co2_status_at = 0.0
         self.core = BridgeCore(
             output,
             watchdog_ms,
@@ -382,24 +391,174 @@ class HostBridgeServer:
             return
         self.events.emit("video", "external video manager detached")
 
-    def start_joint_runtime_forwarder(self):
-        node=getattr(self.core.output, 'node', None)
-        if node is None:return
-        from std_msgs.msg import String
-        def callback(msg):
+    @staticmethod
+    def build_joint_runtime_states(state: Dict[str, Any]) -> List[Dict[str, Any]]:
+        if not isinstance(state, dict):
+            return []
+        diagnostics = state.get("diagnostics")
+        if not isinstance(diagnostics, dict):
+            return []
+        readable = diagnostics.get("readable") is True
+        axes = diagnostics.get("axes")
+        if not isinstance(axes, dict):
+            return []
+        groups = state.get("groups")
+        groups = groups if isinstance(groups, dict) else {}
+        events = diagnostics.get("events")
+        events = events if isinstance(events, list) else []
+
+        faulted_axes = set()
+        faulted_groups = set()
+        faulted_backends = set()
+        global_fault = False
+        for event in events:
+            if not isinstance(event, dict):
+                continue
             try:
-                state=json.loads(msg.data);axes=state.get('diagnostics',{}).get('axes',{})
-                states=[{'joint_name':name,'backend':axis.get('backend',''),'lifecycle_state':state.get('groups',{}).get(axis.get('group'),''),
-                         'online':axis.get('ready',False),'enabled':state.get('groups',{}).get(axis.get('group'))=='Running','fault':not axis.get('ready',False)} for name,axis in axes.items()]
-                self.broadcast({'type':'joint_runtime_states','protocol_version':PROTOCOL_VERSION,'seq':0,'timestamp_ms':now_ms(),'states':states})
-            except ValueError:pass
-        self.joint_runtime_subscriber=node.create_subscription(String,'/robot_runtime/state',callback,1)
+                severity = int(event.get("severity", 0))
+            except (TypeError, ValueError):
+                severity = 0
+            if severity < 2:
+                continue
+            if severity >= 3:
+                global_fault = True
+            ev_axis = event.get("axis") or ""
+            ev_group = event.get("group") or ""
+            ev_backend = event.get("backend") or ""
+            if ev_axis:
+                faulted_axes.add(ev_axis)
+            elif ev_group:
+                faulted_groups.add(ev_group)
+            elif ev_backend:
+                faulted_backends.add(ev_backend)
+
+        states: List[Dict[str, Any]] = []
+        for name, axis in axes.items():
+            if not isinstance(axis, dict):
+                continue
+            group_name = axis.get("group", "")
+            backend = axis.get("backend", "")
+            lifecycle_state = groups.get(group_name, "")
+            is_fault = (
+                global_fault
+                or lifecycle_state == "Fault"
+                or name in faulted_axes
+                or group_name in faulted_groups
+                or backend in faulted_backends
+            )
+            states.append({
+                "joint_name": name,
+                "backend": backend,
+                "lifecycle_state": lifecycle_state,
+                "online": bool(readable and axis.get("ready", False)),
+                "enabled": bool(readable and lifecycle_state == "Running"),
+                "fault": is_fault,
+            })
+        return states
+
+    def _on_runtime_state(self, state: Dict[str, Any]) -> None:
+        if not self.joint_runtime_topic:
+            return
+        states = self.build_joint_runtime_states(state)
+        now = time.monotonic()
+        with self._joint_runtime_lock:
+            changed = states != self._last_joint_runtime_states
+            if not changed and now - self._last_joint_runtime_sent < 1.0:
+                return
+            self._last_joint_runtime_states = states
+            self._last_joint_runtime_sent = now
+        self.broadcast({
+            "type": "joint_runtime_states",
+            "protocol_version": PROTOCOL_VERSION,
+            "seq": 0,
+            "timestamp_ms": now_ms(),
+            "states": states,
+        })
+
+    def start_joint_runtime_forwarder(self) -> None:
+        if not self.joint_runtime_topic:
+            return
+        if (self.joint_runtime_topic == "/robot_runtime/state"
+                and hasattr(self.core.output, "runtime_state_callback")):
+            self.core.output.runtime_state_callback = self._on_runtime_state
+            return
+        node = getattr(self.core.output, "node", None)
+        if node is None:
+            return
+        from std_msgs.msg import String
+        def callback(msg: Any) -> None:
+            try:
+                state = json.loads(msg.data)
+            except ValueError:
+                return
+            if isinstance(state, dict):
+                self._on_runtime_state(state)
+        self.joint_runtime_subscriber = node.create_subscription(
+            String, self.joint_runtime_topic, callback, 1
+        )
+
+    def _on_co2_status(self, payload: Dict[str, Any]) -> None:
+        if not isinstance(payload, dict):
+            return
+        online = bool(payload.get("online", False))
+        raw_ppm = payload.get("ppm")
+        ppm: Optional[int] = None
+        if raw_ppm is not None:
+            try:
+                ppm = int(raw_ppm)
+            except (TypeError, ValueError):
+                ppm = None
+        error = str(payload.get("error") or "")
+        raw_ts = payload.get("timestamp_ms")
+        timestamp_ms: Optional[int] = None
+        if raw_ts is not None:
+            try:
+                timestamp_ms = int(raw_ts)
+            except (TypeError, ValueError):
+                timestamp_ms = None
+        key = (online, ppm, error)
+        now = time.monotonic()
+        with self._co2_status_lock:
+            if self._last_co2_status == key and (now - self._last_co2_status_at) < 5.0:
+                return
+            self._last_co2_status = key
+            self._last_co2_status_at = now
+        self.broadcast(
+            self.core.make_co2_status(
+                online=online,
+                ppm=ppm,
+                error=error,
+                timestamp_ms=timestamp_ms,
+            )
+        )
 
     def start_co2_forwarder(self):
-        node=getattr(self.core.output,'node',None)
-        if node is None or not self.co2_topic:return
-        from std_msgs.msg import Int32
-        self.co2_subscriber=node.create_subscription(Int32,self.co2_topic,lambda msg:self.broadcast(self.core.make_co2_data(int(msg.data))),1)
+        node = getattr(self.core.output, 'node', None)
+        if node is None:
+            return
+        if self.co2_topic:
+            from std_msgs.msg import Int32
+            self.co2_subscriber = node.create_subscription(
+                Int32,
+                self.co2_topic,
+                lambda msg: self.broadcast(self.core.make_co2_data(int(msg.data))),
+                1,
+            )
+        if self.co2_status_topic:
+            from std_msgs.msg import String
+            def on_status_msg(msg: Any) -> None:
+                try:
+                    data = json.loads(msg.data)
+                except ValueError:
+                    return
+                if isinstance(data, dict):
+                    self._on_co2_status(data)
+            self.co2_status_subscriber = node.create_subscription(
+                String,
+                self.co2_status_topic,
+                on_status_msg,
+                1,
+            )
 
     def _video_monitor_loop(self) -> None:
         if not self.video_gateway:
@@ -433,21 +592,50 @@ class HostBridgeServer:
 
 
 class BridgeClient:
+    CONTROL_QUEUE_MAX_ITEMS = 128
+    CONTROL_QUEUE_MAX_BYTES = 512 * 1024
+    IDLE_RX_TIMEOUT_SEC = 30.0
+    DROPPABLE_TELEMETRY_TYPES = frozenset({"joint_runtime_states", "co2_data", "co2_status", "camera_info"})
+
     def __init__(self, server: HostBridgeServer, conn: socket.socket, addr: Tuple[str, int]) -> None:
         self.server = server
         self.conn = conn
         self.addr = addr
-        self.outbox = queue.Queue(32)
+        self._send_lock = threading.Lock()
+        self._send_cv = threading.Condition(self._send_lock)
+        self._close_lock = threading.Lock()
+        self._control_queue: deque = deque()
+        self._control_bytes = 0
+        self._telemetry_latest: Dict[Any, Tuple[float, bytes]] = {}
         self.connected_at = time.monotonic()
+        self.last_rx_at = self.connected_at
         self.closed = False
+        self._negotiated_v2 = False
         self.writer = None
 
     def run(self) -> None:
-        print(f"[bridge] client connected: {self.addr}", flush=True)
-        self.server.events.emit("tcp", "client connected", data={"addr": f"{self.addr[0]}:{self.addr[1]}"})
+        is_loopback = bool(self.addr) and self.addr[0] in ("127.0.0.1", "::1")
+        if not is_loopback:
+            print(f"[bridge] client connected: {self.addr}", flush=True)
+        self.server.events.emit(
+            "tcp",
+            "client connected",
+            level="debug" if is_loopback else "info",
+            data={"addr": f"{self.addr[0]}:{self.addr[1]}"},
+        )
         self.conn.settimeout(1.0)
         if self.conn.family in (socket.AF_INET, socket.AF_INET6):
             self.conn.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+            try:
+                self.conn.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+                if hasattr(socket, "TCP_KEEPIDLE"):
+                    self.conn.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 10)
+                if hasattr(socket, "TCP_KEEPINTVL"):
+                    self.conn.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, 3)
+                if hasattr(socket, "TCP_KEEPCNT"):
+                    self.conn.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, 3)
+            except OSError:
+                pass
         try:
             self.writer = threading.Thread(target=self._write_loop, daemon=True)
             self.writer.start()
@@ -460,16 +648,34 @@ class BridgeClient:
             if self.writer:
                 self.writer.join(1.2)
             self.server.remove_client(self)
-            self.server.events.emit("tcp", "client disconnected", data={"addr": f"{self.addr[0]}:{self.addr[1]}"})
-            print(f"[bridge] client disconnected: {self.addr}", flush=True)
+            probe_only = is_loopback and not self._negotiated_v2
+            self.server.events.emit(
+                "tcp",
+                "client disconnected",
+                level="debug" if probe_only else "info",
+                data={"addr": f"{self.addr[0]}:{self.addr[1]}"},
+            )
+            if not probe_only:
+                print(f"[bridge] client disconnected: {self.addr}", flush=True)
 
-    def close(self):
-        self.closed = True
-        try:
-            self.conn.shutdown(socket.SHUT_RDWR)
-        except OSError:
-            pass
-        self.conn.close()
+    def close(self) -> None:
+        with self._close_lock:
+            if self.closed:
+                return
+            self.closed = True
+            with self._send_cv:
+                self._control_queue.clear()
+                self._control_bytes = 0
+                self._telemetry_latest.clear()
+                self._send_cv.notify_all()
+            try:
+                self.conn.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+            try:
+                self.conn.close()
+            except OSError:
+                pass
 
     def send_json(self, payload: Dict[str, Any]) -> None:
         if self.closed:
@@ -478,24 +684,56 @@ class BridgeClient:
         if len(data) > MAX_FRAME_BYTES:
             self.close()
             return
-        try:
-            self.outbox.put_nowait((time.monotonic(), data))
-        except queue.Full:
+        now = time.monotonic()
+        msg_type = payload.get("type")
+        if msg_type in self.DROPPABLE_TELEMETRY_TYPES:
+            key = ("camera_info", payload.get("camera_id")) if msg_type == "camera_info" else msg_type
+            with self._send_cv:
+                if self.closed:
+                    return
+                self._telemetry_latest[key] = (now, data)
+                self._send_cv.notify()
+            return
+        close_now = False
+        with self._send_cv:
+            if self.closed:
+                return
+            if (len(self._control_queue) >= self.CONTROL_QUEUE_MAX_ITEMS
+                    or self._control_bytes + len(data) > self.CONTROL_QUEUE_MAX_BYTES):
+                close_now = True
+            else:
+                self._control_queue.append((now, data))
+                self._control_bytes += len(data)
+                self._send_cv.notify()
+        if close_now:
             self.close()
 
-    def _write_loop(self):
+    def _write_loop(self) -> None:
         while not self.closed and not self.server.stop_event.is_set():
-            try:
-                queued, data = self.outbox.get(timeout=.1)
-            except queue.Empty:
-                continue
-            try:
-                if time.monotonic()-queued > 1:
+            is_control = False
+            with self._send_cv:
+                while (not self.closed and not self.server.stop_event.is_set()
+                       and not self._control_queue and not self._telemetry_latest):
+                    self._send_cv.wait(timeout=0.1)
+                if self.closed or self.server.stop_event.is_set():
+                    break
+                if self._control_queue:
+                    queued, data = self._control_queue.popleft()
+                    self._control_bytes = max(0, self._control_bytes - len(data))
+                    is_control = True
+                else:
+                    key = next(iter(self._telemetry_latest))
+                    queued, data = self._telemetry_latest.pop(key)
+            if time.monotonic() - queued > 1.0:
+                if is_control:
                     self.close()
                     break
+                continue
+            try:
                 self.conn.sendall(data)
             except OSError:
                 self.close()
+                break
 
     def _recv_loop(self) -> None:
         buffer = b""
@@ -503,6 +741,10 @@ class BridgeClient:
             try:
                 chunk = self.conn.recv(4096)
             except socket.timeout:
+                if time.monotonic() - self.last_rx_at > self.IDLE_RX_TIMEOUT_SEC:
+                    self.server.events.emit("tcp", "closing idle client", level="warning",
+                                            data={"addr": f"{self.addr[0]}:{self.addr[1]}"})
+                    break
                 continue
             except OSError:
                 break
@@ -510,6 +752,7 @@ class BridgeClient:
             if not chunk:
                 break
 
+            self.last_rx_at = time.monotonic()
             buffer += chunk
             if len(buffer) > MAX_FRAME_BYTES and b"\n" not in buffer:
                 self.server.events.emit("protocol", "frame exceeds max length", level="error")
@@ -535,28 +778,58 @@ class BridgeClient:
                     continue
 
                 kind = msg.get('type')
-                if kind == 'control_hello' and time.monotonic()-self.connected_at > 3:
-                    self.send_json(dict(type='control_result', protocol_version=2, ok=False, error=dict(code='NEGOTIATION_TIMEOUT')))
+                if msg.get('protocol_version', 1) == 2 or kind == 'emergency_stop':
+                    self._negotiated_v2 = True
+                if kind == 'emergency_stop':
+                    try:
+                        self.send_json(self.server.control.handle(self, msg))
+                    except Exception as exc:
+                        self.server.events.emit("protocol", "emergency_stop error", level="error", data={"error": str(exc)})
+                        self.send_json(dict(
+                            type='control_result', protocol_version=2,
+                            request_id=msg.get('request_id'), seq=msg.get('seq'),
+                            ok=False, error=dict(code='INTERNAL'),
+                        ))
+                    continue
+                if kind == 'control_hello' and time.monotonic() - self.connected_at > 3:
+                    self.send_json(dict(
+                        type='control_result', protocol_version=2,
+                        request_id=msg.get('request_id'), seq=msg.get('seq'),
+                        ok=False, error=dict(code='NEGOTIATION_TIMEOUT'),
+                    ))
                     continue
                 if (msg.get('protocol_version', 1) == 2 and kind != 'control_hello'
                         and self not in self.server.control.sessions
-                        and time.monotonic()-self.connected_at > 3):
-                    self.send_json(dict(type='control_result', protocol_version=2,
-                                        request_id=msg.get('request_id'), seq=msg.get('seq'),
-                                        ok=False, error=dict(code='NEGOTIATION_TIMEOUT')))
+                        and time.monotonic() - self.connected_at > 3):
+                    self.send_json(dict(
+                        type='control_result', protocol_version=2,
+                        request_id=msg.get('request_id'), seq=msg.get('seq'),
+                        ok=False, error=dict(code='NEGOTIATION_TIMEOUT'),
+                    ))
                     continue
                 # Legacy probes remain independent from the versioned control admission.
-                if msg.get('protocol_version', 1) == 1 and kind in {'heartbeat','sync_request','system_snapshot_request','camera_list_request'}:
+                if msg.get('protocol_version', 1) == 1 and kind in {'heartbeat', 'sync_request', 'system_snapshot_request', 'camera_list_request'}:
                     try:
                         for response in self.server.core.handle_message(msg):
                             self.send_json(response)
                     except (ValueError, TypeError):
-                        self.send_json(self.server.core.make_protocol_error({}, 2100, 'invalid fields'))
+                        self.send_json(self.server.core.make_protocol_error(msg, 2100, 'invalid fields'))
                     continue
                 try:
                     self.send_json(self.server.control.handle(self, msg))
                 except (ValueError, TypeError, KeyError):
-                    self.send_json(dict(type='control_result', protocol_version=2, ok=False, error=dict(code='BAD_REQUEST')))
+                    self.send_json(dict(
+                        type='control_result', protocol_version=2,
+                        request_id=msg.get('request_id'), seq=msg.get('seq'),
+                        ok=False, error=dict(code='BAD_REQUEST'),
+                    ))
+                except Exception as exc:
+                    self.server.events.emit("protocol", "control handle error", level="error", data={"error": str(exc)})
+                    self.send_json(dict(
+                        type='control_result', protocol_version=2,
+                        request_id=msg.get('request_id'), seq=msg.get('seq'),
+                        ok=False, error=dict(code='INTERNAL'),
+                    ))
 
 
 def parse_camera(value: str) -> Dict[str, Any]:
@@ -613,12 +886,23 @@ def load_cameras_from_yaml(path: str, publish_host_override: str = "") -> List[D
 
 
 def detect_publish_host() -> str:
+    for probe in ("8.8.8.8", "192.168.1.1", "192.168.0.1", "10.0.0.1", "172.16.0.1"):
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+                sock.connect((probe, 80))
+                ip = sock.getsockname()[0]
+                if ip and not ip.startswith("127.") and ip != "0.0.0.0":
+                    return ip
+        except OSError:
+            continue
     try:
-        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
-            sock.connect(("8.8.8.8", 80))
-            return sock.getsockname()[0]
+        for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
+            ip = info[4][0]
+            if ip and not ip.startswith("127.") and ip != "0.0.0.0":
+                return ip
     except OSError:
-        return "127.0.0.1"
+        pass
+    return "127.0.0.1"
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -757,7 +1041,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--video-poll-sec", type=float, default=1.0)
     parser.add_argument(
         "--joint-runtime-topic",
-        default="/hybrid_motor_hw_node/joint_runtime_states",
+        default="/robot_runtime/state",
         help="ROS topic to forward as TCP joint_runtime_states when --ros is used; empty disables it",
     )
     parser.add_argument(
@@ -765,14 +1049,25 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default="/co2_ppm",
         help="ROS std_msgs/Int32 topic to forward as TCP co2_data; empty disables it",
     )
+    parser.add_argument(
+        "--co2-status-topic",
+        default="/co2_status",
+        help="ROS std_msgs/String JSON topic to forward as TCP co2_status; empty disables it",
+    )
     return parser
 
 
 def parse_node_args() -> Tuple[argparse.ArgumentParser, argparse.Namespace]:
     parser = build_arg_parser()
-    from rclpy.utilities import remove_ros_args
     parser.add_argument("--robot-id", default="loopback_robot")
-    args = parser.parse_args(remove_ros_args(args=sys.argv)[1:])
+    try:
+        from rclpy.utilities import remove_ros_args
+        raw_args = remove_ros_args(args=sys.argv)[1:]
+    except ImportError:
+        raw_args = list(sys.argv[1:])
+        if "--ros-args" in raw_args:
+            raw_args = raw_args[:raw_args.index("--ros-args")]
+    args = parser.parse_args(raw_args)
     return parser, args
 
 
@@ -814,6 +1109,13 @@ def main() -> None:
         "co2_topic",
         bridge_control_config,
         "/co2_ppm",
+    )
+    co2_status_topic = resolve_str_config(
+        args,
+        parser,
+        "co2_status_topic",
+        bridge_control_config,
+        "/co2_status",
     )
     linear_speed = resolve_float_config(args, parser, "linear_speed", bridge_control_config, 0.8)
     angular_speed = resolve_float_config(args, parser, "angular_speed", bridge_control_config, 1.5)
@@ -948,6 +1250,7 @@ def main() -> None:
         video_poll_sec=args.video_poll_sec,
         joint_runtime_topic=args.joint_runtime_topic if not args.dry_run else "",
         co2_topic=co2_topic if not args.dry_run else "",
+        co2_status_topic=co2_status_topic if not args.dry_run else "",
         events=events,
         control_state_dir=args.control_state_dir or f"/tmp/robot24-control-{args.port}",
     )

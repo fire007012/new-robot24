@@ -54,6 +54,8 @@ class ControlV2:
         self.global_safety = queue.Queue(1)
         self.safety_status = dict(state='idle',physical_stop_confirmed=False)
         self.global_stop_status = dict(state='idle',physical_stop_confirmed=False)
+        self._inhibited_zero_count = 0
+        self._last_inhibited_zero_at = 0.0
         self.closed = threading.Event()
         self.path = None
         self.journal_lock = None
@@ -489,6 +491,28 @@ class ControlV2:
             self._queue_halt()
             self._save_latch(True)
 
+    def _prune_operations_locked(self, now_wall: float) -> None:
+        if len(self.operations) < self.MAX_RECORDS:
+            return
+        terminal = sorted(
+            (
+                (float(op.get('created_at', 0.0)), oid, op)
+                for oid, op in self.operations.items()
+                if op.get('state') in ('succeeded', 'failed')
+            ),
+            key=lambda item: item[0],
+        )
+        expired_first = [item for item in terminal if now_wall - item[0] >= self.CACHE_SEC]
+        remaining = [item for item in terminal if now_wall - item[0] < self.CACHE_SEC]
+        for _, oid, op in expired_first + remaining:
+            if len(self.operations) < self.MAX_RECORDS:
+                break
+            self.operations.pop(oid, None)
+            self.durable.pop(oid, None)
+            rid = op.get('request_id')
+            if rid and self.requests.get(rid, [None, None])[1] == oid:
+                self.requests.pop(rid, None)
+
     def _submit(self, connection, m):
         with self.lock:
             self._session(connection, m)
@@ -546,10 +570,12 @@ class ControlV2:
                     raise Rejected('NOT_AUTHORIZED')
                 if self.reserved_waiting >= 16:
                     raise Rejected('QUEUE_FULL')
-                # A bounded journal rejects new work when 24h retention cannot be honored.
+                # A bounded journal retains unresolved work while evicting finished old entries.
                 now = time.time()
-                # Never evict idempotency under wall-clock jumps; offline archive is explicit.
-                if len(self.operations) >= self.MAX_RECORDS:
+                self._prune_operations_locked(now)
+                safety_cmd = m.get('command') in ('halt', 'disable', 'shutdown', 'reset_global_stop')
+                limit = self.MAX_RECORDS + (16 if safety_cmd else 0)
+                if len(self.operations) >= limit:
                     raise Rejected('CACHE_FULL')
                 oid = str(uuid.uuid4())
                 op = dict(operation_id=oid, request_id=rid, robot_id=self.core.robot_id, command=m.get('command'), state='accepted', error=None, created_at=now,
@@ -802,6 +828,13 @@ class ControlV2:
                         self.core.state.last_valid_input_ms = int(now*1000)
                         s['last_input'] = now
                         self.counts['outputs'] += 1
+                        self._inhibited_zero_count = 0
+                        self._last_inhibited_zero_at = 0.0
             # Repeated zero publication; ROS guard and hardware remain independent.
             if self.owner is None or not self.sessions[self.owner]['authorized'] or self.core.state.emergency_active:
-                self.core.publish_zero('control_v2_inhibited')
+                if self._inhibited_zero_count < 3 or now - self._last_inhibited_zero_at >= 0.1:
+                    self.core.publish_zero('control_v2_inhibited')
+                    self._inhibited_zero_count += 1
+                    self._last_inhibited_zero_at = now
+            else:
+                self._inhibited_zero_count = 0

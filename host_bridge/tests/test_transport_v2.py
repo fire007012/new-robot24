@@ -133,4 +133,54 @@ class Tests(unittest.TestCase):
         finally:
             stream.close()
 
+    def test_emergency_stop_bypasses_negotiation_timeout(self):
+        client, sock, f = self.connect()
+        f.readline(); f.readline()
+        client.connected_at = time.monotonic() - 10.0
+        sock.sendall(b'{"type":"emergency_stop","protocol_version":2,"seq":1,"request_id":"emg-late"}\n')
+        res = json.loads(f.readline())
+        self.assertTrue(res['ok'], res)
+        self.assertEqual(res['request_id'], 'emg-late')
+        self.assertEqual(res['seq'], 1)
+        self.assertTrue(res['result']['emergency_active'])
+        f.close()
+
+    def test_negotiation_timeout_and_bad_request_echo_ids(self):
+        client, sock, f = self.connect()
+        f.readline(); f.readline()
+        client.connected_at = time.monotonic() - 10.0
+        sock.sendall(b'{"type":"control_hello","protocol_version":2,"seq":7,"request_id":"hello-late"}\n')
+        timeout_res = json.loads(f.readline())
+        self.assertFalse(timeout_res['ok'])
+        self.assertEqual(timeout_res['error']['code'], 'NEGOTIATION_TIMEOUT')
+        self.assertEqual(timeout_res['request_id'], 'hello-late')
+        self.assertEqual(timeout_res['seq'], 7)
+
+        client2, sock2, f2 = self.connect()
+        f2.readline(); f2.readline()
+        sock2.sendall(b'{"type":"control_hello","protocol_version":2,"seq":"bad-seq","request_id":"bad-req","robot_id":"loopback_robot","role":"monitor","capabilities":123}\n')
+        # capabilities=123 triggers CAPABILITIES or BAD_REQUEST depending on type check; test seq=non-int via invalid role/params:
+        bad_res = json.loads(f2.readline())
+        self.assertFalse(bad_res['ok'])
+        self.assertEqual(bad_res['request_id'], 'bad-req')
+        self.assertEqual(bad_res['seq'], 'bad-seq')
+        f.close(); f2.close()
+
+    def test_droppable_telemetry_coalesces_without_disconnecting_or_starving_control(self):
+        client, sock, f = self.connect()
+        f.readline(); f.readline()
+        for seq in range(1, 80):
+            client.send_json({'type': 'joint_runtime_states', 'seq': seq, 'states': [{'joint_name': 'a'}]})
+        sock.sendall(b'{"type":"heartbeat","protocol_version":1,"seq":99}\n')
+        seen = []
+        deadline = time.monotonic() + 2.0
+        while time.monotonic() < deadline:
+            msg = json.loads(f.readline())
+            seen.append(msg)
+            if msg.get('type') == 'heartbeat_ack':
+                break
+        self.assertFalse(client.closed)
+        self.assertTrue(any(m.get('type') == 'heartbeat_ack' and m.get('seq') == 99 for m in seen))
+        f.close()
+
 if __name__=='__main__':unittest.main(verbosity=2)

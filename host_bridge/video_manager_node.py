@@ -52,7 +52,9 @@ class VideoManagerNode:
         self.restart_backoff_sec = restart_backoff_sec
         self.stop_event = threading.Event()
         self._manager_lock = threading.RLock()
+        self._snapshot_lock = threading.Lock()
         self.manager = self._load_manager(self.config_path)
+        self._cached_cameras = [dict(cam) for cam in self.manager.camera_infos()]
 
     def _load_manager(self, config_path: str) -> VideoManager:
         config = load_video_config(config_path)
@@ -102,10 +104,21 @@ class VideoManagerNode:
         started = self.manager.start_enabled()
         print(f"[video-manager] autostarted {len(started)} stream(s)", flush=True)
 
+    def _update_snapshot(self, cameras):
+        snapshot = [dict(cam) for cam in cameras]
+        with self._snapshot_lock:
+            self._cached_cameras = snapshot
+        return [dict(cam) for cam in snapshot]
+
+    def _read_snapshot(self):
+        with self._snapshot_lock:
+            return [dict(cam) for cam in self._cached_cameras]
+
     def _monitor_loop(self) -> None:
         while not self.stop_event.wait(self.poll_sec):
             with self._manager_lock:
                 changed = self.manager.refresh(auto_restart=True)
+                self._update_snapshot(self.manager.camera_infos())
             for camera in changed:
                 print(
                     "[video-manager] camera state changed "
@@ -154,9 +167,14 @@ class VideoManagerNode:
             if msg_type == "ping":
                 return _ok_response(seq, "pong")
             if msg_type == "list_cameras":
-                with self._manager_lock:
-                    self.manager.refresh()
-                    cameras = self.manager.camera_infos()
+                if self._manager_lock.acquire(blocking=False):
+                    try:
+                        self.manager.refresh()
+                        cameras = self._update_snapshot(self.manager.camera_infos())
+                    finally:
+                        self._manager_lock.release()
+                else:
+                    cameras = self._read_snapshot()
                 response = _ok_response(seq, "ok")
                 response["type"] = "camera_list"
                 response["cameras"] = cameras
@@ -169,7 +187,7 @@ class VideoManagerNode:
                 return self._handle_reload_config(request)
             if msg_type == "stop_all":
                 with self._manager_lock:
-                    cameras = self.manager.stop_all()
+                    cameras = self._update_snapshot(self.manager.stop_all())
                 response = _ok_response(seq, "all streams stopped")
                 response["type"] = "stop_all_response"
                 response["cameras"] = cameras
@@ -208,6 +226,7 @@ class VideoManagerNode:
                 camera = self.manager.stop(camera_id)
             elif action == "restart":
                 camera = self.manager.restart(camera_id)
+            self._update_snapshot(self.manager.camera_infos())
         ok = action == "stop" or bool(camera.get("online", False))
         message = f"camera stream {action} accepted" if ok else str(camera.get("last_error", "stream failed"))
         response = _ok_response(seq, message) if ok else _error_response(request, 2501, message)
@@ -254,7 +273,7 @@ class VideoManagerNode:
             self.manager = new_manager
             if self.autostart:
                 self.manager.start_enabled()
-            cameras = self.manager.camera_infos()
+            cameras = self._update_snapshot(self.manager.camera_infos())
         response = _ok_response(seq, "video config reloaded")
         response["type"] = "reload_config_response"
         response["cameras"] = cameras

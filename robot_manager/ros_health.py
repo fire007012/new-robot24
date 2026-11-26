@@ -204,23 +204,25 @@ def probe():
         try:
             with socket.create_connection(('127.0.0.1',int(sys.argv[2])),timeout=.6) as conn:
                 conn.settimeout(.6)
-                f = conn.makefile('rb')
-                hello = json.loads(f.readline(65536))
-                caps = json.loads(f.readline(65536))
-                conn.sendall(b'{"type":"heartbeat","protocol_version":1,"seq":987654}\n')
-                end = time.monotonic()+1
-                while time.monotonic()<end:
-                    msg = json.loads(f.readline(65536))
-                    if msg.get('type')=='heartbeat_ack' and msg.get('seq')==987654:
-                        bridge = (hello.get('type')=='hello' and
-                                  {'sync_request','readonly_monitor','monotonic_watchdog','connection_control_owner','control_v2','legacy_readonly'} <= set(caps.get('supports',[])))
-                        conn.sendall(b'{"type":"sync_request","protocol_version":1,"seq":987655}\n')
-                        while time.monotonic()<end:
-                            snapshot = json.loads(f.readline(65536))
-                            if snapshot.get('type')=='system_snapshot' and snapshot.get('seq')==987655:
-                                bridge_state = snapshot
-                                break
-                        break
+                try: conn.setsockopt(socket.IPPROTO_TCP,socket.TCP_NODELAY,1)
+                except OSError: pass
+                with conn.makefile('rb') as f:
+                    hello = json.loads(f.readline(65536))
+                    caps = json.loads(f.readline(65536))
+                    conn.sendall(b'{"type":"heartbeat","protocol_version":1,"seq":987654}\n')
+                    end = time.monotonic()+1
+                    while time.monotonic()<end:
+                        msg = json.loads(f.readline(65536))
+                        if msg.get('type')=='heartbeat_ack' and msg.get('seq')==987654:
+                            bridge = (hello.get('type')=='hello' and
+                                      {'sync_request','readonly_monitor','monotonic_watchdog','connection_control_owner','control_v2','legacy_readonly'} <= set(caps.get('supports',[])))
+                            conn.sendall(b'{"type":"sync_request","protocol_version":1,"seq":987655}\n')
+                            while time.monotonic()<end:
+                                snapshot = json.loads(f.readline(65536))
+                                if snapshot.get('type')=='system_snapshot' and snapshot.get('seq')==987655:
+                                    bridge_state = snapshot
+                                    break
+                            break
         except (OSError, ValueError): pass
         if bridge and bridge_state is not None:
             break
@@ -231,8 +233,12 @@ def probe():
         video_reason = 'video_manager_unavailable'
         try:
             with socket.create_connection(('127.0.0.1',18081), timeout=.6) as conn:
+                conn.settimeout(.6)
+                try: conn.setsockopt(socket.IPPROTO_TCP,socket.TCP_NODELAY,1)
+                except OSError: pass
                 conn.sendall(b'{"type":"list_cameras","seq":1}\n')
-                msg = json.loads(conn.makefile('rb').readline(65536))
+                with conn.makefile('rb') as vf:
+                    msg = json.loads(vf.readline(65536))
                 cameras = msg.get('cameras',[])
                 if msg.get('ok',False):
                     video,video_reason = video_frames(cameras)
